@@ -254,6 +254,7 @@ function buildVoyage(app) {
   div.id = 'voyage-screen';
   div.innerHTML = `
     <canvas id="map-strip" width="820" height="75"></canvas>
+    <canvas id="sail-canvas" width="820" height="80"></canvas>
     <div id="voyage-main">
       <div id="log-panel"></div>
       <div id="status-panel"></div>
@@ -276,6 +277,131 @@ function buildVoyage(app) {
   div.querySelector('#btn-speed').addEventListener('click',   () => doChangeSpeed());
   div.querySelector('#btn-rations').addEventListener('click', () => doChangeRations());
   div.querySelector('#btn-status').addEventListener('click',  () => doFullStatus());
+
+  return startSailAnim(div.querySelector('#sail-canvas'));
+}
+
+function startSailAnim(canvas) {
+  const ctx = canvas.getContext('2d');
+  const W = 820, H = 80;
+  let t = 0, rafId;
+
+  const rng = seededRng(42);
+  const stars = Array.from({length: 55}, () => ({
+    x: rng() * W, y: rng() * H * 0.48,
+    r: rng() * 1.1 + 0.3, twinkle: rng() * Math.PI * 2,
+  }));
+
+  function draw() {
+    t++;
+    ctx.clearRect(0, 0, W, H);
+
+    // Sky
+    const sky = ctx.createLinearGradient(0, 0, 0, H * 0.62);
+    sky.addColorStop(0, '#010818'); sky.addColorStop(1, '#051540');
+    ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H * 0.62);
+
+    // Stars
+    stars.forEach(s => {
+      const a = 0.45 + 0.45 * Math.sin(s.twinkle + t * 0.02);
+      ctx.fillStyle = `rgba(255,255,235,${a.toFixed(2)})`;
+      ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2); ctx.fill();
+    });
+
+    // Moon
+    ctx.fillStyle = 'rgba(255,253,215,0.92)';
+    ctx.beginPath(); ctx.arc(772, 13, 9, 0, Math.PI * 2); ctx.fill();
+    // Moonlight shimmer on sea
+    ctx.fillStyle = 'rgba(255,250,180,0.06)';
+    ctx.fillRect(730, H * 0.58, 84, H * 0.42);
+
+    // Ocean
+    const seaY = H * 0.6;
+    const sea = ctx.createLinearGradient(0, seaY, 0, H);
+    sea.addColorStop(0, '#061c42'); sea.addColorStop(1, '#030e22');
+    ctx.fillStyle = sea; ctx.fillRect(0, seaY, W, H - seaY);
+
+    // Waves
+    for (let i = 0; i < 5; i++) {
+      const wy = seaY + 3 + i * 4;
+      const speed = 0.014 + i * 0.004;
+      ctx.strokeStyle = `rgba(100,150,220,${0.22 - i * 0.03})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let x = 0; x <= W; x += 5) {
+        const y = wy + Math.sin(x * 0.018 + t * speed) * (1.8 - i * 0.2);
+        if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+
+    // Ship — bobs gently on waves
+    const bob = Math.sin(t * 0.022) * 1.4;
+    drawTitanic(ctx, 300, seaY + bob);
+
+    rafId = requestAnimationFrame(draw);
+  }
+
+  draw();
+  return () => cancelAnimationFrame(rafId);
+}
+
+function drawTitanic(ctx, cx, waterY) {
+  // Hull
+  ctx.fillStyle = '#18182c';
+  ctx.beginPath();
+  ctx.moveTo(cx - 118, waterY - 1);
+  ctx.lineTo(cx - 106, waterY + 9);
+  ctx.lineTo(cx + 104, waterY + 9);
+  ctx.lineTo(cx + 118, waterY - 1);
+  ctx.closePath(); ctx.fill();
+
+  // White waterline stripe
+  ctx.fillStyle = '#c0bba8';
+  ctx.fillRect(cx - 116, waterY - 3, 234, 2);
+
+  // Deck
+  ctx.fillStyle = '#22223c';
+  ctx.fillRect(cx - 100, waterY - 20, 200, 18);
+
+  // Superstructure
+  ctx.fillStyle = '#2c2c4c';
+  ctx.fillRect(cx - 72, waterY - 33, 144, 15);
+  ctx.fillStyle = '#323258';
+  ctx.fillRect(cx - 54, waterY - 42, 100, 11);
+
+  // Funnels (4) — offset toward stern (left side)
+  const funnelXs = [cx - 32, cx - 10, cx + 12, cx + 34];
+  funnelXs.forEach((fx, i) => {
+    // Black body with red band
+    ctx.fillStyle = '#111118';
+    ctx.fillRect(fx - 1, waterY - 57, 11, 22);
+    ctx.fillStyle = '#8a1c1c';
+    ctx.fillRect(fx - 1, waterY - 43, 11, 5);
+    ctx.fillStyle = '#1a1a28';
+    ctx.fillRect(fx, waterY - 57, 9, 2); // top cap
+
+    // Smoke puffs from first 3 funnels
+    if (i < 3) {
+      for (let p = 0; p < 5; p++) {
+        const pf = ((t * 0.012) + p * 0.28 + i * 0.6) % 1;
+        const px = fx + 5 + Math.sin(pf * 5) * 2.5;
+        const py = waterY - 57 - pf * 22;
+        const pr = 1.5 + pf * 5;
+        ctx.fillStyle = `rgba(72,72,85,${(0.35 * (1 - pf)).toFixed(2)})`;
+        ctx.beginPath(); ctx.arc(px, py, pr, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+  });
+
+  // Foremast and mainmast
+  ctx.strokeStyle = '#38385a'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(cx - 84, waterY - 33); ctx.lineTo(cx - 82, waterY - 70); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx + 68, waterY - 30); ctx.lineTo(cx + 66, waterY - 62); ctx.stroke();
+  // Cross-spars
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(cx - 94, waterY - 52); ctx.lineTo(cx - 72, waterY - 52); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx + 58, waterY - 46); ctx.lineTo(cx + 76, waterY - 46); ctx.stroke();
 }
 
 function setBusy(b) {
