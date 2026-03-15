@@ -104,9 +104,9 @@ const STOPS = [
 ];
 
 const DIFFS = [
-  {id:'first',  name:'First Class',  short:'First',     icon:'👑',  mult:1.0, gold:200, fuel:100, food:50, hull:100, desc:'Comfortable luxury travel. Plenty of supplies and forgiving weather. Perfect for beginners.'},
-  {id:'second', name:'Second Class', short:'Second',    icon:'✈️',  mult:1.5, gold:120, fuel:80,  food:35, hull:100, desc:'A balanced voyage. Moderate risk, moderate reward.'},
-  {id:'third',  name:'Third Class',  short:'Steerage',  icon:'⚙️',  mult:2.5, gold:80,  fuel:60,  food:25, hull:100, desc:'Scarce supplies and rough weather. The hardest voyage — but glorious if you make it!'},
+  {id:'first',  name:'First Class',  short:'First',     icon:'👑',  mult:1.0, gold:155, fuel:90, food:50, hull:100, desc:'Comfortable luxury travel. Generous supplies and forgiving weather. Perfect for beginners.'},
+  {id:'second', name:'Second Class', short:'Second',    icon:'✈️',  mult:1.5, gold:105, fuel:76, food:36, hull:100, desc:'A balanced voyage. Moderate supplies, moderate risk. Good for experienced captains.'},
+  {id:'third',  name:'Third Class',  short:'Steerage',  icon:'⚙️',  mult:2.5, gold:95,  fuel:66, food:28, hull:100, desc:'Tight supplies and rough weather. Every gold coin counts. The hardest voyage!'},
 ];
 
 const CREW = [
@@ -738,8 +738,8 @@ function flyDay(){
   G.msg='';
   const th = G.throttle||'cruising';
   const throttleMult = th==='economy'?0.70:th==='full_throttle'?1.40:1.0;
-  const fuelBurn = (G.diff.id==='third'?8:G.diff.id==='second'?6:4.5)*throttleMult;
-  const foodEat  = G.diff.id==='third'?3:G.diff.id==='second'?2.5:2;
+  const fuelBurn = (G.diff.id==='third'?7:G.diff.id==='second'?7:5.5)*throttleMult;
+  const foodEat  = G.diff.id==='third'?2.7:G.diff.id==='second'?2.5:2;
   G.fuel=c(G.fuel-fuelBurn,0,100);
   G.food=c(G.food-foodEat,0,80);
   // starvation
@@ -750,7 +750,7 @@ function flyDay(){
   // morale drift
   if(G.food>5) G.morale=c(G.morale-0.5,0,100);
   // progress (throttle-adjusted)
-  const baseAdv=(G.diff.id==='third'?18:G.diff.id==='second'?23:28)*throttleMult;
+  const baseAdv=(G.diff.id==='third'?20:G.diff.id==='second'?22:27)*throttleMult;
   const adv=baseAdv+(Math.random()*10-5);
   G.progress=c(G.progress+adv,0,120);
 
@@ -1110,7 +1110,7 @@ let BS={};
 
 function startIcebergs(){
   document.getElementById('bstrt').disabled=true;
-  const dm = G.diff.id==='third'?1.6:G.diff.id==='second'?1.25:1.0;
+  const dm = G.diff.id==='third'?1.2:G.diff.id==='second'?1.1:1.0;
   BS={
     px:110, py:180, keys:{}, bergs:[], cleared:0, progress:0,
     active:true, invuln:0, spawnT:0, dm,
@@ -1155,7 +1155,7 @@ function startIcebergs(){
       for(const b of BS.bergs){
         const dx=BS.px-b.x,dy=BS.py-b.y;
         if(Math.sqrt(dx*dx+dy*dy)<b.hr+18){
-          G.hull=c(G.hull-(G.diff.id==='third'?22:G.diff.id==='second'?16:11),0,100);
+          G.hull=c(G.hull-(G.diff.id==='third'?20:G.diff.id==='second'?14:10),0,100);
           BS.invuln=65;
           const hel=document.getElementById('bhull');if(hel)hel.textContent=`Hull: ${Math.round(G.hull)}%`;
           if(G.hull<=0){BS.active=false;BS.lost=true;}
