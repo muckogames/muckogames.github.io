@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anders' Games</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #0a0d14;
+  color: #d4a853;
+  font-family: 'Courier New', monospace;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+}
+h1 {
+  text-align: center;
+  color: #ffd700;
+  font-size: 2.8em;
+  text-shadow: 2px 2px 12px rgba(255, 180, 0, 0.5);
+  margin-bottom: 10px;
+}
+.subtitle {
+  text-align: center;
+  color: #8b6914;
+  font-size: 1em;
+  margin-bottom: 50px;
+}
+.games {
+  display: flex;
+  gap: 30px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.game-card {
+  background: #0d1520;
+  border: 3px solid #8b6914;
+  border-radius: 12px;
+  padding: 30px 36px;
+  text-align: center;
+  text-decoration: none;
+  color: inherit;
+  width: 260px;
+  transition: border-color 0.2s, transform 0.2s;
+}
+.game-card:hover {
+  border-color: #ffd700;
+  transform: translateY(-4px);
+}
+.game-icon {
+  font-size: 3.5em;
+  margin-bottom: 16px;
+}
+.game-title {
+  color: #ffd700;
+  font-size: 1.3em;
+  font-weight: bold;
+  margin-bottom: 8px;
+}
+.game-desc {
+  color: #c8a060;
+  font-size: 0.85em;
+  line-height: 1.5;
+}
+</style>
+</head>
+<body>
+  <h1>Anders' Games</h1>
+  <p class="subtitle">Pick a game and play!</p>
+  <div class="games">
+    <a class="game-card" href="airplanetrail.html">
+      <div class="game-icon">✈️</div>
+      <div class="game-title">Airplane Trail</div>
+      <div class="game-desc">Fly a plane across the country, managing fuel and making stops.</div>
+    </a>
+    <a class="game-card" href="ttrail/onlineGame/index.html">
+      <div class="game-icon">🚢</div>
+      <div class="game-title">Titanic Trail</div>
+      <div class="game-desc">Navigate the Titanic's fateful voyage across the Atlantic.</div>
+    </a>
+  </div>
+</body>
+</html>
