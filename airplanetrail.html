@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Anders Airplane Trail</title>
+<title>Airplane Trail</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#0a0d14;color:#d4a853;font-family:'Courier New',monospace;min-height:100vh;display:flex;justify-content:center;align-items:flex-start;padding:20px}
@@ -96,7 +96,7 @@ canvas{display:block;margin:0 auto;border:2px solid #5a4010;border-radius:5px;cu
 // ── DATA ──────────────────────────────────────────────────────────────────────
 
 const STOPS = [
-  {id:'southampton', name:'Southampton', flag:'🇬🇧', desc:'The grand sky-port of England. Brass horns sound as the R.M.A.S. Anders is prepared for her maiden voyage.'},
+  {id:'southampton', name:'Southampton', flag:'🇬🇧', desc:'The grand sky-port of England. Brass horns sound as the R.M.A.S. Mucko is prepared for her maiden voyage.'},
   {id:'cherbourg',   name:'Cherbourg',   flag:'🇫🇷', desc:'The French aerial harbour, where wealthy passengers and their mountains of luggage come aboard.'},
   {id:'queenstown',  name:'Queenstown',  flag:'🇮🇪', desc:'Ireland\'s windswept sky-dock. The last stop before the vast open Atlantic sky-ocean.'},
   {id:'atlantic',    name:'Mid-Atlantic',flag:'🌊',  desc:'The great open sky. Nothing but clouds and stars in every direction. Fishing conditions: excellent.'},
@@ -118,7 +118,7 @@ const CREW = [
 
 const EVENTS = [
   // ── GOOD ──────────────────────────────────────────────────────────────────
-  {title:'💨 Magnificent Tailwind!', text:'A powerful sky-current has found the Anders! The propellers barely need to spin.',
+  {title:'💨 Magnificent Tailwind!', text:'A powerful sky-current has found the Mucko! The propellers barely need to spin.',
    choices:[
     {t:'Ride it at full speed', out:'You race ahead, saving precious fuel!',        fx:G=>{G.fuel=c(G.fuel+20,0,100);G.progress+=12}},
     {t:'Use it carefully',      out:'A steady push forward. Every bit helps.',      fx:G=>{G.fuel=c(G.fuel+10,0,100)}},
@@ -128,7 +128,7 @@ const EVENTS = [
     {t:'Let them play all night!',        out:'Wonderful music! The crew dances. Morale soars.',  fx:G=>{G.morale=c(G.morale+18,0,100)}},
     {t:'Thank them and send them to rest',out:'A brief but lovely concert. All feel refreshed.',  fx:G=>{G.morale=c(G.morale+7,0,100)}},
   ]},
-  {title:'🐋 A Sky-Whale Appears!', text:'A magnificent sky-whale drifts alongside the Anders, its bioluminescent fins glowing in the moonlight. The crew watches in awe.',
+  {title:'🐋 A Sky-Whale Appears!', text:'A magnificent sky-whale drifts alongside the Mucko, its bioluminescent fins glowing in the moonlight. The crew watches in awe.',
    choices:[
     {t:'Wave and fly alongside it', out:'The whale seems friendly! It breathes a mist of food-crystals onto the deck.',  fx:G=>{G.food=c(G.food+8,0,80);G.morale=c(G.morale+12,0,100)}},
     {t:'Continue on course',        out:'The whale watches you go, then vanishes into the clouds.',                        fx:G=>{}},
@@ -223,17 +223,17 @@ const EVENTS = [
 const TELEGRAMS = [
   {from:'R.M.A.S. Olympic',         msg:'Beautiful skies all the way to the Azores. Smooth sailing, sister ship!'},
   {from:'Sky-Station Azores',       msg:'Strong westerly winds at altitude 4000 ft. Recommend descending to 2500.'},
-  {from:'R.M.A.S. Mauretania',      msg:'Cheering you on for the maiden voyage! The Anders is the talk of Southampton!'},
+  {from:'R.M.A.S. Mauretania',      msg:'Cheering you on for the maiden voyage! The Mucko is the talk of Southampton!'},
   {from:'London Weather Bureau',    msg:'Storm front moving east. Should clear the Atlantic lanes within 24 hours.'},
   {from:'Sky-Yacht Carpathia',      msg:'Magnificent day for flying! Sky-whales spotted at bearing 280. Quite a sight!'},
   {from:'R.M.A.S. Baltic',          msg:'ICE WARNING: Large field of flying bergs near 41°N, 50°W. Other captains slowing down.'},
-  {from:'Port Authority, New York',  msg:'Docking bay 7 reserved for R.M.A.S. Anders. Harbor pilot standing by. Safe travels!'},
+  {from:'Port Authority, New York',  msg:'Docking bay 7 reserved for R.M.A.S. Mucko. Harbor pilot standing by. Safe travels!'},
   {from:'First Class Passenger',    msg:'The food is superb! The chef\'s sky-lobster rivals anything in London. Bravo, Captain!'},
   {from:'Unknown Vessel',           msg:'...static... [message garbled] ...-.-- --- ..- .-.--- ...ok ... [static]'},
   {from:'R.M.A.S. Celtic',          msg:'Good morning! Keep an eye on those clouds gathering to the north. Looks stormy.'},
   {from:'Sky-Station Newfoundland', msg:'Clear skies tonight. Exceptional visibility — perfect for navigating by the stars!'},
   {from:'R.M.A.S. Caronia',         msg:'Ice report: Bergs and field ice reported in 42°N from 49° to 51°W. Take care!'},
-  {from:'Admiralty, London',        msg:'Godspeed to the Anders! All England watches your historic maiden voyage!'},
+  {from:'Admiralty, London',        msg:'Godspeed to the Mucko! All England watches your historic maiden voyage!'},
 ];
 
 // ── STATE ─────────────────────────────────────────────────────────────────────
@@ -289,18 +289,18 @@ function showMenu(el){
   el.innerHTML = `
   <div style="text-align:center;padding:10px 0 20px">
     <div style="font-size:3.5em;margin-bottom:8px">✈️</div>
-    <h1>Anders Airplane Trail</h1>
-    <div class="sub">A Steampunk Sky-Ocean Adventure • For Anders, Age 5</div>
+    <h1>Airplane Trail</h1>
+    <div class="sub">A Steampunk Sky-Ocean Adventure</div>
     <div class="panel prose" style="max-width:520px;margin:0 auto 20px;text-align:left">
       The year is 1912 — but not as you know it.<br><br>
       In this world, mighty <strong>steam-powered flying vessels</strong> rule the skies.
-      The grandest of all — the <em>R.M.A.S. Anders</em>, a magnificent brass-and-mahogany
+      The grandest of all — the <em>R.M.A.S. Mucko</em>, a magnificent brass-and-mahogany
       sky-liner — is about to make her <strong>maiden voyage</strong> from Southampton to
       New York City.<br><br>
       The North Atlantic sky-lanes are treacherous. <strong>Flying icebergs</strong> drift
       on the great sky-currents. Storms brew without warning. Sky-whales breach in the
       moonlight. And somewhere out there, a stowaway named Trudy is hiding in the steam-pipes.<br><br>
-      <strong>Can you fly the Anders safely to the New World?</strong>
+      <strong>Can you fly the Mucko safely to the New World?</strong>
     </div>
     <button class="btn-go" style="font-size:1.1em;padding:13px 32px" onclick="G.screen='diff';render()">✈️ Begin the Journey</button>
     <button onclick="G.screen='scores';render()">🏆 Scoreboard</button>
@@ -335,7 +335,7 @@ function showName(el){
     <div class="prose" style="margin-bottom:16px">What shall the sky-charts record?</div>
     <div><input type="text" id="pname" placeholder="Your name…" maxlength="20" value="${G.name||''}" onkeypress="if(event.key==='Enter')confirmName()"></div>
     <div class="btns" style="margin-top:14px">
-      <button class="btn-go" onclick="confirmName()">Board the Anders! ✈️</button>
+      <button class="btn-go" onclick="confirmName()">Board the Mucko! ✈️</button>
       <button onclick="G.screen='diff';render()">← Back</button>
     </div>
   </div>`;
@@ -485,11 +485,52 @@ function showTakeoff(el){
   const stop = STOPS[G.leg] || STOPS[0];
   el.innerHTML=`
   <h2>🛫 Departing ${stop.flag} ${stop.name}!</h2>
-  <div class="prose" style="margin-bottom:8px">The R.M.A.S. Anders begins her run down the sky-runway…</div>
+  <div class="prose" style="margin-bottom:8px">The R.M.A.S. Mucko is fueled and ready on the sky-runway. All systems green!</div>
   <canvas id="tocanvas" width="720" height="220" style="border-radius:6px;border:1px solid #1a2a40;display:block;cursor:default"></canvas>
-  <div style="text-align:center;margin-top:8px">
-    <button onclick="stopAnim();G.screen='travel';G.msg='🛫 The Anders is airborne!';render()">Skip →</button>
+  <div style="text-align:center;margin-top:10px" id="blastoff-btns">
+    <button class="btn-go" style="font-size:1.2em;padding:13px 36px" onclick="startTakeoffAnimFromButton()">🚀 BLAST OFF!</button>
+    <button onclick="stopAnim();G.screen='travel';G.msg='🛫 The Mucko is airborne!';render()">Skip →</button>
   </div>`;
+  drawTakeoffIdle();
+}
+
+function drawTakeoffIdle(){
+  const canvas=document.getElementById('tocanvas');
+  if(!canvas)return;
+  const ctx=canvas.getContext('2d');
+  const W=720,H=220,GY=172;
+  const sg=ctx.createLinearGradient(0,0,0,GY);
+  sg.addColorStop(0,'#050e22'); sg.addColorStop(0.55,'#0c2248'); sg.addColorStop(1,'#2a6a9a');
+  ctx.fillStyle=sg; ctx.fillRect(0,0,W,GY);
+  for(let i=0;i<14;i++){ctx.fillStyle=`rgba(255,255,255,${0.4*(1-i/16)})`;ctx.fillRect((i*61+9)%W,(i*27+5)%52,1.5,1.5);}
+  [[140,44,75,0.8],[360,30,60,0.65],[575,48,88,0.75]].forEach(([cx,cy,cw,cs])=>{
+    ctx.fillStyle=`rgba(255,255,255,${cs*0.6})`;
+    ctx.beginPath();ctx.ellipse(cx,cy,cw*.5,10,0,0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.ellipse(cx-cw*.18,cy+4,cw*.3,8,0,0,Math.PI*2);ctx.fill();
+  });
+  ctx.fillStyle='#040b1a';
+  ctx.fillRect(0,GY-52,92,52); ctx.fillRect(615,GY-38,105,38);
+  ctx.fillStyle='rgba(255,210,100,0.2)';
+  [[8,GY-45,9,11],[22,GY-45,9,11],[36,GY-45,9,11],[8,GY-28,9,11],[22,GY-28,9,11],[36,GY-28,9,11],
+   [624,GY-30,9,9],[638,GY-30,9,9],[653,GY-30,9,9]].forEach(([wx,wy,ww,wh])=>ctx.fillRect(wx,wy,ww,wh));
+  ctx.fillStyle='#242424'; ctx.fillRect(0,GY,W,H-GY);
+  ctx.fillStyle='rgba(255,255,255,0.55)'; ctx.fillRect(0,GY,W,2);
+  ctx.fillStyle='#d0d018';
+  for(let i=-1;i<12;i++){ctx.fillRect(i*76,GY+(H-GY)/2-2.5,36,5);}
+  ctx.fillStyle='rgba(255,255,255,0.28)';
+  for(let i=-1;i<14;i++){ctx.fillRect(i*52,GY+3,18,3);ctx.fillRect(i*52,H-5,18,3);}
+  ctx.fillStyle='rgba(0,0,0,0.22)';
+  ctx.beginPath(); ctx.ellipse(220,GY+5,55,5,0,0,Math.PI*2); ctx.fill();
+  drawSkyPlane(ctx,220,GY-14,0.9);
+  ctx.textAlign='center';
+  ctx.fillStyle='rgba(255,215,0,0.85)'; ctx.font='13px Courier New';
+  ctx.fillText('All systems ready. Press BLAST OFF! to begin.',360,22);
+  ctx.textAlign='left';
+}
+
+function startTakeoffAnimFromButton(){
+  const btns=document.getElementById('blastoff-btns');
+  if(btns) btns.innerHTML=`<button onclick="stopAnim();G.screen='travel';G.msg='🛫 The Mucko is airborne!';render()">Skip →</button>`;
   startTakeoffAnim();
 }
 
@@ -592,14 +633,14 @@ function startTakeoffAnim(){
     } else {
       ctx.fillStyle='rgba(120,220,255,0.96)'; ctx.font='bold 16px Courier New';
       ctx.shadowColor='#44aaff'; ctx.shadowBlur=10;
-      ctx.fillText('The Anders is AIRBORNE!',360,22);
+      ctx.fillText('The Mucko is AIRBORNE!',360,22);
       ctx.shadowBlur=0;
     }
     ctx.textAlign='left';
 
     if(t>225&&!done){
       done=true;
-      setTimeout(()=>{G.screen='travel';G.msg='🛫 The Anders is airborne! Good luck, Captain!';render();},280);
+      setTimeout(()=>{G.screen='travel';G.msg='🛫 The Mucko is airborne! Good luck, Captain!';render();},280);
       return;
     }
     animId=requestAnimationFrame(loop);
@@ -697,8 +738,8 @@ function flyDay(){
   G.msg='';
   const th = G.throttle||'cruising';
   const throttleMult = th==='economy'?0.70:th==='full_throttle'?1.40:1.0;
-  const fuelBurn = (G.diff.id==='first'?8:G.diff.id==='second'?6:4.5)*throttleMult;
-  const foodEat  = G.diff.id==='first'?3:G.diff.id==='second'?2.5:2;
+  const fuelBurn = (G.diff.id==='third'?8:G.diff.id==='second'?6:4.5)*throttleMult;
+  const foodEat  = G.diff.id==='third'?3:G.diff.id==='second'?2.5:2;
   G.fuel=c(G.fuel-fuelBurn,0,100);
   G.food=c(G.food-foodEat,0,80);
   // starvation
@@ -709,7 +750,7 @@ function flyDay(){
   // morale drift
   if(G.food>5) G.morale=c(G.morale-0.5,0,100);
   // progress (throttle-adjusted)
-  const baseAdv=(G.diff.id==='first'?18:G.diff.id==='second'?23:28)*throttleMult;
+  const baseAdv=(G.diff.id==='third'?18:G.diff.id==='second'?23:28)*throttleMult;
   const adv=baseAdv+(Math.random()*10-5);
   G.progress=c(G.progress+adv,0,120);
 
@@ -748,9 +789,9 @@ function flyDay(){
 }
 
 function checkLoss(){
-  if(G.fuel<=0){G.msg='⛽ The Anders has run out of fuel and made an emergency landing in a field!';G.screen='gameover';render();return true}
-  if(G.hull<=0){G.msg='🔧 The hull has given way — the Anders makes a rough emergency landing!';G.screen='gameover';render();return true}
-  if(G.crewHp.every(h=>h<=0)){G.msg='😔 The crew are too ill to fly — the Anders glides safely to a landing.';G.screen='gameover';render();return true}
+  if(G.fuel<=0){G.msg='⛽ The Mucko has run out of fuel and is going down over the sky-ocean!';G.screen='emergency_landing';render();return true}
+  if(G.hull<=0){G.msg='🔧 The hull has given way — the Mucko is breaking apart!';G.screen='emergency_landing';render();return true}
+  if(G.crewHp.every(h=>h<=0)){G.msg='😔 The crew are too ill to continue — the Mucko makes an emergency descent.';G.screen='emergency_landing';render();return true}
   return false;
 }
 
@@ -799,7 +840,7 @@ function showFishing(el){
   el.innerHTML = `
   <h2>🎣 Pontoon Fishing</h2>
   <div class="prose" style="margin-bottom:8px">
-    The Anders has lowered her pontoons onto the sky-ocean.<br>
+    The Mucko has lowered her pontoons onto the sky-ocean.<br>
     <strong>Click on fish</strong> as they swim past! You have 30 seconds.
   </div>
   <canvas id="fc" width="720" height="300"></canvas>
@@ -866,16 +907,24 @@ function startFishing(){
       sz:0.9+Math.random()*0.5,caught:false,splash:0});
   }
   spawnFish(); spawnFish(); spawnFish();
-  CV.onclick=(e)=>{
+  function hitFish(mx,my){
     if(!FS.active)return;
-    const r=CV.getBoundingClientRect();
-    const mx=(e.clientX-r.left)*(720/r.width), my=(e.clientY-r.top)*(300/r.height);
     for(const f of FS.fish){
       if(f.caught)continue;
       const dx=mx-f.x,dy=my-f.y,hr=30*f.sz;
       if(dx*dx+dy*dy<hr*hr){f.caught=true;f.splash=25;FS.caught++;document.getElementById('fcnt').textContent=`Fish caught: ${FS.caught}`;break;}
     }
+  }
+  CV.onclick=(e)=>{
+    const r=CV.getBoundingClientRect();
+    hitFish((e.clientX-r.left)*(720/r.width),(e.clientY-r.top)*(300/r.height));
   };
+  CV.addEventListener('touchstart',(e)=>{
+    e.preventDefault();
+    const r=CV.getBoundingClientRect();
+    const t=e.touches[0];
+    hitFish((t.clientX-r.left)*(720/r.width),(t.clientY-r.top)*(300/r.height));
+  },{passive:false});
   let st=0,elapsed=0;
   fishTimer=setInterval(()=>{elapsed++;FS.timeLeft=40-elapsed;const t=document.getElementById('ftmr');if(t)t.textContent=`Time: ${FS.timeLeft}s`;if(elapsed>=40){clearInterval(fishTimer);FS.active=false;endFishing();}},1000);
   function loop(ts){
@@ -922,7 +971,7 @@ function endFishing(){
   res.style.cssText='text-align:center;margin-top:12px';
   res.innerHTML=`<div class="msg">🎣 You caught <strong>${FS.caught} fish</strong>! That's +${gained} food for the crew!<br>
     ${FS.caught>=6?'⭐ Outstanding!':FS.caught>=3?'👍 Good haul!':'Keep practising!'}</div>
-    <button class="btn-go" onclick="G.screen='store';G.msg='The crew returns from fishing, refreshed!';render()">🛫 Back to the Anders!</button>`;
+    <button class="btn-go" onclick="G.screen='store';G.msg='The crew returns from fishing, refreshed!';render()">🛫 Back to the Mucko!</button>`;
   document.getElementById('app').appendChild(res);
 }
 
@@ -933,7 +982,7 @@ function showIcebergs(el){
   <h2>🧊 The Iceberg Field!</h2>
   <div class="prose" style="margin-bottom:8px">
     New York is in sight — but first you must navigate the dreaded <strong>Flying Iceberg Field!</strong><br>
-    Use <strong>Arrow keys</strong> or <strong>WASD</strong> to steer the Anders. Don't hit the icebergs!
+    Use <strong>Arrow keys</strong> or <strong>WASD</strong> to steer the Mucko. Don't hit the icebergs!
     On mobile, <strong>tap and drag</strong>.
   </div>
   <canvas id="bc" width="720" height="360"></canvas>
@@ -1061,7 +1110,7 @@ let BS={};
 
 function startIcebergs(){
   document.getElementById('bstrt').disabled=true;
-  const dm = G.diff.id==='first'?1.6:G.diff.id==='second'?1.25:1.0;
+  const dm = G.diff.id==='third'?1.6:G.diff.id==='second'?1.25:1.0;
   BS={
     px:110, py:180, keys:{}, bergs:[], cleared:0, progress:0,
     active:true, invuln:0, spawnT:0, dm,
@@ -1106,7 +1155,7 @@ function startIcebergs(){
       for(const b of BS.bergs){
         const dx=BS.px-b.x,dy=BS.py-b.y;
         if(Math.sqrt(dx*dx+dy*dy)<b.hr+18){
-          G.hull=c(G.hull-(G.diff.id==='first'?22:G.diff.id==='second'?16:11),0,100);
+          G.hull=c(G.hull-(G.diff.id==='third'?22:G.diff.id==='second'?16:11),0,100);
           BS.invuln=65;
           const hel=document.getElementById('bhull');if(hel)hel.textContent=`Hull: ${Math.round(G.hull)}%`;
           if(G.hull<=0){BS.active=false;BS.lost=true;}
@@ -1119,7 +1168,7 @@ function startIcebergs(){
     const di=document.getElementById('bdist'); if(di)di.textContent=`Distance to NY: ${Math.max(0,Math.round(100-BS.progress))}%`;
     drawBergFrame();
     if(BS.active){animId=requestAnimationFrame(loop);}
-    else{BS.cleanup();setTimeout(()=>{G.bergsDodged=BS.cleared;G.screen=BS.won?'victory':'gameover';if(!BS.won)G.msg='🧊 The Anders took too many iceberg hits and had to make an emergency landing!';render();},1800);}
+    else{BS.cleanup();setTimeout(()=>{G.bergsDodged=BS.cleared;G.screen=BS.won?'landing':'emergency_landing';if(!BS.won)G.msg='🧊 The Mucko took too many iceberg hits — structural damage! Going down!';render();},1800);}
   }
   animId=requestAnimationFrame(loop);
 }
@@ -1148,8 +1197,195 @@ function drawBergFrame(){
   if(BS.lost){
     CX.fillStyle='rgba(20,10,0,.75)';CX.fillRect(0,0,720,360);
     CX.fillStyle='#ffaa44';CX.font='bold 30px Courier New';CX.textAlign='center';CX.fillText('HULL DAMAGE!',360,150);
-    CX.fillStyle='#ffd700';CX.font='18px Courier New';CX.fillText('The Anders makes an emergency landing…',360,192);CX.textAlign='left';
+    CX.fillStyle='#ffd700';CX.font='18px Courier New';CX.fillText('The Mucko makes an emergency landing…',360,192);CX.textAlign='left';
   }
+}
+
+// ── LANDING ANIMATION ─────────────────────────────────────────────────────────
+
+function showLanding(el){
+  el.innerHTML=`
+  <h2>🛬 Approaching New York!</h2>
+  <div class="prose" style="margin-bottom:8px">Land ho! The towers of Manhattan glitter ahead — the Mucko begins her final descent!</div>
+  <canvas id="landcanvas" width="720" height="220" style="border-radius:6px;border:1px solid #2a4a8a;display:block;cursor:default"></canvas>
+  <div style="text-align:center;margin-top:8px">
+    <button onclick="stopAnim();G.screen='victory';render()">Skip →</button>
+  </div>`;
+  startLandingAnim();
+}
+
+function startLandingAnim(){
+  const canvas=document.getElementById('landcanvas');
+  if(!canvas)return;
+  const ctx=canvas.getContext('2d');
+  const W=720,H=220,GY=170;
+  let t=0,done=false;
+  function loop(){
+    t++;
+    ctx.clearRect(0,0,W,H);
+    const sg=ctx.createLinearGradient(0,0,0,GY);
+    sg.addColorStop(0,'#050e22'); sg.addColorStop(0.45,'#1a3a6a'); sg.addColorStop(0.8,'#b03a1a'); sg.addColorStop(1,'#e07830');
+    ctx.fillStyle=sg; ctx.fillRect(0,0,W,GY);
+    const sa=Math.max(0,0.55-t/130);
+    for(let i=0;i<12;i++){ctx.fillStyle=`rgba(255,255,255,${sa})`;ctx.fillRect((i*57+5)%W,(i*31+4)%55,1.5,1.5);}
+    ctx.fillStyle='#040b18';
+    [[220,95,22],[242,78,20],[266,62,26],[300,47,26],[332,32,36],[372,22,40],[416,37,28],
+     [452,52,26],[482,66,20],[507,57,28],[542,72,26],[573,86,28],[607,96,20],[632,82,26],[660,91,28]
+    ].forEach(([x,yt,w])=>ctx.fillRect(x,yt,w,GY-yt));
+    // Runway
+    ctx.fillStyle='#1a1a1a'; ctx.fillRect(0,GY,W,H-GY);
+    ctx.fillStyle='rgba(255,255,255,0.55)'; ctx.fillRect(0,GY,W,2);
+    ctx.fillStyle='#d0d018';
+    for(let i=-1;i<12;i++){ctx.fillRect(i*76,GY+(H-GY)/2-2.5,36,5);}
+    ctx.fillStyle='rgba(255,255,255,0.25)';
+    for(let i=-1;i<14;i++){ctx.fillRect(i*52,GY+3,18,3);ctx.fillRect(i*52,H-5,18,3);}
+    // Terminal buildings
+    ctx.fillStyle='#040b1a'; ctx.fillRect(600,GY-50,120,50);
+    ctx.fillStyle='rgba(255,210,100,0.22)';
+    [[608,GY-42,9,9],[622,GY-42,9,9],[637,GY-42,9,9],[608,GY-26,9,9],[622,GY-26,9,9],[637,GY-26,9,9]].forEach(([wx,wy,ww,wh])=>ctx.fillRect(wx,wy,ww,wh));
+    // Plane approach
+    const totalF=260;
+    let px,py,angle;
+    if(t<totalF){
+      const prog=t/totalF, e=prog*prog*(3-2*prog);
+      px=710-(710-240)*e; py=36+(GY-14-36)*e; angle=-0.18*(1-e);
+    } else {
+      px=240; py=GY-14; angle=0;
+    }
+    if(py>GY-55){const a=Math.min(0.28,(py-(GY-55))/55*0.28);ctx.fillStyle=`rgba(0,0,0,${a})`;ctx.beginPath();ctx.ellipse(px,GY+5,55,4,0,0,Math.PI*2);ctx.fill();}
+    ctx.save();ctx.translate(px,py);ctx.rotate(angle);
+    ctx.fillStyle='rgba(255,130,40,0.5)';ctx.beginPath();ctx.moveTo(-50,-3);ctx.lineTo(-60,0);ctx.lineTo(-50,3);ctx.closePath();ctx.fill();
+    drawSkyPlane(ctx,0,0,0.9);
+    ctx.restore();
+    ctx.textAlign='center';
+    if(t<60){ctx.fillStyle='rgba(255,215,0,0.85)';ctx.font='13px Courier New';ctx.fillText('New York in sight! Descending…',360,22);}
+    else if(t<totalF){ctx.fillStyle='rgba(135,206,235,0.95)';ctx.font='bold 14px Courier New';ctx.fillText('Final approach — lowering landing gear! ✈️',360,22);}
+    else{ctx.fillStyle='rgba(255,215,0,0.98)';ctx.font='bold 16px Courier New';ctx.shadowColor='#ffd700';ctx.shadowBlur=12;ctx.fillText('THE MUCKO HAS LANDED! 🗽',360,22);ctx.shadowBlur=0;}
+    ctx.textAlign='left';
+    if(t>totalF+90&&!done){done=true;setTimeout(()=>{G.screen='victory';render();},320);}
+    animId=requestAnimationFrame(loop);
+  }
+  animId=requestAnimationFrame(loop);
+}
+
+// ── EMERGENCY LANDING ANIMATION ───────────────────────────────────────────────
+
+function showEmergencyLanding(el){
+  el.innerHTML=`
+  <h2>⚠️ Emergency!</h2>
+  <div class="prose" style="margin-bottom:8px">${G.msg||'The Mucko has been forced down!'}</div>
+  <canvas id="elcanvas" width="720" height="280" style="border-radius:6px;border:1px solid #8b3010;display:block;cursor:default"></canvas>
+  <div style="text-align:center;margin-top:8px">
+    <button onclick="stopAnim();G.screen='gameover';render()">Skip →</button>
+  </div>`;
+  startEmergencyAnim();
+}
+
+function startEmergencyAnim(){
+  const canvas=document.getElementById('elcanvas');
+  if(!canvas)return;
+  const ctx=canvas.getContext('2d');
+  const W=720,H=280,WY=195;
+  let t=0,done=false;
+
+  function drawBg(){
+    const sg=ctx.createLinearGradient(0,0,0,WY);
+    sg.addColorStop(0,'#070f1e'); sg.addColorStop(0.7,'#0c2040'); sg.addColorStop(1,'#1a3560');
+    ctx.fillStyle=sg; ctx.fillRect(0,0,W,WY);
+    for(let i=0;i<14;i++){ctx.fillStyle='rgba(255,255,255,0.45)';ctx.fillRect((i*47+6)%W,(i*29+5)%75,1.5,1.5);}
+    [[80,45,90],[280,25,65],[510,40,80],[650,28,55]].forEach(([cx,cy,cw])=>{
+      ctx.fillStyle='rgba(160,170,200,0.35)';
+      ctx.beginPath();ctx.ellipse(cx,cy,cw*.5,11,0,0,Math.PI*2);ctx.fill();
+      ctx.beginPath();ctx.ellipse(cx-cw*.15,cy+5,cw*.3,8,0,0,Math.PI*2);ctx.fill();
+    });
+    const wg=ctx.createLinearGradient(0,WY,0,H);
+    wg.addColorStop(0,'#0a2040'); wg.addColorStop(1,'#050d20');
+    ctx.fillStyle=wg; ctx.fillRect(0,WY,W,H-WY);
+    ctx.strokeStyle='rgba(100,160,220,0.3)'; ctx.lineWidth=1.5;
+    for(let i=0;i<8;i++){const wx=(i*90+t*.5)%W;ctx.beginPath();ctx.moveTo(wx,WY+7+i%3*5);ctx.lineTo(wx+32,WY+7+i%3*5);ctx.stroke();}
+  }
+
+  function drawRaft(rx,ry,alpha){
+    ctx.save(); ctx.globalAlpha=alpha;
+    ctx.fillStyle='#FFD700';
+    ctx.beginPath();ctx.ellipse(rx,ry,38,11,0,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle='#CC8800'; ctx.lineWidth=2;
+    ctx.beginPath();ctx.ellipse(rx,ry,38,11,0,0,Math.PI*2);ctx.stroke();
+    ctx.fillStyle='#FFFACD';
+    ctx.beginPath();ctx.ellipse(rx,ry,26,6,0,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle='#444'; ctx.lineWidth=1.5;
+    [-16,0,16].forEach((dx,i)=>{
+      const bx=rx+dx,by=ry-11;
+      ctx.fillStyle='#333';
+      ctx.beginPath();ctx.arc(bx,by-7,3.5,0,Math.PI*2);ctx.fill();
+      ctx.beginPath();ctx.moveTo(bx,by-3.5);ctx.lineTo(bx,by+4);ctx.stroke();
+      const wv=Math.sin(t*0.12+i*1.1)*5;
+      ctx.beginPath();ctx.moveTo(bx,by);ctx.lineTo(bx+9,by-5+wv);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(bx,by);ctx.lineTo(bx-5,by+3);ctx.stroke();
+    });
+    ctx.globalAlpha=1; ctx.restore();
+  }
+
+  let raftX=355,showRaft=false,raftAlpha=0;
+
+  function loop(){
+    t++;
+    ctx.clearRect(0,0,W,H);
+    drawBg();
+
+    const scale=1.0, breakX=355;
+    if(t<50){
+      ctx.save();ctx.translate(360,115);ctx.rotate(-0.05);drawSkyPlane(ctx,0,0,scale);ctx.restore();
+    } else if(t<90){
+      const p=(t-50)/40;
+      ctx.save();ctx.translate(360,115+p*18);ctx.rotate(-0.05+p*0.35);drawSkyPlane(ctx,0,0,scale);ctx.restore();
+    } else if(t<122){
+      ctx.save();ctx.translate(360,133);ctx.rotate(0.3);drawSkyPlane(ctx,0,0,scale);ctx.restore();
+      const cf=(t<106)?(t-90)/16:(122-t)/16;
+      if(cf>0){
+        ctx.save();ctx.globalAlpha=cf;
+        ctx.strokeStyle='#ff8800';ctx.lineWidth=5;
+        ctx.beginPath();ctx.moveTo(352,98);ctx.lineTo(356,133);ctx.lineTo(351,168);ctx.stroke();
+        ctx.globalAlpha=cf*0.28;ctx.fillStyle='#ff4400';ctx.fillRect(0,0,W,H);
+        ctx.globalAlpha=1;ctx.restore();
+      }
+    } else {
+      const sp=Math.min((t-122)/200,1);
+      const ease=sp*sp*(3-2*sp);
+      const breakY=133;
+      const bowAngle=0.3+ease*1.3;
+      const bowOffY=ease*ease*95;
+      const sternAngle=0.3+ease*1.65;
+      const sternAlpha=sternAngle>Math.PI?Math.max(0,1-(sternAngle-Math.PI)/0.45):1;
+
+      ctx.save();ctx.translate(breakX,breakY+bowOffY);ctx.rotate(bowAngle);
+      ctx.beginPath();ctx.rect(0,-85,180,170);ctx.clip();
+      drawSkyPlane(ctx,5,0,scale);ctx.restore();
+
+      if(sternAlpha>0){
+        ctx.save();ctx.globalAlpha=sternAlpha;ctx.translate(breakX,breakY);ctx.rotate(sternAngle);
+        ctx.beginPath();ctx.rect(-180,-85,180,170);ctx.clip();
+        drawSkyPlane(ctx,5,0,scale);ctx.restore();ctx.globalAlpha=1;
+      }
+
+      if(t>205){
+        const ra=t-205; raftX=355+ra*0.9; raftAlpha=Math.min(ra/35,1); showRaft=true;
+      }
+    }
+
+    if(showRaft) drawRaft(raftX,WY-2,raftAlpha);
+
+    ctx.textAlign='center';
+    if(t<90){ctx.fillStyle='rgba(255,165,0,0.9)';ctx.font='bold 15px Courier New';ctx.fillText('⚠️ Mayday! Mayday!',360,20);}
+    else if(t<145){ctx.fillStyle='rgba(255,70,0,0.97)';ctx.font='bold 18px Courier New';ctx.shadowColor='#ff4400';ctx.shadowBlur=10;ctx.fillText('💥 STRUCTURAL FAILURE!',360,20);ctx.shadowBlur=0;}
+    else if(t<245){ctx.fillStyle='rgba(255,200,0,0.9)';ctx.font='bold 14px Courier New';ctx.fillText('The Mucko breaks apart over the sky-ocean…',360,20);}
+    else{ctx.fillStyle='rgba(100,220,255,0.92)';ctx.font='13px Courier New';ctx.fillText('All crew safe on the life-raft! 🌊',360,20);}
+    ctx.textAlign='left';
+
+    if(t>430&&!done){done=true;setTimeout(()=>{G.screen='gameover';render();},200);}
+    animId=requestAnimationFrame(loop);
+  }
+  animId=requestAnimationFrame(loop);
 }
 
 // ── ARRIVAL ANIMATION ─────────────────────────────────────────────────────────
@@ -1233,7 +1469,7 @@ function startArrivalAnim(){
     if(t>55){
       ctx.fillStyle='rgba(255,215,0,0.95)'; ctx.font='bold 22px Courier New';
       ctx.textAlign='center'; ctx.shadowColor='#ffd700'; ctx.shadowBlur=10;
-      ctx.fillText('THE ANDERS HAS ARRIVED!',470,38);
+      ctx.fillText('THE MUCKO HAS ARRIVED!',470,38);
       ctx.shadowBlur=0; ctx.font='12px Courier New';
       ctx.fillStyle='rgba(180,200,255,0.85)';
       ctx.fillText('🗽  New York Harbor  •  April 1912',470,57);
@@ -1255,10 +1491,10 @@ function calcScore(){
 }
 
 function saveScore(score){
-  let sc=[];try{sc=JSON.parse(localStorage.getItem('anders_scores')||'[]');}catch{}
+  let sc=[];try{sc=JSON.parse(localStorage.getItem('mucko_scores')||'[]');}catch{}
   sc.push({name:G.name,score,diff:G.diff.name,crew:G.crewHp.filter(h=>h>0).length,date:new Date().toLocaleDateString()});
   sc.sort((a,b)=>b.score-a.score);
-  localStorage.setItem('anders_scores',JSON.stringify(sc.slice(0,20)));
+  localStorage.setItem('mucko_scores',JSON.stringify(sc.slice(0,20)));
 }
 
 function showVictory(el){
@@ -1269,7 +1505,7 @@ function showVictory(el){
     <canvas id="arrival-canvas" width="720" height="180" style="border-radius:8px;margin-bottom:14px;border:1px solid #2a4a8a;display:block;cursor:default"></canvas>
     <div class="panel prose" style="max-width:500px;margin:12px auto;text-align:left">
       Against all odds — through storm and fog and flying iceberg — Captain
-      <strong>${G.name}</strong> has guided the sky-vessel <em>R.M.A.S. Anders</em>
+      <strong>${G.name}</strong> has guided the sky-vessel <em>R.M.A.S. Mucko</em>
       safely across the Atlantic to the glittering brass towers of New York City.<br><br>
       The crowds cheer from the sky-docks! Newsboys in goggles wave their papers:<br>
       <em>"Sky-Marvel Arrives Safe! Greatest Ship Makes It! Captain ${G.name} a Hero!"</em><br><br>
@@ -1291,7 +1527,7 @@ function showVictory(el){
       </div>
     </div>
     ${crewRow()}
-    <button class="btn-go" onclick="G={screen:'diff',sel:'third'};render()">Play Again</button>
+    <button class="btn-go" onclick="G={screen:'diff',sel:'first'};render()">Play Again</button>
     <button onclick="G.screen='scores';render()">🏆 Scoreboard</button>
     <button onclick="G={screen:'menu'};render()">Main Menu</button>
   </div>`;
@@ -1305,12 +1541,12 @@ function showGameOver(el){
     <h1 style="color:#d4a853">Emergency Landing!</h1>
     <div class="panel prose" style="max-width:500px;margin:14px auto;text-align:left">
       ${G.msg||'The great sky-vessel has been forced to land short of New York.'}<br><br>
-      The crew is safe on the ground. Everyone is doing fine, and the R.M.A.S. Anders
+      The crew is safe on the ground. Everyone is doing fine, and the R.M.A.S. Mucko
       will fly again — but this voyage has come to an unexpected end.<br><br>
       <em>Take a deep breath, restock your supplies, and try the journey again!</em>
     </div>
     ${crewRow()}
-    <button class="btn-go" onclick="G={screen:'diff',sel:'third'};render()">Try Again</button>
+    <button class="btn-go" onclick="G={screen:'diff',sel:'first'};render()">Try Again</button>
     <button onclick="G.screen='scores';render()">🏆 Scoreboard</button>
     <button onclick="G={screen:'menu'};render()">Main Menu</button>
   </div>`;
@@ -1319,10 +1555,10 @@ function showGameOver(el){
 // ── SCOREBOARD ────────────────────────────────────────────────────────────────
 
 function showScores(el){
-  let sc=[];try{sc=JSON.parse(localStorage.getItem('anders_scores')||'[]');}catch{}
+  let sc=[];try{sc=JSON.parse(localStorage.getItem('mucko_scores')||'[]');}catch{}
   el.innerHTML=`
   <h2>🏆 Hall of Sky-Captains</h2>
-  <div class="prose" style="margin-bottom:12px">The bravest aviators to have flown the Anders across the Atlantic.</div>
+  <div class="prose" style="margin-bottom:12px">The bravest aviators to have flown the Mucko across the Atlantic.</div>
   ${sc.length===0?'<div class="msg">No scores yet! Be the first to complete the voyage.</div>':`
   <div>
     <div class="sb-row" style="color:#5a4010;border-bottom:2px solid #3a2010;font-size:.78em">
@@ -1342,15 +1578,15 @@ function showScores(el){
     </div>`).join('')}
   </div>`}
   <div class="btns" style="margin-top:16px">
-    <button class="btn-go" onclick="G={screen:'diff',sel:'third'};render()">✈️ New Journey</button>
+    <button class="btn-go" onclick="G={screen:'diff',sel:'first'};render()">✈️ New Journey</button>
     <button onclick="G={screen:'menu'};render()">← Main Menu</button>
-    <button class="btn-bad" onclick="if(confirm('Clear all scores?')){localStorage.removeItem('anders_scores');G.screen='scores';render()}">Clear Scores</button>
+    <button class="btn-bad" onclick="if(confirm('Clear all scores?')){localStorage.removeItem('mucko_scores');G.screen='scores';render()}">Clear Scores</button>
   </div>`;
 }
 
 // ── BOOT ──────────────────────────────────────────────────────────────────────
 
-G={screen:'menu',sel:'third'};
+G={screen:'menu',sel:'first'};
 render();
 </script>
 </body>
