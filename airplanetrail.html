@@ -7,7 +7,7 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#0a0d14;color:#d4a853;font-family:'Courier New',monospace;min-height:100vh;display:flex;justify-content:center;align-items:flex-start;padding:20px}
-#app{width:780px;background:#0d1520;border:3px solid #8b6914;border-radius:10px;padding:22px;position:relative}
+#app{width:min(780px,100%);background:#0d1520;border:3px solid #8b6914;border-radius:10px;padding:22px;position:relative}
 h1{text-align:center;color:#ffd700;font-size:2.2em;text-shadow:2px 2px 8px rgba(255,180,0,0.5);margin-bottom:6px}
 h2{color:#ffd700;font-size:1.3em;margin-bottom:12px}
 .sub{text-align:center;color:#8b6914;font-size:.9em;margin-bottom:16px}
@@ -86,7 +86,8 @@ input[type=text]:focus{outline:none;border-color:#ffd700}
 /* Scoreboard */
 .sb-row{display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #1a1008}
 .sb-row:nth-child(odd){background:rgba(0,0,0,.2)}
-canvas{display:block;margin:0 auto;border:2px solid #5a4010;border-radius:5px;cursor:crosshair}
+canvas{display:block;margin:0 auto;border:2px solid #5a4010;border-radius:5px;cursor:crosshair;max-width:100%;height:auto}
+@media(max-width:600px){body{padding:6px}button{padding:10px 14px;font-size:.95em}.btn-go{font-size:1em!important;padding:12px 20px!important}.diff-row{flex-direction:column;align-items:center}.dcard{width:90%!important}}
 </style>
 </head>
 <body>
@@ -103,9 +104,9 @@ const STOPS = [
 ];
 
 const DIFFS = [
-  {id:'third',  name:'Third Class',  short:'Steerage',  icon:'⚙️',  mult:1.0, gold:200, fuel:100, food:50, hull:100, desc:'Humble beginnings. Plenty of supplies and forgiving weather. Perfect for beginners.'},
+  {id:'first',  name:'First Class',  short:'First',     icon:'👑',  mult:1.0, gold:200, fuel:100, food:50, hull:100, desc:'Comfortable luxury travel. Plenty of supplies and forgiving weather. Perfect for beginners.'},
   {id:'second', name:'Second Class', short:'Second',    icon:'✈️',  mult:1.5, gold:120, fuel:80,  food:35, hull:100, desc:'A balanced voyage. Moderate risk, moderate reward.'},
-  {id:'first',  name:'First Class',  short:'First',     icon:'👑',  mult:2.5, gold:80,  fuel:60,  food:25, hull:100, desc:'Luxury is expensive. Less supplies, fiercer storms, but glorious glory if you make it.'},
+  {id:'third',  name:'Third Class',  short:'Steerage',  icon:'⚙️',  mult:2.5, gold:80,  fuel:60,  food:25, hull:100, desc:'Scarce supplies and rough weather. The hardest voyage — but glorious if you make it!'},
 ];
 
 const CREW = [
@@ -270,9 +271,11 @@ function render(){
   else if (s==='event')     showEvent(el);
   else if (s==='fishing')   showFishing(el);
   else if (s==='icebergs')  showIcebergs(el);
-  else if (s==='victory')   showVictory(el);
-  else if (s==='gameover')  showGameOver(el);
-  else if (s==='scores')    showScores(el);
+  else if (s==='landing')          showLanding(el);
+  else if (s==='emergency_landing') showEmergencyLanding(el);
+  else if (s==='victory')          showVictory(el);
+  else if (s==='gameover')         showGameOver(el);
+  else if (s==='scores')           showScores(el);
 }
 
 function stopAnim(){
@@ -305,7 +308,7 @@ function showMenu(el){
 }
 
 function showDiff(el){
-  const sel = G.sel||'third';
+  const sel = G.sel||'first';
   el.innerHTML = `
   <h2>Choose Your Ticket Class</h2>
   <div class="prose" style="margin-bottom:4px">Your class determines starting supplies and your score multiplier.</div>
@@ -342,7 +345,7 @@ function showName(el){
 function confirmName(){
   const i=document.getElementById('pname');
   const name=(i?i.value.trim():'')||'Brave Aviator';
-  newGame(G.sel||'third', name);
+  newGame(G.sel||'first', name);
   render();
 }
 
