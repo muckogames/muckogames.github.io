@@ -18,7 +18,7 @@ function resetGS() {
     progress: 0, dayNum: 0,
     speed: 2, rations: 2,
     visitedCherbourg: false, visitedQueenstown: false,
-    receivedIceWarning: false, slowedForIce: false,
+    receivedIceWarning: false, slowedForIce: false, coalCrisisShown: false,
     icebergHits: 0, sank: false,
     log: [],
     init() {
@@ -522,6 +522,22 @@ async function doAdvance(resting) {
     for (let i=0;i<5;i++) if (gs.alive[i]) gs.health[i] = Math.max(0, gs.health[i]-8);
   }
 
+  // Coal crisis: first time coal runs out
+  if (gs.coal === 0 && !gs.coalCrisisShown) {
+    gs.coalCrisisShown = true;
+    gs.addLog('!! COAL EXHAUSTED — The engines fall silent. The ship drifts.', 'alert');
+    const cr = await showModal('Coal Crisis!',
+      'The coal bunkers are empty.\nThe engines have stopped and the ship is adrift.\n\nThe chief engineer proposes burning wooden furniture and fixtures as emergency fuel.',
+      [{label:'Burn the Furniture (+50 coal, crew morale -10)', cls:'btn-amber'}, {label:'Drift and Hope'}]);
+    if (cr === 0) {
+      gs.coal = 50;
+      for (let i=0;i<5;i++) if (gs.alive[i]) gs.health[i] = Math.max(5, gs.health[i]-10);
+      gs.addLog('» Crew strips the lounges. Crude fuel buys a few more hours of steam.', 'good');
+    } else {
+      gs.addLog('» The ship drifts at the mercy of the current. Progress will be agonisingly slow.', 'alert');
+    }
+  }
+
   // Progress
   let prog = gs.coal > 0 ? gs.speed * 4 : 1;
   if (gs.slowedForIce) prog = Math.max(1, prog - 2);
@@ -532,7 +548,7 @@ async function doAdvance(resting) {
   for (let i=0;i<5;i++) {
     if (!gs.alive[i]) continue;
     if (resting)          gs.health[i] = Math.min(100, gs.health[i]+12);
-    else if (gs.rations===1) gs.health[i] = Math.max(0, gs.health[i]-3);
+    else if (gs.rations===1) gs.health[i] = Math.max(0, gs.health[i]-6);
     else if (gs.rations===3) gs.health[i] = Math.min(100, gs.health[i]+2);
     if (gs.health[i]===0 && gs.alive[i]) {
       gs.alive[i] = false;
@@ -587,11 +603,11 @@ async function doIceWarning() {
   gs.addLog('— Wireless: URGENT ice warnings from multiple ships —', 'alert');
   gs.addLog('SS Californian, SS Baltic, SS Mesaba all report large icebergs ahead.', 'alert');
   const r = await showModal('Ice Warning Received',
-    'WIRELESS WARNING:\n\nMultiple ships report icebergs and\nice fields along our planned route.\n\nWhat do you order?',
+    'WIRELESS WARNING:\n\nMultiple ships report icebergs and\nice fields along our planned route.\n\nSlowing down will reduce speed for the rest of the voyage but give the crew time to watch for ice. Maintaining speed risks entering iceberg alley with a stressed hull.',
     [{label:'Slow Down (safer)', cls:'btn-teal'}, {label:'Maintain Speed (faster)', cls:'btn-amber'}]);
   if (r === 0) {
     gs.slowedForIce = true;
-    gs.addLog('Captain orders reduced speed through the ice field.', 'good');
+    gs.addLog('Captain orders reduced speed through the ice field. The crew keeps a careful watch.', 'good');
   } else {
     gs.addLog('The Captain maintains full speed. (Historically, Captain Smith did the same.)', 'warn');
   }
@@ -657,8 +673,11 @@ async function fireRandomEvent() {
     case 16: evRecovery();      break;
     case 17: evGoodFood();      break;
     case 18: evSisterShip();    break;
-    case 19: evColdSnap();      break;
-    default: break;
+    case 19: evColdSnap();           break;
+    case 20: evIcebergNearby();      break;
+    case 21: await evDistressCall(); break;
+    case 22: evDeckEntertainment();  break;
+    case 23: evSweepstakes();        break;
   }
 }
 
@@ -666,7 +685,7 @@ function evSeasick()     { const p=alivePax(); gs.health[p]=Math.max(5,gs.health
 function evStorm()       { gs.coal=Math.max(0,gs.coal-40); for(let i=0;i<5;i++) if(gs.alive[i]) gs.health[i]=Math.max(5,gs.health[i]-10); gs.addLog('» A fierce Atlantic storm! All passengers confined to cabins. Extra coal burned.','alert'); }
 function evCalm()        { gs.progress=Math.min(100,gs.progress+2); gs.addLog('» Calm seas and a brilliant sky. Excellent sailing conditions!','good'); }
 function evBoiler()      { gs.coal=Math.max(0,gs.coal-60); gs.addLog('» A boiler overheats in the engine room. Engineers work through the night.','alert'); }
-function evFoodSpoil()   { const l=30+Math.floor(Math.random()*40); gs.food=Math.max(0,gs.food-l); gs.addLog(`» ${l} lbs of food found spoiled in the larder. Discarded.`,'alert'); }
+function evFoodSpoil()   { const pct=0.20+Math.random()*0.20; const l=Math.min(80,Math.max(10,Math.round(gs.food*pct))); gs.food=Math.max(0,gs.food-l); gs.addLog(`» ${l} lbs of food found spoiled in the larder. Discarded.`,'alert'); }
 function evFog()         { gs.progress=Math.max(0,gs.progress-2); gs.addLog('» Dense fog rolls in. Captain orders the foghorn and reduced speed.'); }
 function evWhale()       { gs.addLog('» A pod of blue whales spotted off the starboard bow! Passengers rush to the railing.','good'); }
 function evTelegram()    {
@@ -684,6 +703,35 @@ function evColdSnap()    {
   if(gs.rations===1) { for(let i=0;i<5;i++) if(gs.alive[i]) gs.health[i]=Math.max(5,gs.health[i]-8); gs.addLog('  Meager rations give little warmth. Everyone suffers.','alert'); }
   else gs.addLog('  You huddle together and manage to stay warm.');
 }
+function evIcebergNearby() {
+  gs.progress = Math.max(0, gs.progress - 2);
+  gs.addLog('» Iceberg spotted to port! The helmsman steers wide. Two miles lost on the detour.', 'alert');
+}
+async function evDistressCall() {
+  gs.addLog('» Wireless crackles: a nearby vessel is in distress.', 'alert');
+  const r = await showModal('Distress Call',
+    'A ship is transmitting a distress signal nearby.\n\nAlter course to assist? It will cost time.',
+    [{label:'Alter Course to Help (-3 progress)', cls:'btn-teal'}, {label:'Log the Position and Continue', cls:'btn-amber'}]);
+  if (r === 0) {
+    gs.progress = Math.max(0, gs.progress - 3);
+    gs.addLog('  You divert course. The other ship is safely assisted. The crew\'s spirits are high.', 'good');
+    for (let i=0;i<5;i++) if (gs.alive[i]) gs.health[i] = Math.min(100, gs.health[i]+5);
+  } else {
+    gs.addLog('  The position is logged and relayed to the Marconi office. Voyage continues.', 'good');
+  }
+}
+function evDeckEntertainment() {
+  const bonus = gs.shipClass===1 ? 8 : gs.shipClass===2 ? 5 : 4;
+  const desc = gs.shipClass===1 ? 'The ship\'s orchestra performs a concert on the promenade deck.' : gs.shipClass===2 ? 'Passengers gather for a lively sing-along in the saloon.' : 'Steerage passengers dance reels and jigs late into the night.';
+  for (let i=0;i<5;i++) if (gs.alive[i]) gs.health[i] = Math.min(100, gs.health[i]+bonus);
+  gs.addLog(`» ${desc} Spirits are lifted.`, 'good');
+}
+function evSweepstakes() {
+  const prize = 10 + Math.floor(Math.random()*20);
+  gs.money += prize;
+  gs.addLog(`» A shipboard sweepstakes on tomorrow\'s daily mileage! Your ticket wins ${prize} shillings.`, 'good');
+}
+
 function evDinner() {
   if(gs.shipClass===1){ for(let i=0;i<5;i++) if(gs.alive[i]) gs.health[i]=Math.min(100,gs.health[i]+10); gs.addLog('» Captain Smith hosts an elegant dinner in First Class. Fine food and wine lift everyone\'s spirits.','good'); }
   else if(gs.shipClass===2){ for(let i=0;i<5;i++) if(gs.alive[i]) gs.health[i]=Math.min(100,gs.health[i]+5); gs.addLog('» A pleasant evening meal in the Second Class dining room.','good'); }
@@ -710,9 +758,9 @@ async function evManOverboard() {
   const p = alivePax();
   gs.addLog(`» ALARM! ${gs.names[p]} has gone overboard! The water is near freezing.`,'alert');
   const r = await showModal('Man Overboard!',
-    `${gs.names[p]} has fallen overboard!\nThe water is near freezing.\n\nThrow a life ring immediately?`,
-    [{label:'Throw Life Ring', cls:'btn-green'}, {label:'Signal the Bridge', cls:'btn-amber'}]);
-  if (r===0 || Math.random()<0.5) {
+    `${gs.names[p]} has fallen overboard!\nThe water is near freezing.\n\nThrow a life ring immediately? (Better odds than waiting for the bridge.)`,
+    [{label:'Throw Life Ring (80% chance)', cls:'btn-green'}, {label:'Signal the Bridge (40% chance)', cls:'btn-amber'}]);
+  if (Math.random() < (r===0 ? 0.8 : 0.4)) {
     gs.health[p]=Math.max(10,gs.health[p]-35);
     gs.addLog(`  ${gs.names[p]} is rescued! Severely hypothermic but alive.`,'good');
   } else {
@@ -750,7 +798,7 @@ function buildStore(app, portName) {
     {label:'Coal (100 tons)',   cost:30, key:'coal',     amt:100},
     {label:'Coal (200 tons)',   cost:55, key:'coal',     amt:200},
     {label:'Medicine (2 doses)',cost:25, key:'medicine', amt:2},
-    {label:'Lifeboat seat',     cost:60, key:'lifeboats',amt:1},
+    {label:'Lifeboat seat',     cost:45, key:'lifeboats',amt:1},
   ];
 
   const div = document.createElement('div');
@@ -821,7 +869,9 @@ function buildIceberg(app) {
   const shipY = H - 90;
 
   let shipX = W / 2;
-  let hull = 100;
+  // If the player received an ice warning but chose to maintain speed, the hull
+  // is stressed from high-speed navigation — start damaged.
+  let hull = (gs.receivedIceWarning && !gs.slowedForIce) ? 80 : 100;
   let timeLeft = 60;   // one minute
   let tick = 0;
   let animTick = 0;
@@ -1403,8 +1453,8 @@ function calculateScore() {
 
   // ── Class hardship multiplier ─────────────────────────────────────────
   // Steerage has fewest resources and lifeboats — harder, so worth more
-  const multMap  = {1: 1.0, 2: 1.25, 3: 1.6};
-  const multLabel = {1: 'First Class (×1.0)', 2: 'Second Class Bonus (×1.25)', 3: 'Steerage Hardship Bonus (×1.6)'};
+  const multMap  = {1: 1.0, 2: 1.15, 3: 1.35};
+  const multLabel = {1: 'First Class (×1.0)', 2: 'Second Class Bonus (×1.15)', 3: 'Steerage Hardship Bonus (×1.35)'};
   const mult = multMap[gs.shipClass];
 
   const preMultTotal = Math.max(0, total);
