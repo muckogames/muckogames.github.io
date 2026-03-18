@@ -20,6 +20,7 @@ function resetGS() {
     visitedCherbourg: false, visitedQueenstown: false,
     receivedIceWarning: false, slowedForIce: false, coalCrisisShown: false,
     icebergHits: 0, sank: false,
+    lastFishDay: -10,
     log: [],
     init() {
       const cls = this.shipClass;
@@ -265,6 +266,7 @@ function buildVoyage(app) {
       <button id="btn-speed"    class="btn-amber">Change Speed</button>
       <button id="btn-rations"  class="btn-amber">Change Rations</button>
       <button id="btn-status">Full Status</button>
+      <button id="btn-fish"     class="btn-teal" disabled>Go Fishing</button>
     </div>`;
   app.appendChild(div);
 
@@ -277,6 +279,7 @@ function buildVoyage(app) {
   div.querySelector('#btn-speed').addEventListener('click',   () => doChangeSpeed());
   div.querySelector('#btn-rations').addEventListener('click', () => doChangeRations());
   div.querySelector('#btn-status').addEventListener('click',  () => doFullStatus());
+  div.querySelector('#btn-fish').addEventListener('click',    () => doFishing());
 
   return startSailAnim(div.querySelector('#sail-canvas'));
 }
@@ -376,6 +379,10 @@ function setBusy(b) {
     const el = document.getElementById(id);
     if (el) el.disabled = b;
   });
+  // Fish button has its own availability logic — only enable when not busy AND conditions met
+  const fishEl = document.getElementById('btn-fish');
+  if (fishEl && b) fishEl.disabled = true;
+  // (re-enabling happens in refreshStatus)
 }
 
 function renderMapStrip() {
@@ -469,6 +476,11 @@ function refreshStatus() {
     <div class="status-sep">— SETTINGS —</div>
     <div class="settings-val">Speed: ${['','Slow','Moderate','Full Steam'][gs.speed]}</div>
     <div class="settings-val">Rations: ${['','Meager','Normal','Filling'][gs.rations]}</div>`;
+  const fishEl = document.getElementById('btn-fish');
+  if (fishEl) {
+    const canFish = gs.progress >= 16 && gs.progress < 80 && gs.dayNum - gs.lastFishDay >= 3;
+    fishEl.disabled = vBusy || !canFish;
+  }
 }
 
 // ── Voyage advance ────────────────────────────────────────────────────────
@@ -609,6 +621,12 @@ async function doFullStatus() {
   await showAlert('Full Status Report',
     `PASSENGERS:\n${paxLines}\n\nRESOURCES:\nFood: ${gs.food} lbs\nCoal: ${gs.coal} tons\nMedicine: ${gs.medicine} doses\nMoney: ${gs.money} shillings\nLifeboat seats: ${gs.lifeboats}`);
   setBusy(false);
+}
+
+function doFishing() {
+  if (vBusy) return;
+  gs.addLog('» The engines slow. Fishing lines are cast off the stern deck.', 'good');
+  goTo(buildFishing);
 }
 
 // ── Random Events ─────────────────────────────────────────────────────────
@@ -815,6 +833,318 @@ function buildStore(app, portName) {
   div.querySelector('#depart-btn').addEventListener('click', () => {
     gs.addLog(`Departing ${portName}. The voyage continues.`);
     goTo(buildVoyage);
+  });
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// FISHING MINI-GAME
+// ═════════════════════════════════════════════════════════════════════════════
+function buildFishing(app) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 820; canvas.height = 620;
+  canvas.style.cssText = 'display:block;width:100%;height:100%;outline:none;';
+  canvas.tabIndex = 0;
+  app.appendChild(canvas);
+  const ctx = canvas.getContext('2d');
+  canvas.focus();
+
+  const W = 820, H = 620, WATER_Y = 130, HOOK_R = 9;
+  let hookX = W / 2, hookY = WATER_Y + (H - WATER_Y) * 0.55;
+  let timeLeft = 45, tick = 0, wavePhase = 0;
+  let gameOver = false, resultShown = false;
+  let fishFood = 0, coalBonus = 0, catchCount = 0;
+
+  // swimmers: {x, y, w, h, dx, type}  type: 0=sardine 1=cod 2=tuna 3=barrel
+  const swimmers = [];
+  const flashes  = [];   // {x, y, label, ttl}
+  const bubbles  = [];   // {x, y}
+
+  const keys = {};
+  const onKey = e => { keys[e.key] = e.type === 'keydown'; e.preventDefault(); };
+  canvas.addEventListener('keydown', onKey);
+  canvas.addEventListener('keyup',   onKey);
+  window.addEventListener('keydown', onKey);
+  window.addEventListener('keyup',   onKey);
+
+  // Touch: D-pad in bottom-left corner
+  const DPAD_CX = 85, DPAD_CY = H - 85, DPAD_R = 38;
+  const touchDirs = new Set();
+  const updateTouchKeys = () => {
+    keys['ArrowLeft']  = touchDirs.has('left');
+    keys['ArrowRight'] = touchDirs.has('right');
+    keys['ArrowUp']    = touchDirs.has('up');
+    keys['ArrowDown']  = touchDirs.has('down');
+  };
+  const getDpadDir = (tx, ty) => {
+    const dx = tx - DPAD_CX, dy = ty - DPAD_CY;
+    if (Math.sqrt(dx*dx+dy*dy) > DPAD_R*2.2) return null;
+    if (Math.abs(dx) >= Math.abs(dy)) return dx < 0 ? 'left' : 'right';
+    return dy < 0 ? 'up' : 'down';
+  };
+  const onTouch = e => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const sx = W / rect.width, sy = H / rect.height;
+    touchDirs.clear();
+    Array.from(e.touches).forEach(t => {
+      const dir = getDpadDir((t.clientX - rect.left)*sx, (t.clientY - rect.top)*sy);
+      if (dir) touchDirs.add(dir);
+    });
+    updateTouchKeys();
+    if ((e.type === 'touchend' || e.type === 'touchcancel') && gameOver && !resultShown) {
+      resultShown = true;
+      showFishResults();
+    }
+  };
+  canvas.addEventListener('touchstart',  onTouch, {passive: false});
+  canvas.addEventListener('touchmove',   onTouch, {passive: false});
+  canvas.addEventListener('touchend',    onTouch, {passive: false});
+  canvas.addEventListener('touchcancel', onTouch, {passive: false});
+
+  function spawnFish() {
+    const r = Math.random();
+    const type = r < 0.5 ? 0 : r < 0.8 ? 1 : 2;
+    const sizes = [[28,11],[44,17],[58,21]], speeds = [5,3,2];
+    const [fw,fh] = sizes[type], spd = speeds[type];
+    const fy = WATER_Y + 25 + Math.random() * (H - fh - 50 - WATER_Y);
+    if (Math.random() < 0.5) swimmers.push({x:-fw,y:fy,w:fw,h:fh,dx:spd,type});
+    else                      swimmers.push({x:W,  y:fy,w:fw,h:fh,dx:-spd,type});
+  }
+
+  function spawnBarrel() {
+    const bw=26, bh=22, by=WATER_Y+7;
+    const spd = 8 + (Math.random()*3|0);
+    if (Math.random() < 0.5) swimmers.push({x:-bw,y:by,w:bw,h:bh,dx:spd, type:3});
+    else                      swimmers.push({x:W,  y:by,w:bw,h:bh,dx:-spd,type:3});
+  }
+
+  async function showFishResults() {
+    window.removeEventListener('keydown', onKey);
+    window.removeEventListener('keyup',   onKey);
+    gs.food = Math.max(0, gs.food + fishFood);
+    gs.coal = Math.max(0, gs.coal + coalBonus - 10);
+    gs.lastFishDay = gs.dayNum;
+    gs.dayNum++;
+    const caughtStr = catchCount === 1 ? '1 fish' : `${catchCount} fish`;
+    gs.addLog('» The crew spent the afternoon fishing off the stern.', 'good');
+    gs.addLog(`  Caught ${caughtStr} — ${fishFood} lbs of fresh fish added to stores.`, 'good');
+    if (coalBonus > 0) gs.addLog(`  Also hauled in a floating coal barrel! +${coalBonus} tons.`, 'good');
+    await showAlert('Fishing Complete!',
+      `Fish caught:  ${catchCount}\nFood gained: +${fishFood} lbs` +
+      (coalBonus > 0 ? `\nCoal bonus:  +${coalBonus} tons` : '') +
+      '\n\nThe cook is delighted with the fresh Atlantic catch!');
+    goTo(buildVoyage);
+  }
+
+  let raf;
+  function frame() {
+    tick++;
+    wavePhase += 0.06;
+
+    if (!gameOver) {
+      const spd = 6;
+      if (keys['ArrowLeft']  || keys['a']) hookX = Math.max(HOOK_R+5, hookX-spd);
+      if (keys['ArrowRight'] || keys['d']) hookX = Math.min(W-HOOK_R-5, hookX+spd);
+      if (keys['ArrowUp']    || keys['w']) hookY = Math.max(WATER_Y+HOOK_R+5, hookY-spd);
+      if (keys['ArrowDown']  || keys['s']) hookY = Math.min(H-HOOK_R-5, hookY+spd);
+
+      if (tick % 120 === 0) spawnFish();
+      if (tick === 180 || (tick > 180 && tick % 480 === 0 && Math.random() < 0.7)) spawnBarrel();
+
+      if (tick % 30 === 0) bubbles.push({x: hookX+Math.random()*16-8, y: hookY+8});
+      for (let i=bubbles.length-1; i>=0; i--) { bubbles[i].y -= 1.5; if (bubbles[i].y < WATER_Y) bubbles.splice(i,1); }
+      for (let i=flashes.length-1; i>=0; i--) { flashes[i].y -= 2; if (--flashes[i].ttl <= 0) flashes.splice(i,1); }
+
+      for (let i=swimmers.length-1; i>=0; i--) {
+        const s = swimmers[i];
+        s.x += s.dx;
+        if (s.x < -s.w-40 || s.x > W+40) { swimmers.splice(i,1); continue; }
+        const fcx=s.x+s.w/2, fcy=s.y+s.h/2, ddx=fcx-hookX, ddy=fcy-hookY;
+        const cr = s.w/2 + HOOK_R;
+        if (ddx*ddx + ddy*ddy < cr*cr) {
+          if (s.type === 3) { coalBonus += 50; flashes.push({x:hookX,y:hookY,label:'+50 COAL!',ttl:70}); }
+          else { const fv=[20,35,50]; fishFood+=fv[s.type]; catchCount++; flashes.push({x:hookX,y:hookY,label:`+${fv[s.type]} lbs`,ttl:55}); }
+          swimmers.splice(i,1);
+        }
+      }
+
+      if (tick % 60 === 0 && --timeLeft <= 0) {
+        gameOver = true;
+        if (!resultShown) { resultShown = true; showFishResults(); }
+      }
+    }
+
+    // Draw scene
+    // Sky
+    const sky = ctx.createLinearGradient(0,0,0,WATER_Y);
+    sky.addColorStop(0,'#64a4dc'); sky.addColorStop(1,'#aad7f5');
+    ctx.fillStyle=sky; ctx.fillRect(0,0,W,WATER_Y);
+
+    // Clouds
+    ctx.fillStyle='rgba(255,255,255,0.78)';
+    fishCloud(ctx,(tick*0.4+50)%(W+180)-90|0,18,80);
+    fishCloud(ctx,(tick*0.25+320)%(W+180)-90|0,38,55);
+    fishCloud(ctx,(tick*0.35+650)%(W+180)-90|0,22,65);
+
+    // Deck railing
+    ctx.fillStyle='#372818'; ctx.fillRect(0,WATER_Y-20,W,9);
+    ctx.fillStyle='#503a24';
+    for (let px=8;px<W;px+=44) ctx.fillRect(px,WATER_Y-34,5,22);
+    ctx.fillStyle='#5f4830'; ctx.fillRect(0,WATER_Y-36,W,4);
+
+    // Fishing pole
+    const [poleBX,poleBY,poleTX,poleTY] = [W/2-90,WATER_Y-28,W/2-18,WATER_Y-82];
+    ctx.strokeStyle='#693e1c'; ctx.lineWidth=4; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(poleBX,poleBY); ctx.lineTo(poleTX,poleTY); ctx.stroke();
+    // Fishing line
+    ctx.strokeStyle='rgba(220,210,190,0.85)'; ctx.lineWidth=1; ctx.lineCap='butt';
+    ctx.beginPath(); ctx.moveTo(poleTX,poleTY); ctx.lineTo(hookX,WATER_Y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(hookX,WATER_Y); ctx.lineTo(hookX,hookY); ctx.stroke();
+
+    // Water
+    const water=ctx.createLinearGradient(0,WATER_Y,0,H);
+    water.addColorStop(0,'#0f55a0'); water.addColorStop(1,'#03163c');
+    ctx.fillStyle=water; ctx.fillRect(0,WATER_Y,W,H-WATER_Y);
+
+    // Surface shimmer
+    for (let wx=-20;wx<W+20;wx+=38) {
+      const wo=Math.sin(wavePhase+wx*0.08)*6|0;
+      ctx.fillStyle='rgba(180,225,255,0.07)';
+      ctx.beginPath(); ctx.ellipse(wx+15,WATER_Y-5+wo,15,5,0,0,Math.PI*2); ctx.fill();
+    }
+
+    // God rays
+    ctx.fillStyle='rgba(200,235,255,0.03)';
+    for (let rx=60;rx<W;rx+=130) {
+      ctx.beginPath(); ctx.moveTo(rx,WATER_Y); ctx.lineTo(rx+25,WATER_Y);
+      ctx.lineTo(rx+75,H); ctx.lineTo(rx+50,H); ctx.fill();
+    }
+
+    // Seaweed
+    for (let sx=20;sx<W;sx+=55) {
+      const swH=20+(sx%45);
+      for (let sy=H-swH;sy<H;sy+=5) {
+        const swx=sx+(Math.sin(wavePhase+sy*0.12+sx*0.05)*7|0);
+        ctx.fillStyle='rgba(18,95,45,0.55)';
+        ctx.beginPath(); ctx.arc(swx,sy,2.5,0,Math.PI*2); ctx.fill();
+      }
+    }
+
+    // Bubbles
+    ctx.strokeStyle='rgba(200,235,255,0.5)'; ctx.lineWidth=1;
+    bubbles.forEach(b => { ctx.beginPath(); ctx.arc(b.x,b.y,3,0,Math.PI*2); ctx.stroke(); });
+
+    // Swimmers
+    swimmers.forEach(s => fishDrawSwimmer(ctx,s));
+
+    // Hook
+    fishDrawHook(ctx, hookX, hookY);
+
+    // Catch flashes
+    flashes.forEach(fl => {
+      const alpha = Math.min(1, fl.ttl/20);
+      ctx.font='bold 13px sans-serif'; ctx.textAlign='left';
+      ctx.fillStyle = fl.label.includes('COAL') ? `rgba(212,175,55,${alpha})` : `rgba(80,220,80,${alpha})`;
+      ctx.fillText(fl.label, fl.x+10, fl.y);
+    });
+
+    // HUD
+    fishHUD(ctx, W, timeLeft, catchCount, fishFood, coalBonus);
+
+    // Touch D-pad
+    fishDpad(ctx, DPAD_CX, DPAD_CY, DPAD_R, keys);
+
+    raf = requestAnimationFrame(frame);
+  }
+
+  raf = requestAnimationFrame(frame);
+  return () => {
+    cancelAnimationFrame(raf);
+    window.removeEventListener('keydown', onKey);
+    window.removeEventListener('keyup',   onKey);
+  };
+}
+
+function fishCloud(ctx, x, y, size) {
+  ctx.beginPath(); ctx.ellipse(x+size/2, y+size/4, size/2, size/4, 0, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(x+size/3, y+size/4, size/3, size/3, 0, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(x+size*2/3, y+size/4, size/4, size*0.2, 0, 0, Math.PI*2); ctx.fill();
+}
+
+function fishDrawSwimmer(ctx, s) {
+  const {x,y,w,h,dx,type} = s;
+  const right = dx > 0;
+  if (type === 3) {
+    // Coal barrel — fast, near surface
+    const bg = ctx.createLinearGradient(x,y,x+w,y+h);
+    bg.addColorStop(0,'#55381e'); bg.addColorStop(1,'#2a190a');
+    ctx.fillStyle=bg; ctx.beginPath(); ctx.roundRect(x,y,w,h,4); ctx.fill();
+    ctx.strokeStyle='#b09450'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.roundRect(x,y,w,h,4); ctx.stroke();
+    ctx.strokeStyle='#341f0e'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(x,y+h/3);   ctx.lineTo(x+w,y+h/3);   ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x,y+h*2/3); ctx.lineTo(x+w,y+h*2/3); ctx.stroke();
+    ctx.font='bold 7px sans-serif'; ctx.fillStyle='#d4af37'; ctx.textAlign='left';
+    ctx.fillText('COAL',x+3,y+h/2+3);
+    // Speed trail
+    ctx.fillStyle='rgba(200,200,100,0.22)';
+    ctx.fillRect(right?x-14:x+w, y+3, 14, h-6);
+    return;
+  }
+  // Fish
+  const cols=['#aad3f5','#a3804a','#1c6e37'];
+  ctx.fillStyle=cols[type];
+  ctx.beginPath(); ctx.ellipse(x+w/2,y+h/2,w/2,h/2,0,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='rgba(255,255,255,0.28)';
+  ctx.beginPath(); ctx.ellipse(x+w/2,y+h/2,w/4,h/3,0,0,Math.PI*2); ctx.fill();
+  // Tail
+  const tailX=right?x:x+w, td=right?-1:1;
+  ctx.fillStyle=cols[type];
+  ctx.beginPath(); ctx.moveTo(tailX,y+h/2); ctx.lineTo(tailX+td*w/4,y+2); ctx.lineTo(tailX+td*w/4,y+h-2); ctx.closePath(); ctx.fill();
+  // Dorsal fin
+  ctx.fillStyle='rgba(0,0,0,0.2)';
+  ctx.beginPath(); ctx.moveTo(x+w*2/5,y); ctx.lineTo(x+w/2,y-h*0.4); ctx.lineTo(x+w*3/5,y); ctx.closePath(); ctx.fill();
+  // Eye
+  const eyeX=right?x+w*0.75-2:x+w*0.25-3;
+  ctx.fillStyle='#000'; ctx.beginPath(); ctx.arc(eyeX,y+h/2-1,2.5,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(eyeX+0.5,y+h/2-1.5,1,0,Math.PI*2); ctx.fill();
+}
+
+function fishDrawHook(ctx, x, y) {
+  ctx.strokeStyle='rgba(210,210,225,0.85)'; ctx.lineWidth=2.5; ctx.lineCap='round';
+  ctx.beginPath(); ctx.arc(x-3,y-1,8,0.2,Math.PI*1.3,true); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x+5,y-9); ctx.lineTo(x+5,y+5); ctx.stroke();
+  ctx.strokeStyle='rgba(255,255,255,0.5)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(x-6,y-2); ctx.lineTo(x-3,y+3); ctx.stroke();
+}
+
+function fishHUD(ctx, W, timeLeft, catchCount, fishFood, coalBonus) {
+  ctx.textAlign='center'; ctx.font='bold 15px Georgia,serif'; ctx.fillStyle='#d4af37';
+  ctx.fillText('NORTH ATLANTIC FISHING  —  April 1912', W/2, 18);
+  ctx.font='10px sans-serif'; ctx.fillStyle='rgba(180,170,150,0.9)';
+  ctx.fillText('Arrow keys / WASD: move hook  |  Intercept fish to catch  |  Fast barrels near surface = bonus coal!', W/2, 31);
+  ctx.textAlign='right'; ctx.font='bold 13px sans-serif';
+  ctx.fillStyle = timeLeft <= 10 ? '#be2828' : '#ffffff';
+  ctx.fillText(`TIME: ${timeLeft}s`, W-10, 18);
+  ctx.textAlign='left'; ctx.font='bold 12px sans-serif'; ctx.fillStyle='#28a046';
+  ctx.fillText(`Fish: ${catchCount}   Food: +${fishFood} lbs`, 10, 18);
+  if (coalBonus > 0) { ctx.fillStyle='#d4af37'; ctx.fillText(`Coal bonus: +${coalBonus} tons!`, 10, 33); }
+}
+
+function fishDpad(ctx, cx, cy, r, keys) {
+  const dirs = [
+    {key:'ArrowUp',dx:0,dy:-1,label:'▲'},{key:'ArrowDown', dx:0, dy:1,label:'▼'},
+    {key:'ArrowLeft',dx:-1,dy:0,label:'◄'},{key:'ArrowRight',dx:1,dy:0,label:'►'},
+  ];
+  dirs.forEach(d => {
+    const bx=cx+d.dx*(r+6), by=cy+d.dy*(r+6), active=keys[d.key];
+    ctx.fillStyle   = active ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.07)';
+    ctx.strokeStyle = active ? 'rgba(255,255,255,0.5)'  : 'rgba(255,255,255,0.15)';
+    ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.roundRect(bx-r+6,by-r+6,r*2-12,r*2-12,6); ctx.fill(); ctx.stroke();
+    ctx.font=`bold ${active?22:18}px sans-serif`;
+    ctx.fillStyle = active ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.35)';
+    ctx.textAlign='center'; ctx.fillText(d.label, bx, by+7);
   });
 }
 

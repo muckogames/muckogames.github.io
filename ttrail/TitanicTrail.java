@@ -78,6 +78,7 @@ public class TitanicTrail {
         boolean slowedForIce       = false;
         int icebergHits            = 0;
         boolean sank               = false;
+        int lastFishDay            = -10; // day last fished (cooldown)
 
         List<String> log = new ArrayList<>();
 
@@ -462,7 +463,7 @@ public class TitanicTrail {
         JLabel dateLabel, locationLabel;
         JLabel foodLbl, coalLbl, medLbl, moneyLbl, lifeBoatLbl;
         JPanel passengerPanel;
-        JButton continueBtn, restBtn, statusBtn, speedBtn, rationsBtn;
+        JButton continueBtn, restBtn, statusBtn, speedBtn, rationsBtn, fishBtn;
         JLabel speedLbl, rationsLbl;
 
         static final Random RNG = new Random();
@@ -558,16 +559,18 @@ public class TitanicTrail {
             speedBtn    = styledBtn("Change Speed", new Color(70,50,20));
             rationsBtn  = styledBtn("Change Rations", new Color(20,60,60));
             statusBtn   = styledBtn("Full Status", C_PANEL);
+            fishBtn     = styledBtn("Go Fishing", new Color(0,90,90));
 
             continueBtn.addActionListener(e -> doAdvance(false));
             restBtn.addActionListener(e -> doRest());
             speedBtn.addActionListener(e -> doSpeed());
             rationsBtn.addActionListener(e -> doRations());
             statusBtn.addActionListener(e -> showFullStatus());
+            fishBtn.addActionListener(e -> doFishing());
 
             btnRow.add(continueBtn); btnRow.add(restBtn);
             btnRow.add(speedBtn); btnRow.add(rationsBtn);
-            btnRow.add(statusBtn);
+            btnRow.add(statusBtn); btnRow.add(fishBtn);
             add(btnRow, BorderLayout.SOUTH);
         }
 
@@ -630,6 +633,12 @@ public class TitanicTrail {
 
             passengerPanel.revalidate();
             passengerPanel.repaint();
+
+            // Update fishing button availability
+            boolean canFish = gs.progress >= GameState.T_QUEENSTOWN
+                           && gs.progress < 80
+                           && gs.dayNum - gs.lastFishDay >= 3;
+            if (fishBtn != null) fishBtn.setEnabled(canFish);
 
             // Update map
             Component north = ((BorderLayout)getLayout()).getLayoutComponent(BorderLayout.NORTH);
@@ -738,6 +747,11 @@ public class TitanicTrail {
         void doRest() {
             gs.addLog("The ship rests at reduced speed. Passengers recover.");
             doAdvance(true);
+        }
+
+        void doFishing() {
+            gs.addLog("» The engines slow. Fishing lines are cast off the stern deck.");
+            goTo(new FishingPanel());
         }
 
         void doSpeed() {
@@ -1468,6 +1482,375 @@ public class TitanicTrail {
             g2.setFont(new Font("SansSerif",Font.BOLD,12));
             g2.setColor(C_RED);
             g2.drawString("Hits: "+gs.icebergHits,10,55);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // FISHING PANEL  (action mini-game)
+    // ─────────────────────────────────────────────────────────────────────────
+    static class FishingPanel extends JPanel implements ActionListener {
+        static final int WATER_Y = 130; // y-coord where ocean surface begins
+        static final int HOOK_R  = 9;   // hook collision radius
+
+        int hookX, hookY;   // hook position (within water area)
+        int timeLeft = 45;
+        int tick = 0;
+        boolean gameOver = false;
+        int fishFood  = 0;  // lbs of food earned
+        int coalBonus = 0;  // tons of coal earned
+        int catchCount = 0;
+
+        // swimmers: {x, y, w, h, dx, type}
+        // type 0=sardine(20lb) 1=cod(35lb) 2=tuna(50lb) 3=coal_barrel(+50 coal)
+        List<int[]> swimmers = new ArrayList<>();
+        // catch flashes: {x, y, label, ttl}
+        List<Object[]> flashes = new ArrayList<>();
+        // bubbles: {x, y}
+        List<int[]> bubbles = new ArrayList<>();
+
+        boolean leftKey=false, rightKey=false, upKey=false, downKey=false;
+        javax.swing.Timer timer;
+        Random rng = new Random();
+        float wavePhase = 0f;
+
+        FishingPanel() {
+            setBackground(new Color(5, 40, 90));
+            setFocusable(true);
+            addKeyListener(new KeyAdapter() {
+                public void keyPressed(KeyEvent e) {
+                    if (e.getKeyCode()==KeyEvent.VK_LEFT)  leftKey=true;
+                    if (e.getKeyCode()==KeyEvent.VK_RIGHT) rightKey=true;
+                    if (e.getKeyCode()==KeyEvent.VK_UP)    upKey=true;
+                    if (e.getKeyCode()==KeyEvent.VK_DOWN)  downKey=true;
+                }
+                public void keyReleased(KeyEvent e) {
+                    if (e.getKeyCode()==KeyEvent.VK_LEFT)  leftKey=false;
+                    if (e.getKeyCode()==KeyEvent.VK_RIGHT) rightKey=false;
+                    if (e.getKeyCode()==KeyEvent.VK_UP)    upKey=false;
+                    if (e.getKeyCode()==KeyEvent.VK_DOWN)  downKey=false;
+                }
+            });
+            timer = new javax.swing.Timer(50, this);
+        }
+
+        @Override public void addNotify() {
+            super.addNotify();
+            int W=getWidth(); if(W==0) W=820;
+            int H=getHeight(); if(H==0) H=620;
+            hookX = W/2;
+            hookY = WATER_Y + (H-WATER_Y)*6/10;
+            requestFocusInWindow();
+            timer.start();
+        }
+
+        @Override public void actionPerformed(ActionEvent e) {
+            if (gameOver) return;
+            tick++;
+            int W=getWidth(); if(W==0) W=820;
+            int H=getHeight(); if(H==0) H=620;
+
+            // Move hook (4 directions, clamped to water area)
+            int spd = 6;
+            if (leftKey)  hookX = Math.max(HOOK_R+5, hookX-spd);
+            if (rightKey) hookX = Math.min(W-HOOK_R-5, hookX+spd);
+            if (upKey)    hookY = Math.max(WATER_Y+HOOK_R+5, hookY-spd);
+            if (downKey)  hookY = Math.min(H-HOOK_R-5, hookY+spd);
+
+            wavePhase += 0.06f;
+
+            // Spawn fish every ~2s (40 ticks at 50ms)
+            if (tick % 40 == 0) spawnFish(W, H);
+
+            // Coal barrel: first at 3s, then periodically with some randomness
+            if (tick == 60 || (tick > 60 && tick % 150 == 0 && rng.nextInt(3) > 0))
+                spawnBarrel(W, H);
+
+            // Rising bubbles near hook
+            if (tick % 12 == 0) bubbles.add(new int[]{hookX+rng.nextInt(16)-8, hookY+8});
+            for (Iterator<int[]> it=bubbles.iterator(); it.hasNext();) {
+                int[] b=it.next(); b[1]-=2; if (b[1]<WATER_Y) it.remove();
+            }
+
+            // Move flashes, decrement ttl
+            for (Iterator<Object[]> it=flashes.iterator(); it.hasNext();) {
+                Object[] f=it.next();
+                f[1]=(Integer)f[1]-3; // float up
+                f[3]=(Integer)f[3]-1; // countdown
+                if ((Integer)f[3]<=0) it.remove();
+            }
+
+            // Move swimmers and check collisions
+            for (Iterator<int[]> it=swimmers.iterator(); it.hasNext();) {
+                int[] s=it.next();
+                s[0]+=s[4];
+                if (s[0]<-s[2]-40 || s[0]>W+40) { it.remove(); continue; }
+                // Circular collision: fish center vs hook center
+                int fcx=s[0]+s[2]/2, fcy=s[1]+s[3]/2;
+                int dx=fcx-hookX, dy=fcy-hookY;
+                int r=(s[2]/2+HOOK_R);
+                if (dx*dx+dy*dy < r*r) {
+                    int type=s[5];
+                    if (type==3) {
+                        coalBonus+=50;
+                        flashes.add(new Object[]{hookX, hookY, "+50 COAL!", 30});
+                    } else {
+                        int[] fv={20,35,50};
+                        fishFood+=fv[type];
+                        catchCount++;
+                        flashes.add(new Object[]{hookX, hookY, "+"+fv[type]+" lbs", 25});
+                    }
+                    it.remove();
+                }
+            }
+
+            // Countdown (20 ticks = 1 second)
+            if (tick % 20 == 0 && --timeLeft <= 0) {
+                gameOver=true; timer.stop();
+            }
+
+            repaint();
+
+            if (gameOver) {
+                final int food=fishFood, coal=coalBonus, catches=catchCount;
+                SwingUtilities.invokeLater(()->{
+                    gs.food = Math.max(0, gs.food+food);
+                    gs.coal = Math.max(0, gs.coal+coal-10); // -10 for idle boiler
+                    gs.lastFishDay = gs.dayNum;
+                    gs.dayNum++;
+                    String caughtStr = catches==1 ? "1 fish" : catches+" fish";
+                    gs.addLog("» The crew spent the afternoon fishing off the stern.");
+                    gs.addLog("  Caught "+caughtStr+" — "+food+" lbs of fresh fish added to stores.");
+                    if (coal>0) gs.addLog("  Also hauled in a floating coal barrel! +"+coal+" tons.");
+                    String msg = "Fishing Complete!\n\n"
+                        +"Fish caught:  "+catches+"\n"
+                        +"Food gained: +"+food+" lbs\n"
+                        +(coal>0 ? "Coal bonus:  +"+coal+" tons\n" : "")
+                        +"\nThe cook is delighted with the fresh Atlantic catch!";
+                    JOptionPane.showMessageDialog(frame, msg,
+                        "Fishing Results", JOptionPane.INFORMATION_MESSAGE);
+                    goTo(new VoyagePanel());
+                });
+            }
+        }
+
+        void spawnFish(int W, int H) {
+            // 50% sardine, 30% cod, 20% tuna
+            int r=rng.nextInt(10);
+            int type = r<5 ? 0 : r<8 ? 1 : 2;
+            int[][] sizes={{28,11},{44,17},{58,21}};
+            int[] speeds={5,3,2};
+            int fw=sizes[type][0], fh=sizes[type][1];
+            int minY=WATER_Y+25, maxY=H-fh-25;
+            int fy=minY+rng.nextInt(Math.max(1,maxY-minY));
+            int spd=speeds[type];
+            if (rng.nextBoolean()) swimmers.add(new int[]{-fw,fy,fw,fh,spd,type});
+            else                   swimmers.add(new int[]{W,  fy,fw,fh,-spd,type});
+        }
+
+        void spawnBarrel(int W, int H) {
+            int bw=26, bh=22, by=WATER_Y+7;
+            int spd=8+rng.nextInt(4); // fast! 8-11 px/tick
+            if (rng.nextBoolean()) swimmers.add(new int[]{-bw,by,bw,bh,spd,3});
+            else                   swimmers.add(new int[]{W,  by,bw,bh,-spd,3});
+        }
+
+        @Override protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            Graphics2D g2=(Graphics2D)g;
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,RenderingHints.VALUE_ANTIALIAS_ON);
+            int W=getWidth(), H=getHeight();
+
+            // Sky
+            GradientPaint sky=new GradientPaint(0,0,new Color(100,165,225),0,WATER_Y,new Color(170,215,250));
+            g2.setPaint(sky); g2.fillRect(0,0,W,WATER_Y);
+
+            // Clouds (slowly drifting)
+            g2.setColor(new Color(255,255,255,190));
+            drawCloud(g2,(int)(tick*0.4f+50)%(W+180)-90, 18, 80);
+            drawCloud(g2,(int)(tick*0.25f+320)%(W+180)-90, 38, 55);
+            drawCloud(g2,(int)(tick*0.35f+650)%(W+180)-90, 22, 65);
+
+            // Ship deck railing
+            g2.setColor(new Color(55,40,25));
+            g2.fillRect(0,WATER_Y-20,W,9);
+            g2.setColor(new Color(80,58,36));
+            for (int px=8;px<W;px+=44) g2.fillRect(px,WATER_Y-34,5,22);
+            g2.setColor(new Color(95,72,48));
+            g2.fillRect(0,WATER_Y-36,W,4);
+
+            // Fishing pole
+            int poleBaseX=W/2-90, poleBaseY=WATER_Y-28;
+            int poleTipX =W/2-18, poleTipY =WATER_Y-82;
+            g2.setColor(new Color(105,65,28));
+            g2.setStroke(new BasicStroke(4f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND));
+            g2.drawLine(poleBaseX,poleBaseY,poleTipX,poleTipY);
+            // Fishing line from pole tip to hook
+            g2.setColor(new Color(220,210,190,210));
+            g2.setStroke(new BasicStroke(1f));
+            g2.drawLine(poleTipX,poleTipY,hookX,WATER_Y);
+            g2.drawLine(hookX,WATER_Y,hookX,hookY);
+
+            // Water (underwater)
+            GradientPaint water=new GradientPaint(0,WATER_Y,new Color(15,85,160),0,H,new Color(3,22,60));
+            g2.setPaint(water); g2.fillRect(0,WATER_Y,W,H-WATER_Y);
+
+            // Surface shimmer
+            g2.setColor(new Color(180,225,255,65));
+            for (int wx=-20;wx<W+20;wx+=38) {
+                int wo=(int)(6*Math.sin(wavePhase+wx*0.08f));
+                g2.fillOval(wx,WATER_Y-5+wo,30,10);
+            }
+
+            // God-rays from surface
+            g2.setColor(new Color(200,235,255,12));
+            for (int rx=60;rx<W;rx+=130) {
+                int rw=50; int rx2=rx+rw;
+                g2.fillPolygon(new int[]{rx,rx+rw/2,rx2+rw/2,rx2},
+                               new int[]{WATER_Y,WATER_Y,H,H},4);
+            }
+
+            // Seaweed at bottom
+            g2.setStroke(new BasicStroke(2f));
+            for (int sx=20;sx<W;sx+=55) {
+                int swH=20+(sx%45);
+                g2.setColor(new Color(18,95,45,170));
+                for (int sy=H-swH;sy<H;sy+=5) {
+                    int swx=sx+(int)(7*Math.sin(wavePhase+sy*0.12f+sx*0.05f));
+                    g2.fillOval(swx-2,sy,5,5);
+                }
+            }
+
+            // Bubbles
+            g2.setColor(new Color(200,235,255,90));
+            g2.setStroke(new BasicStroke(1f));
+            for (int[] b:bubbles) g2.drawOval(b[0]-3,b[1]-3,6,6);
+
+            // Draw swimmers
+            for (int[] s:swimmers) drawSwimmer(g2,s);
+
+            // Draw hook
+            drawHook(g2,hookX,hookY);
+
+            // Catch flash labels
+            for (Object[] fl:flashes) {
+                int ttl=(Integer)fl[3];
+                float alpha=Math.min(1f, ttl/10f);
+                g2.setFont(new Font("SansSerif",Font.BOLD,13));
+                String lbl=(String)fl[2];
+                Color fc=lbl.contains("COAL") ? new Color(212,175,55,(int)(alpha*255))
+                                              : new Color(80,220,80,(int)(alpha*255));
+                g2.setColor(fc);
+                g2.drawString(lbl,(Integer)fl[0]+8,(Integer)fl[1]);
+            }
+
+            // HUD on top
+            drawFishHUD(g2,W,H);
+        }
+
+        void drawCloud(Graphics2D g2, int x, int y, int size) {
+            g2.fillOval(x,y,size,size/2);
+            g2.fillOval(x+size/4,y-size/4,size*2/3,size*2/3);
+            g2.fillOval(x+size/2,y,size/2,size/3);
+        }
+
+        void drawSwimmer(Graphics2D g2, int[] s) {
+            int x=s[0],y=s[1],w=s[2],h=s[3],type=s[5];
+            boolean right=s[4]>0;
+
+            if (type==3) {
+                // Coal barrel — fast, near surface, glowing label
+                GradientPaint bp=new GradientPaint(x,y,new Color(85,58,30),x+w,y+h,new Color(42,25,10));
+                g2.setPaint(bp);
+                g2.fillRoundRect(x,y,w,h,6,6);
+                g2.setColor(new Color(52,32,14));
+                g2.setStroke(new BasicStroke(2f));
+                g2.drawLine(x,y+h/3,x+w,y+h/3);
+                g2.drawLine(x,y+h*2/3,x+w,y+h*2/3);
+                g2.setColor(new Color(175,145,75));
+                g2.setStroke(new BasicStroke(1.5f));
+                g2.drawRoundRect(x,y,w,h,6,6);
+                g2.setFont(new Font("SansSerif",Font.BOLD,7));
+                g2.setColor(C_GOLD);
+                g2.drawString("COAL",x+3,y+h/2+3);
+                // Speed trail
+                g2.setColor(new Color(200,200,100,50));
+                int tx2=right?x-14:x+w;
+                g2.fillRect(tx2,y+3,14,h-6);
+                return;
+            }
+
+            // Fish
+            Color[] cols={new Color(170,215,245),new Color(165,128,72),new Color(28,108,55)};
+            Color fc=cols[type];
+
+            // Body oval
+            g2.setColor(fc);
+            g2.fillOval(x,y,w,h);
+            // Belly highlight
+            int br=Math.min(255,fc.getRed()+45), bg2=Math.min(255,fc.getGreen()+45), bb=Math.min(255,fc.getBlue()+45);
+            g2.setColor(new Color(br,bg2,bb,170));
+            g2.fillOval(x+w/4,y+h/4,w/2,h/2);
+
+            // Tail
+            int tailX=right?x:x+w;
+            int[] tx={tailX,tailX+(right?-w/4:w/4),tailX+(right?-w/4:w/4)};
+            int[] ty={y+h/2,y+1,y+h-1};
+            g2.setColor(fc.darker());
+            g2.fillPolygon(tx,ty,3);
+
+            // Dorsal fin
+            g2.setColor(fc.darker());
+            g2.setStroke(new BasicStroke(1f));
+            int[] fx={x+w*2/5,x+w/2,x+w*3/5};
+            int[] fy={y,y-h*2/5,y};
+            g2.drawPolyline(fx,fy,3);
+
+            // Eye
+            int eyeX=right?x+w*3/4-3:x+w/4-2;
+            g2.setColor(Color.BLACK);
+            g2.fillOval(eyeX,y+h/2-3,5,5);
+            g2.setColor(new Color(230,230,230));
+            g2.fillOval(eyeX+1,y+h/2-2,2,2);
+        }
+
+        void drawHook(Graphics2D g2, int x, int y) {
+            g2.setColor(new Color(210,210,225,220));
+            g2.setStroke(new BasicStroke(2.5f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND));
+            g2.drawArc(x-7,y-5,15,18,0,-210);
+            g2.drawLine(x+8,y-5,x+8,y+6);
+            g2.setColor(new Color(255,255,255,140));
+            g2.setStroke(new BasicStroke(1f));
+            g2.drawLine(x-6,y-2,x-3,y+3);
+        }
+
+        void drawFishHUD(Graphics2D g2, int W, int H) {
+            g2.setFont(new Font("Serif",Font.BOLD,15));
+            g2.setColor(C_GOLD);
+            String title="NORTH ATLANTIC FISHING — April 1912";
+            FontMetrics fm=g2.getFontMetrics();
+            g2.drawString(title,(W-fm.stringWidth(title))/2,18);
+
+            g2.setFont(new Font("SansSerif",Font.PLAIN,10));
+            g2.setColor(new Color(180,170,150));
+            String inst="Arrow keys: MOVE HOOK  |  Intercept fish to catch them!  |  Fast coal barrels near the surface = bonus coal!";
+            fm=g2.getFontMetrics();
+            g2.drawString(inst,(W-fm.stringWidth(inst))/2,31);
+
+            // Timer (top right) — red when low
+            g2.setFont(new Font("SansSerif",Font.BOLD,13));
+            g2.setColor(timeLeft<=10?C_RED:Color.WHITE);
+            String tstr="TIME: "+timeLeft+"s";
+            fm=g2.getFontMetrics();
+            g2.drawString(tstr,W-fm.stringWidth(tstr)-10,18);
+
+            // Catch stats (top left)
+            g2.setFont(new Font("SansSerif",Font.BOLD,12));
+            g2.setColor(C_GREEN);
+            g2.drawString("Fish: "+catchCount+"   Food: +"+fishFood+" lbs",10,18);
+            if (coalBonus>0) {
+                g2.setColor(C_GOLD);
+                g2.drawString("Coal bonus: +"+coalBonus+" tons!",10,33);
+            }
         }
     }
 
