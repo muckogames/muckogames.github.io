@@ -335,9 +335,32 @@ function startSailAnim(canvas) {
       ctx.stroke();
     }
 
-    // Ship — bobs gently on waves
-    const bob = Math.sin(t * 0.022) * 1.4;
-    drawTitanic(ctx, 300, seaY + bob);
+    // Ship — same drawShip as title screen, scaled to fit the 80-px canvas
+    const bob  = Math.sin(t * 0.022) * 1.4;
+    const shipCX  = 300;
+    const shipBaseY = seaY + bob;
+    const sc = 0.5;   // scale factor so the 75-px-tall ship fits above seaY
+
+    ctx.save();
+    ctx.translate(shipCX, shipBaseY);
+    ctx.scale(sc, sc);
+    drawShip(ctx, 0, 0, 280);
+    ctx.restore();
+
+    // Animated smoke rising from the first three funnels
+    // Funnel local-x positions inside drawShip: -90, -40, +10, +60
+    [-90, -40, 10].forEach((lx, i) => {
+      const fx = shipCX + lx * sc;
+      const fTopY = shipBaseY - 72 * sc;  // top of funnel in screen coords
+      for (let p = 0; p < 5; p++) {
+        const pf = ((t * 0.012) + p * 0.28 + i * 0.6) % 1;
+        const px = fx + Math.sin(pf * 5) * 2.5;
+        const py = fTopY - pf * 16;
+        const pr = 1.2 + pf * 4.5;
+        ctx.fillStyle = `rgba(72,72,88,${(0.36 * (1 - pf)).toFixed(2)})`;
+        ctx.beginPath(); ctx.arc(px, py, pr, 0, Math.PI * 2); ctx.fill();
+      }
+    });
 
     rafId = requestAnimationFrame(draw);
   }
@@ -346,63 +369,6 @@ function startSailAnim(canvas) {
   return () => cancelAnimationFrame(rafId);
 }
 
-function drawTitanic(ctx, cx, waterY) {
-  // Hull
-  ctx.fillStyle = '#18182c';
-  ctx.beginPath();
-  ctx.moveTo(cx - 118, waterY - 1);
-  ctx.lineTo(cx - 106, waterY + 9);
-  ctx.lineTo(cx + 104, waterY + 9);
-  ctx.lineTo(cx + 118, waterY - 1);
-  ctx.closePath(); ctx.fill();
-
-  // White waterline stripe
-  ctx.fillStyle = '#c0bba8';
-  ctx.fillRect(cx - 116, waterY - 3, 234, 2);
-
-  // Deck
-  ctx.fillStyle = '#22223c';
-  ctx.fillRect(cx - 100, waterY - 20, 200, 18);
-
-  // Superstructure
-  ctx.fillStyle = '#2c2c4c';
-  ctx.fillRect(cx - 72, waterY - 33, 144, 15);
-  ctx.fillStyle = '#323258';
-  ctx.fillRect(cx - 54, waterY - 42, 100, 11);
-
-  // Funnels (4) — offset toward stern (left side)
-  const funnelXs = [cx - 32, cx - 10, cx + 12, cx + 34];
-  funnelXs.forEach((fx, i) => {
-    // Black body with red band
-    ctx.fillStyle = '#111118';
-    ctx.fillRect(fx - 1, waterY - 57, 11, 22);
-    ctx.fillStyle = '#8a1c1c';
-    ctx.fillRect(fx - 1, waterY - 43, 11, 5);
-    ctx.fillStyle = '#1a1a28';
-    ctx.fillRect(fx, waterY - 57, 9, 2); // top cap
-
-    // Smoke puffs from first 3 funnels
-    if (i < 3) {
-      for (let p = 0; p < 5; p++) {
-        const pf = ((t * 0.012) + p * 0.28 + i * 0.6) % 1;
-        const px = fx + 5 + Math.sin(pf * 5) * 2.5;
-        const py = waterY - 57 - pf * 22;
-        const pr = 1.5 + pf * 5;
-        ctx.fillStyle = `rgba(72,72,85,${(0.35 * (1 - pf)).toFixed(2)})`;
-        ctx.beginPath(); ctx.arc(px, py, pr, 0, Math.PI * 2); ctx.fill();
-      }
-    }
-  });
-
-  // Foremast and mainmast
-  ctx.strokeStyle = '#38385a'; ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.moveTo(cx - 84, waterY - 33); ctx.lineTo(cx - 82, waterY - 70); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(cx + 68, waterY - 30); ctx.lineTo(cx + 66, waterY - 62); ctx.stroke();
-  // Cross-spars
-  ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(cx - 94, waterY - 52); ctx.lineTo(cx - 72, waterY - 52); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(cx + 58, waterY - 46); ctx.lineTo(cx + 76, waterY - 46); ctx.stroke();
-}
 
 function setBusy(b) {
   vBusy = b;
@@ -865,10 +831,11 @@ function buildIceberg(app) {
   canvas.focus();
 
   const W = 820, H = 620;
-  const SHIP_W = 60, SHIP_H = 25;
+  const SHIP_W = 36, SHIP_H = 64;
   const shipY = H - 90;
 
   let shipX = W / 2;
+  let shipLean = 0; // -1 = hard left turn, +1 = hard right
   // If the player received an ice warning but chose to maintain speed, the hull
   // is stressed from high-speed navigation — start damaged.
   let hull = (gs.receivedIceWarning && !gs.slowedForIce) ? 80 : 100;
@@ -940,10 +907,13 @@ function buildIceberg(app) {
 
     // ── Gameplay logic ───────────────────────────────────────────────────
     if (phase === 'playing') {
-      if (keys['ArrowLeft']  || keys['a']) shipX = Math.max(SHIP_W/2+5, shipX-6);
-      if (keys['ArrowRight'] || keys['d']) shipX = Math.min(W-SHIP_W/2-5, shipX+6);
+      const movL = keys['ArrowLeft']  || keys['a'];
+      const movR = keys['ArrowRight'] || keys['d'];
+      if (movL) { shipX = Math.max(SHIP_W/2+5, shipX-6); shipLean = Math.max(-1, shipLean-0.15); }
+      if (movR) { shipX = Math.min(W-SHIP_W/2-5, shipX+6); shipLean = Math.min(1, shipLean+0.15); }
+      if (!movL && !movR) shipLean *= 0.82;
 
-      const spawnRate = Math.max(8, 30 - Math.floor((60-timeLeft)/3));
+      const spawnRate = Math.max(13, 50 - Math.floor((60-timeLeft)/3));
       if (tick % spawnRate === 0) {
         icebergs.push({ x:Math.random()*(W-80)+5, y:-60,
           w:30+Math.random()*60, h:25+Math.random()*35, dx:(Math.random()*4-2) });
@@ -999,9 +969,16 @@ function buildIceberg(app) {
 
       if (phase === 'playing') {
         icebergs.forEach(ice => drawIceberg(ctx, ice.x, ice.y, ice.w, ice.h));
-        drawMiniShip(ctx, shipX, shipY, SHIP_W, SHIP_H);
-        ctx.fillStyle='rgba(100,160,255,0.15)';
-        for(let i=1;i<=4;i++) ctx.fillRect(shipX-SHIP_W/2-i*3, shipY+SHIP_H-4, SHIP_W+i*6, 5);
+        // Bow wave just ahead of the bow
+        ctx.fillStyle = 'rgba(160,215,255,0.22)';
+        ctx.beginPath(); ctx.ellipse(shipX, shipY - 4, SHIP_W / 2 + 4, 6, 0, 0, Math.PI * 2); ctx.fill();
+        drawMiniShip(ctx, shipX, shipY, shipLean);
+        // V-shaped wake spreading aft (below stern)
+        for (let i = 1; i <= 5; i++) {
+          const spread = i * 6;
+          ctx.fillStyle = `rgba(100,160,255,${(0.17 - i * 0.025).toFixed(2)})`;
+          ctx.fillRect(shipX - SHIP_W/2 - spread, shipY + SHIP_H + i * 5 - 4, SHIP_W + spread * 2, 3);
+        }
         if (hitFlash > 0) {
           ctx.fillStyle=`rgba(200,0,0,${(hitFlash/8*0.25).toFixed(2)})`;
           ctx.fillRect(0,0,W,H); hitFlash--;
@@ -1010,8 +987,8 @@ function buildIceberg(app) {
         drawTouchHints(ctx, W, H, keys);
       } else {
         // Sinking animation
-        drawSinkingAnimation(ctx, W, H, animTick, SHIP_W, SHIP_H);
-        if (animTick > 310) {
+        drawSinkingAnimation(ctx, W, H, animTick);
+        if (animTick > 580) {
           clickReady = true;
           const a = Math.abs(Math.sin(animTick * 0.07)).toFixed(2);
           ctx.textAlign='center'; ctx.font='14px Georgia,serif';
@@ -1053,21 +1030,64 @@ function drawIceberg(ctx, x, y, w, h) {
   ctx.beginPath(); ctx.moveTo(x+w*0.25,y); ctx.lineTo(x+w*0.15,y+h*0.4); ctx.stroke();
 }
 
-function drawMiniShip(ctx, cx, y, sw, sh) {
-  ctx.fillStyle='#0f0f23';
+function drawMiniShip(ctx, cx, topY, lean) {
+  // Overhead top-down view. Bow points UP toward icebergs (direction of travel).
+  // Funnels run bow-to-stern along the centreline. lean: –1=left turn, +1=right.
+  const SW = 36;   // beam (width)
+  const SL = 64;   // length (bow to stern)
+  const midY = topY + SL / 2;
+
+  ctx.save();
+  ctx.translate(cx, midY);
+  ctx.rotate(lean * 0.13);  // bow swings toward direction of movement
+
+  // ── Hull ──────────────────────────────────────────────────────────────────
+  ctx.fillStyle = '#0e0e20';
   ctx.beginPath();
-  ctx.moveTo(cx-sw/2,   y+4); ctx.lineTo(cx-sw/2+5,y+sh);
-  ctx.lineTo(cx+sw/2-10,y+sh); ctx.lineTo(cx+sw/2,  y+2);
-  ctx.lineTo(cx+sw/2-5, y-2); ctx.lineTo(cx-sw/2+3, y-2);
-  ctx.closePath(); ctx.fill();
-  ctx.strokeStyle='rgba(200,195,180,0.8)'; ctx.lineWidth=1.5;
-  ctx.beginPath(); ctx.moveTo(cx-sw/2+5,y+2); ctx.lineTo(cx+sw/2-4,y+2); ctx.stroke();
-  ctx.fillStyle='#b8b3a2'; ctx.fillRect(cx-14,y-14,28,14);
-  ctx.fillStyle='#0f0f23'; ctx.fillRect(cx-10,y-22,6,10); ctx.fillRect(cx+4,y-22,6,10);
-  ctx.fillStyle='#b43c14'; ctx.fillRect(cx-10,y-25,6,5);  ctx.fillRect(cx+4,y-25,6,5);
-  ctx.fillStyle='rgba(80,80,100,0.5)';
-  ctx.beginPath(); ctx.ellipse(cx-7,y-33,4,10,0,0,Math.PI*2); ctx.fill();
-  ctx.beginPath(); ctx.ellipse(cx+7,y-33,4,10,0,0,Math.PI*2); ctx.fill();
+  ctx.moveTo(  0,          -SL/2);        // bow tip
+  ctx.lineTo(  SW/2 - 3,  -SL/2 + 15);   // bow-right flare
+  ctx.lineTo(  SW/2 + 1,  -SL/2 + 28);   // max beam starboard
+  ctx.lineTo(  SW/2,       SL/2 - 10);   // stern-right quarter
+  ctx.lineTo(  SW/2 - 6,   SL/2);        // stern-right corner
+  ctx.lineTo( -SW/2 + 6,   SL/2);        // stern-left corner
+  ctx.lineTo( -SW/2,       SL/2 - 10);   // stern-left quarter
+  ctx.lineTo( -SW/2 - 1,  -SL/2 + 28);  // max beam port
+  ctx.lineTo( -SW/2 + 3,  -SL/2 + 15);  // bow-left flare
+  ctx.closePath();
+  ctx.fill();
+
+  // Subtle hull edge
+  ctx.strokeStyle = 'rgba(50,65,105,0.65)'; ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // Waterline stripes along each side
+  ctx.strokeStyle = 'rgba(200,190,162,0.5)'; ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo( SW/2 - 4,  -SL/2 + 17); ctx.lineTo( SW/2 - 2,   SL/2 - 13);
+  ctx.moveTo(-SW/2 + 4,  -SL/2 + 17); ctx.lineTo(-SW/2 + 2,   SL/2 - 13);
+  ctx.stroke();
+
+  // ── Superstructure ────────────────────────────────────────────────────────
+  ctx.fillStyle = '#b5b09e';
+  ctx.fillRect(-SW/2 + 5, -SL/2 + 14, SW - 10, SL * 0.52);
+
+  // ── Funnels (2, arranged bow → stern along centreline) ────────────────────
+  const funnelYs = [-SL/2 + 23, -SL/2 + 41];
+  funnelYs.forEach(fy => {
+    // Funnel body
+    ctx.fillStyle = '#1c1a2c';
+    ctx.beginPath(); ctx.ellipse(0, fy, 4.5, 5.5, 0, 0, Math.PI * 2); ctx.fill();
+    // Titanic red-and-black livery ring
+    ctx.strokeStyle = '#b43c14'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(0, fy, 4.5, 5.5, 0, 0, Math.PI * 2); ctx.stroke();
+    // Smoke drifts aft (downward, trailing behind direction of travel)
+    ctx.fillStyle = 'rgba(80,80,112,0.46)';
+    ctx.beginPath(); ctx.ellipse(0, fy + 8,  3.5, 5.0, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(80,80,112,0.22)';
+    ctx.beginPath(); ctx.ellipse(0, fy + 16, 2.5, 3.5, 0, 0, Math.PI * 2); ctx.fill();
+  });
+
+  ctx.restore();
 }
 
 function drawIcebergHUD(ctx, W, H, hull, timeLeft, tick) {
@@ -1132,118 +1152,164 @@ const easeIn  = t => t * t;
 const easeOut = t => 1 - (1-t)*(1-t);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SINKING ANIMATION
+// SINKING ANIMATION  — full 4-funnel Titanic sinking sequence
 // ─────────────────────────────────────────────────────────────────────────────
-function drawSinkingAnimation(ctx, W, H, animTick, SHIP_W, SHIP_H) {
-  // Timeline (frames at ~60fps):
-  //   0–80:   whole ship tilts bow-down to 45°
-  //  80–110:  break flash / crack
-  // 110–310:  two halves sink separately
+function drawSinkingAnimation(ctx, W, H, animTick) {
+  // Timeline (frames ≈ 60 fps):
+  //   0  – 120 : whole ship tilts bow-down to 34° (MAX_TILT)
+  //  100 – 155 : break crack flash at amidships
+  //  155 – 290 : bow half sinks steeply; stern half falls back to horizontal
+  //  290 – 430 : stern half rises from horizontal to vertical
+  //  430 – 560 : stern sinks straight down
 
-  const TILT_END  = 80;
-  const BREAK_END = 110;
-  const SINK_END  = 310;
-  const t = Math.min(animTick, SINK_END);
+  const T_TILT_END  = 120;
+  const T_BREAK_S   = 100;
+  const T_BREAK_E   = 155;
+  const T_FALL_END  = 290;
+  const T_RISE_END  = 430;
+  const T_SINK_END  = 560;
+  const MAX_TILT    = 0.60;   // ~34° in radians
+  const SLEN        = 280;
+  // Break is at local x = –55 (≈ 2/3 from bow, matching historical break point)
+  const BRK = -55;
 
-  const waterX = W / 2;
-  const waterY = H * 3/5; // waterline
+  const t = Math.min(animTick, T_SINK_END);
+  const waterX = W / 2 - 20;
+  const waterY = H * 3 / 5;
 
-  // Tilt angle: 0 → 45° (bow/right side goes under first)
-  const tiltT = Math.min(t / TILT_END, 1);
-  const angle  = easeIn(tiltT) * (Math.PI / 4);
+  // Given an angle and the desired screen-Y of the break pivot, return the
+  // ctx translation so that drawShip(ctx,0,–8,SLEN) has its break-point there.
+  // Break at local (BRK, 0); waterline passes through hull centre (baseY=–8 → hull centre at y≈0).
+  const anchor = (angle, pivotY) => ({
+    cx: waterX - BRK * Math.cos(angle),   // BRK negative, so –BRK is positive
+    cy: pivotY  - BRK * Math.sin(angle),
+  });
 
-  const breaking = t > TILT_END && t <= BREAK_END;
-  const sinking  = t > BREAK_END;
-  const sinkT    = sinking ? Math.min((t - BREAK_END) / (SINK_END - BREAK_END), 1) : 0;
-
-  const shipDrawY = -(SHIP_H + 5); // top of ship relative to pivot
-
-  if (!sinking) {
-    // Whole ship, tilted
-    ctx.save();
-    ctx.translate(waterX, waterY);
-    ctx.rotate(angle);
-    drawMiniShip(ctx, 0, shipDrawY, SHIP_W, SHIP_H);
-    ctx.restore();
-
-    if (breaking) {
-      // Orange crack flash down the middle
-      const prog = (t - TILT_END) / (BREAK_END - TILT_END);
-      const alpha = Math.sin(prog * Math.PI);
-      ctx.save();
-      ctx.translate(waterX, waterY);
-      ctx.rotate(angle);
-      ctx.fillStyle = `rgba(255,140,30,${(alpha * 0.9).toFixed(2)})`;
-      ctx.fillRect(-3, shipDrawY, 6, SHIP_H + 5);
-      ctx.restore();
-    }
-  } else {
-    // ── Two halves sinking ──────────────────────────────────────────────
-
-    // Bow (right half): sinks fast, tilts more steeply
-    const bowSink  = easeIn(sinkT) * 320;
-    const bowAngle = angle + sinkT * (Math.PI / 5);
-
-    ctx.save();
-    ctx.translate(waterX, waterY + bowSink);
-    ctx.rotate(bowAngle);
-    ctx.beginPath(); ctx.rect(0, -120, SHIP_W + 60, 200); ctx.clip();
-    drawMiniShip(ctx, 0, shipDrawY, SHIP_W, SHIP_H);
-    ctx.restore();
-
-    // Stern (left half): briefly rises, then sinks with reverse tilt
-    const sternRise = Math.min(sinkT * 4, 1) * 35;
-    const sternSinkT = Math.max((sinkT - 0.35) / 0.65, 0);
-    const sternSink  = easeIn(sternSinkT) * 320;
-    const sternAngle = angle - sinkT * (Math.PI / 7);
-
-    ctx.save();
-    ctx.translate(waterX, waterY - sternRise + sternSink);
-    ctx.rotate(sternAngle);
-    ctx.beginPath(); ctx.rect(-SHIP_W - 60, -120, SHIP_W + 60, 200); ctx.clip();
-    drawMiniShip(ctx, 0, shipDrawY, SHIP_W, SHIP_H);
-    ctx.restore();
-
-    // Bubbles
-    for (let i = 0; i < 14; i++) {
-      const bx = waterX + Math.sin(animTick * 0.07 + i * 2.3) * 75;
-      const by = waterY - 15 - sinkT * 45 - Math.sin(i * 1.8) * 25;
-      const ba = Math.max(0, 0.6 - sinkT * 0.8);
-      ctx.fillStyle = `rgba(150,210,255,${ba.toFixed(2)})`;
-      ctx.beginPath(); ctx.arc(bx, by, 1.5 + Math.abs(Math.sin(i)) * 2, 0, Math.PI*2); ctx.fill();
-    }
-
-    // Debris dots
-    for (let i = 0; i < 8; i++) {
-      const dx = waterX + Math.cos(i * 1.1 + sinkT * 2) * (30 + i * 12);
-      const dy = waterY + 8 + i * 3;
-      ctx.fillStyle = 'rgba(120,100,80,0.5)';
-      ctx.fillRect(dx, dy, 3, 2);
-    }
-  }
-
-  // Expanding water ripples
-  if (t > 20) {
-    [[20, 0.5], [60, 0.38], [100, 0.25]].forEach(([start, alpha]) => {
-      if (t <= start) return;
-      const r = Math.min((t - start) * 2.2, 260);
-      const a = Math.max(0, alpha * (1 - r / 260));
-      ctx.strokeStyle = `rgba(100,160,220,${a.toFixed(2)})`;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.ellipse(waterX, waterY, r, r * 0.22, 0, 0, Math.PI*2); ctx.stroke();
-    });
-  }
-
-  // Header text
-  if (t < SINK_END - 30) {
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 26px Georgia,serif'; ctx.fillStyle = 'rgba(190,40,40,0.92)';
-    ctx.shadowColor = '#000'; ctx.shadowBlur = 8;
-    ctx.fillText('THE TITANIC IS SINKING', W/2, 52);
-    ctx.font = '14px Georgia,serif'; ctx.fillStyle = 'rgba(220,210,180,0.75)';
-    ctx.fillText('2:20 AM — April 15, 1912', W/2, 76);
+  // ── Header ────────────────────────────────────────────────────────────────
+  if (t < T_SINK_END - 40) {
+    ctx.textAlign = 'center'; ctx.shadowColor = '#000'; ctx.shadowBlur = 10;
+    ctx.font = 'bold 28px Georgia,serif'; ctx.fillStyle = 'rgba(195,38,38,0.95)';
+    ctx.fillText('THE TITANIC IS SINKING', W / 2, 54);
+    ctx.font = '14px Georgia,serif'; ctx.fillStyle = 'rgba(220,210,178,0.80)';
+    ctx.fillText('2:20 AM — April 15, 1912', W / 2, 78);
     ctx.shadowBlur = 0;
   }
+
+  // ── Phase 1: whole ship tilting ───────────────────────────────────────────
+  if (t <= T_BREAK_E) {
+    const angle = easeIn(Math.min(t / T_TILT_END, 1)) * MAX_TILT;
+    const {cx, cy} = anchor(angle, waterY);
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(angle);
+    drawShip(ctx, 0, -8, SLEN);
+    ctx.restore();
+
+    // Break crack flash
+    if (t >= T_BREAK_S) {
+      const prog  = (t - T_BREAK_S) / (T_BREAK_E - T_BREAK_S);
+      const alpha = Math.sin(prog * Math.PI);
+      const {cx: bx, cy: by} = anchor(angle, waterY);
+      ctx.save(); ctx.translate(bx, by); ctx.rotate(angle);
+      ctx.fillStyle = `rgba(255,145,30,${(alpha * 0.95).toFixed(2)})`;
+      ctx.fillRect(BRK - 4, -32, 8, 50);
+      if (alpha > 0.25) {
+        for (let i = 0; i < 7; i++) {
+          const sx = Math.sin(t * 0.55 + i * 1.1) * 22;
+          const sy = Math.cos(t * 0.55 + i * 0.9) * 16 - 16;
+          ctx.fillStyle = `rgba(255,${175 + i * 11},50,${(alpha * 0.75).toFixed(2)})`;
+          ctx.beginPath(); ctx.arc(BRK + sx, sy, 2.5, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+      ctx.restore();
+    }
+  }
+
+  // ── Phases 2 +: two independent halves ────────────────────────────────────
+  if (t > T_BREAK_E) {
+    const ph = t - T_BREAK_E;
+
+    // BOW half (right of break) — steepens and sinks
+    const bowDur   = T_RISE_END - T_BREAK_E;
+    const bowT     = Math.min(ph / bowDur, 1);
+    const bowAngle = MAX_TILT + easeIn(bowT) * 0.92;
+    const bowSinkY = waterY + easeIn(bowT) * 260;
+    const {cx: bcx, cy: bcy} = anchor(bowAngle, bowSinkY);
+    ctx.save(); ctx.translate(bcx, bcy); ctx.rotate(bowAngle);
+    ctx.beginPath(); ctx.rect(BRK - 1, -300, 600, 600); ctx.clip();
+    drawShip(ctx, 0, -8, SLEN);
+    ctx.restore();
+
+    // STERN half (left of break) — falls to horizontal, then rises to vertical, then sinks
+    let sternAngle, sternPivotY = waterY;
+
+    if (t <= T_FALL_END) {
+      // Falls back toward horizontal
+      const fallT = (t - T_BREAK_E) / (T_FALL_END - T_BREAK_E);
+      sternAngle = MAX_TILT * (1 - easeOut(fallT));
+    } else if (t <= T_RISE_END) {
+      // Rises from horizontal to vertical (positive clockwise → left/stern end goes UP)
+      const riseT = (t - T_FALL_END) / (T_RISE_END - T_FALL_END);
+      sternAngle = easeIn(riseT) * (Math.PI / 2);
+    } else {
+      // Sinks vertically
+      sternAngle = Math.PI / 2;
+      const sinkT = (t - T_RISE_END) / (T_SINK_END - T_RISE_END);
+      sternPivotY = waterY + easeIn(sinkT) * 340;
+    }
+
+    const {cx: scx, cy: scy} = anchor(sternAngle, sternPivotY);
+    ctx.save(); ctx.translate(scx, scy); ctx.rotate(sternAngle);
+    ctx.beginPath(); ctx.rect(-600, -300, 600 + BRK + 1, 600); ctx.clip();
+    drawShip(ctx, 0, -8, SLEN);
+    ctx.restore();
+  }
+
+  // ── Water overlay (hides submerged sections) ──────────────────────────────
+  const seaGrad = ctx.createLinearGradient(0, waterY, 0, H);
+  seaGrad.addColorStop(0, 'rgba(5,18,48,0.97)');
+  seaGrad.addColorStop(1, 'rgba(0,8,28,0.99)');
+  ctx.fillStyle = seaGrad;
+  ctx.fillRect(0, waterY, W, H - waterY);
+
+  // Animated wave at waterline
+  ctx.strokeStyle = 'rgba(80,135,205,0.5)'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let wx = 0; wx <= W; wx += 5) {
+    const wy = waterY + Math.sin(wx * 0.036 + animTick * 0.055) * 3;
+    wx === 0 ? ctx.moveTo(wx, wy) : ctx.lineTo(wx, wy);
+  }
+  ctx.stroke();
+
+  // ── Bubbles ───────────────────────────────────────────────────────────────
+  const bubbleCount = Math.min(24, Math.floor(Math.max(0, t - 60) / 4));
+  for (let i = 0; i < bubbleCount; i++) {
+    const bx = waterX + Math.sin(animTick * 0.07 + i * 2.1) * 95 + Math.cos(i * 1.7) * 38;
+    const rise = ((animTick * 1.3 + i * 47) % 130) / 130;
+    const by = waterY - 8 - rise * 90;
+    const ba = Math.max(0, 0.7 - rise * 0.75);
+    ctx.fillStyle = `rgba(150,205,255,${ba.toFixed(2)})`;
+    ctx.beginPath(); ctx.arc(bx, by, 1.5 + (i % 3) * 1.5, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // ── Debris ────────────────────────────────────────────────────────────────
+  if (t > 155) {
+    const debrisAlpha = Math.max(0, 0.65 - (t / T_SINK_END) * 0.45);
+    for (let i = 0; i < 14; i++) {
+      const dx = waterX + Math.cos(i * 1.3 + t * 0.004) * (18 + i * 16);
+      const dy = waterY - 5 + Math.sin(i * 2.1) * 9;
+      ctx.fillStyle = `rgba(105,82,58,${debrisAlpha.toFixed(2)})`;
+      ctx.fillRect(dx, dy, 4 + i % 4, 2);
+    }
+  }
+
+  // ── Expanding ripples ─────────────────────────────────────────────────────
+  [[40,0.55],[110,0.42],[210,0.28]].forEach(([start, alpha]) => {
+    if (t <= start) return;
+    const r = Math.min((t - start) * 2.4, 290);
+    const a = Math.max(0, alpha * (1 - r / 290));
+    ctx.strokeStyle = `rgba(100,160,220,${a.toFixed(2)})`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.ellipse(waterX, waterY, r, r * 0.20, 0, 0, Math.PI * 2); ctx.stroke();
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1548,6 +1614,17 @@ function scaleToViewport() {
 }
 window.addEventListener('resize', scaleToViewport);
 scaleToViewport();
+
+// ── Cheat code: type "gtia" anywhere to jump to the iceberg mini-game ────
+(function() {
+  const SEQ = 'gtia';
+  let buf = '';
+  window.addEventListener('keydown', e => {
+    if (e.key.length !== 1) return;
+    buf = (buf + e.key).slice(-SEQ.length);
+    if (buf === SEQ) { buf = ''; gs.init(); goTo(buildIceberg); }
+  });
+})();
 
 // ── Start the game ────────────────────────────────────────────────────────
 goTo(buildTitle);

@@ -88,9 +88,12 @@ input[type=text]:focus{outline:none;border-color:#ffd700}
 .sb-row:nth-child(odd){background:rgba(0,0,0,.2)}
 canvas{display:block;margin:0 auto;border:2px solid #5a4010;border-radius:5px;cursor:crosshair;max-width:100%;height:auto}
 @media(max-width:600px){body{padding:6px}button{padding:10px 14px;font-size:.95em}.btn-go{font-size:1em!important;padding:12px 20px!important}.diff-row{flex-direction:column;align-items:center}.dcard{width:90%!important}}
+#back-btn{position:fixed;top:10px;left:10px;z-index:999;font-family:'Courier New',monospace;font-size:.78em;color:#d4a853;background:rgba(10,13,20,0.88);border:1px solid #5a4010;padding:5px 11px;text-decoration:none;opacity:.65;transition:opacity .15s;white-space:nowrap}
+#back-btn:hover{opacity:1;border-color:#ffd700;color:#ffd700}
 </style>
 </head>
 <body>
+<a id="back-btn" href="index.html">← Mucko's Games</a>
 <div id="app"></div>
 <script>
 // ── DATA ──────────────────────────────────────────────────────────────────────

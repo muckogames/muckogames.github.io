@@ -211,6 +211,24 @@ button.btn-large  { font-size: 16px; padding: 8px 22px; }
 .store-note  { font-size: 12px; font-style: italic; color: #5a5444; margin-top: 12px; }
 .store-bottom { display: flex; justify-content: center; padding-top: 14px; }
 
+/* ── Back button ── */
+#back-btn {
+  position: fixed;
+  top: 8px; left: 8px;
+  z-index: 200;
+  font-family: Georgia, serif;
+  font-size: 12px;
+  color: #d4af37;
+  background: rgba(5, 25, 65, 0.88);
+  border: 1px solid #d4af37;
+  padding: 4px 10px;
+  text-decoration: none;
+  opacity: 0.65;
+  transition: opacity 0.15s;
+  white-space: nowrap;
+}
+#back-btn:hover { opacity: 1; }
+
 /* ── Ending Screen ── */
 #ending-screen {
   width: 820px; height: 620px;
@@ -253,6 +271,7 @@ button.btn-large  { font-size: 16px; padding: 8px 22px; }
 </style>
 </head>
 <body>
+<a id="back-btn" href="../../index.html">← Mucko's Games</a>
 <div id="app"></div>
 
 <div id="modal-overlay" class="hidden">
