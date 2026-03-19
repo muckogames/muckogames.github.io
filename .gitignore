@@ -1,3 +1,4 @@
 *.class
 ttrail/out/
 PLAN.md
+/local
