@@ -99,14 +99,28 @@ let phase='title';
 let t=0;       // tick counter
 let sceneIdx=0;
 let esc=null;  // escape game state
+let cln=null;  // cleanup game state
 let fade={a:0,dir:0,cb:null}; // screen fade
+const SUSP_MAX=100;
+let suspicion=0;
+let suspNotice={timer:0,text:'',good:false};
 
 function startPhase(p){
   if(p==='escape'){initEscape();}
   else if(p==='stealth'){initStealth();}
+  else if(p==='cleanup'){initCleanup();}
   else if(p==='closet_game'){initCloset();}
   else if(p==='epilogue'){sceneIdx=findScene('epilogue_start');}
   phase=p;
+}
+function resetRun(){
+  sceneIdx=0;
+  suspicion=0;
+  suspNotice={timer:0,text:'',good:false};
+  esc=null;
+  stl=null;
+  cln=null;
+  cls=null;
 }
 function findScene(id){
   const idx=SCENES.findIndex(s=>s.id===id);
@@ -175,6 +189,54 @@ const C={
   lilac:'#ddc8ef',mint:'#cde7c7',blush:'#f5dbe3',
   wood:'#bf8d5a',woodDk:'#8e6338',tan:'#f1d4ad',tanDk:'#c49773',
 };
+
+function adjustSuspicion(delta,reason){
+  const prev=suspicion;
+  suspicion=Math.max(0,Math.min(SUSP_MAX,suspicion+delta));
+  const amt=suspicion-prev;
+  if(!amt)return;
+  suspNotice={
+    timer:150,
+    text:`${amt>0?'+':''}${amt} Suspicion${reason?` - ${reason}`:''}`,
+    good:amt<0,
+  };
+}
+function suspicionRatio(){return suspicion/SUSP_MAX;}
+function suspicionLabel(){
+  if(suspicion<15)return'Hidden';
+  if(suspicion<35)return'Whispers';
+  if(suspicion<55)return'Side-Eye';
+  if(suspicion<75)return'Danger';
+  return'Almost Busted';
+}
+function drawSuspicionMeter(x,y,w,compact){
+  const h=compact?36:42;
+  rnd(x,y,w,h,10,'rgba(26,18,34,0.86)',C.dialogBdr,1.5);
+  txt('SUSPICION',x+10,y+13,C.dimTxt,10,'left',"'Courier New',monospace");
+  fillRect(x+10,y+18,w-20,10,'rgba(255,255,255,0.08)');
+  const grad=ctx.createLinearGradient(x+10,y,x+w-10,y);
+  grad.addColorStop(0,'#79d46a');
+  grad.addColorStop(0.5,'#f2c34e');
+  grad.addColorStop(1,'#e5624f');
+  fillRect(x+10,y+18,(w-20)*suspicionRatio(),10,grad);
+  ctx.strokeStyle='rgba(255,255,255,0.15)';
+  ctx.lineWidth=1;
+  ctx.strokeRect(x+10,y+18,w-20,10);
+  txt(`${Math.round(suspicion)}/${SUSP_MAX}`,x+w-10,y+13,C.cream,10,'right',"'Courier New',monospace");
+  if(compact)txt(suspicionLabel(),x+w-10,y+31,C.cream,10,'right',"'Courier New',monospace");
+  else txt(`Status: ${suspicionLabel()}`,x+10,y+37,C.cream,10,'left',"'Courier New',monospace");
+}
+function drawSuspicionNotice(){
+  if(suspNotice.timer<=0)return;
+  const alpha=Math.min(1,suspNotice.timer/20);
+  ctx.save();
+  ctx.globalAlpha=alpha;
+  const w=Math.min(360,txtW(suspNotice.text,12,"'Courier New',monospace")+30);
+  const x=W/2-w/2,y=12;
+  rnd(x,y,w,28,8,suspNotice.good?'rgba(24,70,32,0.9)':'rgba(92,36,28,0.92)',suspNotice.good?'#7bd66f':'#f28f62',1.5);
+  txt(suspNotice.text,W/2,y+19,'#fff7ea',12,'center',"'Courier New',monospace");
+  ctx.restore();
+}
 
 /* ================================================================
    STORY-MODE SPRITES  (side/front view, drawn on story canvas)
@@ -778,6 +840,11 @@ const SCENES=[
   {id:'decision_4',bg:bgBackyard,
    chars:[{type:'pflueger',x:310,y:360,sc:0.95},{type:'lisa',x:480,y:360,sc:0.95}],
    text:"\"You know what this means, then... We have to keep this a secret! Nobody else can know!\""},
+  {id:'cleanup_intro',bg:bgBedroom,
+   chars:[{type:'pflueger',x:270,y:360,sc:0.95},{type:'lisa',x:430,y:356,sc:0.95},{type:'hippo',x:590,y:400,sc:1.05,flip:true}],
+   text:"Lisa peeked through the curtains. \"Your mom's car just turned onto the street. We have to hide all this hippo evidence. Now.\"",
+   speaker:'Lisa',
+   action:'cleanup'},
   // ── CHAPTER 9: Moving In ──────────────────────────────────────────
   {id:'closet_intro',bg:bgBedroom,
    chars:[{type:'pflueger',x:320,y:360,sc:1},{type:'hippo',x:560,y:400,sc:1.1,flip:true}],
@@ -883,8 +950,17 @@ function drawDiff(){
   txt('Begin Adventure →',W/2,sy+32,C.gold,18,'center','Georgia');
   if(shov)canvas.style.cursor='pointer';
   if((shov&&mclk)||eat('Space')){
-    mclk=false; phase='story'; sceneIdx=0;
+    mclk=false; resetRun(); phase='story'; sceneIdx=0;
   }
+}
+
+function resolveSceneText(scene){
+  if(scene.id==='epilogue_2'){
+    if(suspicion<25)return scene.text;
+    if(suspicion<55)return 'Mom: "Out of jelly again? And why does your room smell faintly like sunscreen?" She had a few questions, but never quite solved it.';
+    return 'Mom: "Out of jelly again? And why are there flip-flops by your closet?" Somehow the secret was still barely holding together.';
+  }
+  return scene.text||'';
 }
 
 /* ================================================================
@@ -929,12 +1005,13 @@ function drawScene(scene){
   if(scene.speaker){
     txt(scene.speaker+':',bx+18,by+22,C.gold,13,'left',"'Courier New',monospace");
   }
-  wrapText(scene.text||'',bx+18,by+(scene.speaker?38:22),bw-36,17,C.cream,'left','Georgia');
+  wrapText(resolveSceneText(scene),bx+18,by+(scene.speaker?38:22),bw-36,17,C.cream,'left','Georgia');
   const chLabel=getChapterLabel(sceneIdx);
   if(chLabel){
     rnd(8,8,chLabel.length*8+16,24,4,'rgba(0,0,0,0.5)','#604830',1);
     txt(chLabel,16,25,C.dimTxt,13,'left',"'Courier New',monospace");
   }
+  drawSuspicionMeter(W-188,8,180,true);
   if(Math.floor(t/30)%2===0){
     txt('▼ click or space',W-130,by+bh-10,C.dimTxt,11,'left',"'Courier New',monospace");
   }
@@ -956,7 +1033,8 @@ function getChapterLabel(idx){
   if(id.startsWith('ch7'))return 'Chapter 7: Calling Lisa';
   if(id.startsWith('ch8'))return 'Chapter 8: The Library';
   if(id.startsWith('decision'))return 'The Decision';
-  if(id.startsWith('closet'))return 'Chapter 9: Moving In';
+  if(id.startsWith('cleanup'))return 'Chapter 9: Mom Is Coming Home';
+  if(id.startsWith('closet'))return 'Chapter 10: Moving In';
   if(id.startsWith('epilogue'))return 'Epilogue: The New Normal';
   return '';
 }
@@ -995,6 +1073,7 @@ function handleStory(){
     mclk=false;
     const act=scene.action;
     if(act==='stealth'){initStealth();phase='stealth';return;}
+    if(act==='cleanup'){initCleanup();phase='cleanup';return;}
     if(act==='closet_game'){initCloset();phase='closet_game';return;}
     if(act==='escape'){initEscape();phase='escape';return;}
     if(act==='epilogue_story'){sceneIdx=findScene('epilogue_start');return;}
@@ -1080,7 +1159,7 @@ function momSees(px,py){
   const m=stl.mom;
   const dx=px-m.x,dy=py-m.y;
   const dist=Math.hypot(dx,dy);
-  const vis=diff.vis*(diff.id==='easy'?0.65:1);
+  const vis=diff.vis*(diff.id==='easy'?0.65:1)+suspicion*0.35;
   if(dist>vis)return false;
   const toPlayer=Math.atan2(dy,dx);
   let ad=toPlayer-m.angle;
@@ -1130,7 +1209,11 @@ function updateStealth(dt){
       if(canMoveTo(d.x+dx2/dd*dspd,d.y,map))d.x+=dx2/dd*dspd;
       if(canMoveTo(d.x,d.y+dy2/dd*dspd,map))d.y+=dy2/dd*dspd;
       d.angle=Math.atan2(dy2,dx2);
-      if(dsep<22&&s.hasSandwich){s.sandwichEaten=true;s.caughtTimer=2.5;return;}
+      if(dsep<22&&s.hasSandwich){
+        s.sandwichEaten=true;s.caughtTimer=2.5;
+        adjustSuspicion(8,'Digory stole the sandwich');
+        return;
+      }
     } else {
       d.wanderTimer-=dt*60;
       if(d.wanderTimer<=0){d.wanderTimer=90+Math.random()*120;d.angle=Math.random()*TAU;}
@@ -1141,7 +1224,11 @@ function updateStealth(dt){
     d.anim++;
   }
   // Mom spotted check
-  if(momSees(s.player.x,s.player.y)){s.caught=true;s.caughtTimer=2.5;return;}
+  if(momSees(s.player.x,s.player.y)){
+    s.caught=true;s.caughtTimer=2.5;
+    adjustSuspicion(10,'Mom heard late-night sneaking');
+    return;
+  }
   // Exit check
   if(isOnExit(s.player.x,s.player.y,map)){
     s.zone++;
@@ -1365,6 +1452,7 @@ function drawStealthUI(){
   rnd(UI_X+8,278,50,22,3,'rgba(0,0,0,0.4)','#404060',1);
   txt('\u2191\u2193\u2190\u2192',UI_X+33,293,'#c0c8ff',11,'center',"'Courier New',monospace");
   txt('Move',UI_X+64,293,C.dimTxt,10,'left',"'Courier New',monospace");
+  drawSuspicionMeter(UI_X+8,H-94,UI_W-16,true);
   rnd(UI_X+8,H-50,UI_W-16,36,6,'rgba(0,0,0,0.4)','#604040',1);
   txt('\u25c4 Menu',UI_X+UI_W/2,H-28,C.dimTxt,12,'center',"'Courier New',monospace");
   if(mx>=UI_X+8&&mx<=UI_X+UI_W-8&&my>=H-50&&my<=H-14&&mclk){mclk=false;phase='title';}
@@ -1450,6 +1538,207 @@ function drawDigoryTD(x,y,chasing,anim){
   ctx.restore();
   if(chasing)txt('!',4,-24,'#ff6600',14,'center','Georgia');
   ctx.restore();
+}
+
+/* ================================================================
+   CLEANUP MINI-GAME — MOM'S COMING HOME
+   ================================================================ */
+
+const CLEANUP_ITEMS_DEF=[
+  {id:'floatie',label:'Pool Floatie',x:520,y:388,w:112,h:58},
+  {id:'flipflops',label:'Flip-Flops',x:564,y:448,w:58,h:24},
+  {id:'trunks',label:'Swim Trunks',x:620,y:350,w:52,h:40},
+  {id:'fronds',label:'Palm Fronds',x:642,y:232,w:58,h:88},
+  {id:'article',label:'Zoo Article',x:334,y:344,w:58,h:38},
+  {id:'pancakes',label:'Pancake Plate',x:136,y:430,w:44,h:30},
+  {id:'sundae',label:'Sundae Cup',x:262,y:336,w:30,h:38},
+  {id:'boombox',label:'Beach Radio',x:82,y:458,w:62,h:34},
+];
+const CLEANUP_DECOYS_DEF=[
+  {id:'lamp',label:'Lamp',x:112,y:402,w:28,h:42},
+  {id:'pillow',label:'Pillow',x:220,y:328,w:86,h:40},
+  {id:'toycar',label:'Toy Car',x:92,y:474,w:28,h:16},
+  {id:'toycar2',label:'Toy Car',x:132,y:468,w:30,h:16},
+];
+
+function cleanupTimeLimit(){
+  return Math.max(28,46-suspicion*0.25);
+}
+function ptInBox(px,py,b){
+  return px>=b.x&&px<=b.x+b.w&&py>=b.y&&py<=b.y+b.h;
+}
+function initCleanup(){
+  const limit=cleanupTimeLimit()*60;
+  cln={
+    time:limit,
+    startTime:limit,
+    items:CLEANUP_ITEMS_DEF.map(it=>({...it,done:false})),
+    decoys:CLEANUP_DECOYS_DEF.map(it=>({...it})),
+    hover:null,
+    wrongTimer:0,
+    won:false,
+    failed:false,
+    failTimer:0,
+    showHint:true,
+  };
+}
+function cleanupRemaining(){
+  return cln.items.filter(it=>!it.done).length;
+}
+function getCleanupHover(){
+  if(!cln)return null;
+  for(const item of cln.items)if(!item.done&&ptInBox(mx,my,item))return{kind:'item',item};
+  for(const item of cln.decoys)if(ptInBox(mx,my,item))return{kind:'decoy',item};
+  return null;
+}
+function updateCleanup(dt){
+  const s=cln;
+  if(!s)return;
+  if(s.won){
+    if(mclk||eat('Space')||eat('Enter')){
+      mclk=false;
+      sceneIdx=findScene('closet_intro');
+      phase='story';
+    }
+    return;
+  }
+  if(s.failed){
+    s.failTimer-=dt*60;
+    if(s.failTimer<=0)initCleanup();
+    return;
+  }
+  if(s.wrongTimer>0)s.wrongTimer-=dt*60;
+  s.time=Math.max(0,s.time-dt*60);
+  s.hover=getCleanupHover();
+  if(s.time<=0){
+    s.failed=true;
+    s.failTimer=120;
+    adjustSuspicion(12,'Mom reached the front steps');
+    return;
+  }
+  if(mclk||eat('Space'))s.showHint=false;
+  if(!mclk)return;
+  mclk=false;
+  const menu={x:16,y:H-48,w:96,h:32};
+  if(ptInBox(mx,my,menu)){phase='title';return;}
+  const hover=s.hover;
+  if(!hover)return;
+  if(hover.kind==='item'){
+    hover.item.done=true;
+    if(cleanupRemaining()===0){
+      s.won=true;
+      adjustSuspicion(s.time>s.startTime*0.45?-6:-3,'Evidence cleaned up');
+    }
+  } else {
+    s.wrongTimer=16;
+    adjustSuspicion(3,'That was not hippo evidence');
+  }
+}
+
+function drawCleanupThing(item,hover,evidence){
+  if(hover){
+    rnd(item.x-4,item.y-4,item.w+8,item.h+8,10,null,evidence?C.gold:'#d88c76',2);
+  }
+  const cx=item.x+item.w/2,cy=item.y+item.h/2;
+  if(item.id==='floatie'){
+    ellipse(cx,cy,item.w/2-4,item.h/2-4,'#ebf38a');
+    ellipse(cx,cy,item.w/2-16,item.h/2-16,'#9ed7ea');
+    strokeEllipse(cx,cy,item.w/2-4,item.h/2-4,C.ink,2);
+  } else if(item.id==='flipflops'){
+    ellipse(cx-14,cy,12,6,'#f26a62'); ellipse(cx+12,cy+2,12,6,'#f26a62');
+    strokeEllipse(cx-14,cy,12,6,C.ink,1.5); strokeEllipse(cx+12,cy+2,12,6,C.ink,1.5);
+    line(cx-18,cy-2,cx-11,cy+5,'#fff4e6',1.4); line(cx-10,cy-2,cx-11,cy+5,'#fff4e6',1.4);
+    line(cx+8,cy,cx+13,cy+6,'#fff4e6',1.4); line(cx+17,cy,cx+13,cy+6,'#fff4e6',1.4);
+  } else if(item.id==='trunks'){
+    rnd(item.x+4,item.y+4,item.w-8,item.h-8,6,'#f195c1',C.ink,2);
+    line(cx,item.y+8,cx,item.y+item.h-10,'rgba(90,50,80,.2)',1.5);
+    for(let i=0;i<4;i++)circ(item.x+10+i*10,item.y+item.h-10,1.1,'#7b4770');
+  } else if(item.id==='fronds'){
+    for(let i=0;i<5;i++)line(cx,item.y+item.h,cx-22+i*10,item.y+18+i*2,'#69a64f',4);
+    for(let i=0;i<5;i++)line(cx,item.y+item.h,cx-18+i*9,item.y+10,'#8ecf73',2.5);
+  } else if(item.id==='article'){
+    rnd(item.x,item.y,item.w,item.h,4,'#faf6ec','#8f8676',1.5);
+    txt('HIPPO',cx,item.y+14,C.ink,9,'center',"'Courier New',monospace");
+    txt('ESCAPES',cx,item.y+26,C.ink,8,'center',"'Courier New',monospace");
+    line(item.x+8,item.y+31,item.x+item.w-8,item.y+31,'rgba(90,80,70,.3)',1.2);
+  } else if(item.id==='pancakes'){
+    ellipse(cx,cy+7,17,6,'#d8e6ef');
+    for(let i=0;i<4;i++)ellipse(cx,cy+4-i*4,14,5,'#d2a06a');
+    line(cx+6,cy-14,cx+10,cy-24,'rgba(255,255,255,.6)',1.5);
+  } else if(item.id==='sundae'){
+    poly([[cx-10,cy+10],[cx+10,cy+10],[cx+6,cy+18],[cx-6,cy+18]],'#f0d7b6',C.ink,1.5);
+    ellipse(cx,cy+4,11,6,'#f8efde');
+    circ(cx-4,cy+1,4,'#f0a0b7'); circ(cx+4,cy+2,4,'#fff2c5');
+  } else if(item.id==='boombox'){
+    rnd(item.x,item.y,item.w,item.h,6,'#787986',C.ink,2);
+    circ(item.x+16,cy,8,'#20242f'); circ(item.x+item.w-16,cy,8,'#20242f');
+    rnd(cx-10,item.y+8,20,10,2,'#a4d4e3','#576b78',1.2);
+    fillRect(cx-12,item.y+22,24,3,'#d9573d');
+  } else if(item.id==='lamp'){
+    line(cx,cy+10,cx,cy-10,'#745740',3);
+    ellipse(cx,cy+11,10,4,'#745740');
+    poly([[cx-12,cy-8],[cx+12,cy-8],[cx+6,cy+8],[cx-6,cy+8]],'#8cb0d7',C.ink,1.3);
+  } else if(item.id==='pillow'){
+    rnd(item.x,item.y,item.w,item.h,12,'#d5e7f7',C.ink,1.5);
+  } else if(item.id==='toycar'||item.id==='toycar2'){
+    rnd(item.x,item.y,item.w,item.h,5,item.id==='toycar'?'#ef6348':'#f6c34a',C.ink,1.5);
+    circ(item.x+7,item.y+item.h,3,'#343843'); circ(item.x+item.w-7,item.y+item.h,3,'#343843');
+  }
+}
+
+function drawCleanup(){
+  const s=cln;
+  const menuBox={x:16,y:H-48,w:96,h:32};
+  const continueBox={x:W/2-120,y:H/2+40,w:240,h:46};
+  bgBedroom();
+  ctx.save();
+  ctx.globalAlpha=0.12;
+  fillRect(0,0,W,H,'#3a1424');
+  ctx.restore();
+  rnd(10,10,W-20,H-20,20,null,'rgba(255,248,227,0.25)',2.5);
+  txt("MOM'S COMING HOME!",W/2,42,'#fff2cf',28,'center','Georgia');
+  txt('Hide every piece of hippo evidence before she gets upstairs.',W/2,66,'#f6e7d2',13,'center',"'Courier New',monospace");
+  rnd(20,16,170,54,12,'rgba(20,12,28,0.7)',C.dialogBdr,1.5);
+  txt(`TIME LEFT`,30,34,C.dimTxt,10,'left',"'Courier New',monospace");
+  txt(`${Math.ceil(s.time/60)}s`,28,60,'#fff5d3',28,'left','Georgia');
+  rnd(206,16,180,54,12,'rgba(20,12,28,0.7)',C.dialogBdr,1.5);
+  txt('EVIDENCE LEFT',216,34,C.dimTxt,10,'left',"'Courier New',monospace");
+  txt(`${cleanupRemaining()}`,216,60,'#fff5d3',28,'left','Georgia');
+  drawSuspicionMeter(W-188,16,178,true);
+  s.decoys.forEach(item=>drawCleanupThing(item,s.hover?.item?.id===item.id,false));
+  s.items.forEach(item=>{if(!item.done)drawCleanupThing(item,s.hover?.item?.id===item.id,true);});
+  if(s.hover){
+    const lab=s.hover.kind==='item'?s.hover.item.label:'Not evidence';
+    const lw=Math.max(88,txtW(lab,11,"'Courier New',monospace")+18);
+    const lx=Math.min(W-lw-8,mx+12),ly=Math.max(88,my-28);
+    rnd(lx,ly,lw,24,6,'rgba(20,12,28,0.85)',s.hover.kind==='item'?C.gold:'#d88c76',1.2);
+    txt(lab,lx+lw/2,ly+16,'#fff6e6',11,'center',"'Courier New',monospace");
+    canvas.style.cursor='pointer';
+  } else if(ptInBox(mx,my,menuBox)||(s.won&&ptInBox(mx,my,continueBox))){
+    canvas.style.cursor='pointer';
+  } else canvas.style.cursor='default';
+  if(s.wrongTimer>0){
+    ctx.save();
+    ctx.globalAlpha=s.wrongTimer/16*0.25;
+    fillRect(0,0,W,H,'#ff3b24');
+    ctx.restore();
+  }
+  rnd(menuBox.x,menuBox.y,menuBox.w,menuBox.h,8,'rgba(20,12,28,0.7)',C.dialogBdr,1.2);
+  txt('◄ Menu',64,H-28,C.cream,12,'center',"'Courier New',monospace");
+  rnd(126,H-56,W-142,40,10,'rgba(20,12,28,0.72)',C.dialogBdr,1.2);
+  txt(s.showHint?'Click only the suspicious evidence items. Avoid normal bedroom stuff.':'The faster you clean, the lower the suspicion stays.',W/2,H-31,C.cream,12,'center',"'Courier New',monospace");
+  if(s.failed){
+    ctx.save();ctx.globalAlpha=0.88;fillRect(0,0,W,H,'#20060a');ctx.restore();
+    txt('TOO SLOW!',W/2,H/2-20,'#ffd7b0',38,'center','Georgia');
+    txt('Mom is almost upstairs. Trying again...',W/2,H/2+20,'#ffe7d2',15,'center',"'Courier New',monospace");
+  }
+  if(s.won){
+    ctx.save();ctx.globalAlpha=0.82;fillRect(0,0,W,H,'#08190a');ctx.restore();
+    txt('ROOM SAVED',W/2,H/2-30,'#f4f2c4',38,'center','Georgia');
+    txt('Nobody saw the floatie. Somehow.',W/2,H/2+8,'#eaf5d1',15,'center',"'Courier New',monospace");
+    rnd(continueBox.x,continueBox.y,continueBox.w,continueBox.h,10,'rgba(30,16,42,0.9)',C.dialogBdr,2);
+    txt('Continue to the Closet →',W/2,H/2+69,C.gold,16,'center','Georgia');
+  }
 }
 
 /* ================================================================
@@ -1555,7 +1844,10 @@ function updateCloset(dt){
       if(clCanPlace(s.sel,gr,gc)){
         clPlace(s.sel,gr,gc);
         s.sel=-1;
-        if(s.pieces.every(p=>p.placed))s.won=true;
+        if(s.pieces.every(p=>p.placed)){
+          s.won=true;
+          adjustSuspicion(-4,'Hippo tucked into the closet');
+        }
       } else s.errTimer=25;
     } else {
       const pidx=clPieceAt(gr,gc);
@@ -1730,6 +2022,7 @@ function drawClosetPanel(){
   rnd(px-4,py+226,pw+8,46,6,'rgba(150,150,180,0.15)','#9898b8',1);
   txt('Mr. Hippo must',px+pw/2,py+244,'#d8d8f0',10,'center',"'Courier New',monospace");
   txt('fit inside!',px+pw/2,py+260,C.gold,11,'center',"'Courier New',monospace");
+  drawSuspicionMeter(px-4,H-96,pw+8,true);
   // Back
   rnd(px-4,H-50,pw+8,36,6,'rgba(0,0,0,0.4)','#604040',1);
   txt('\u25c4 Menu',px+pw/2,H-28,C.dimTxt,12,'center',"'Courier New',monospace");
@@ -2209,6 +2502,7 @@ function drawZ1Cutscene(){
   txt('ZONE 2',UI_X+UI_W/2,30,C.gold,14,'center',"'Courier New',monospace");
   txt('Panda Enclosure',UI_X+8,50,C.dimTxt,11,'left',"'Courier New',monospace");
   txt('Meeting Lekan...',UI_X+8,70,'#c0b090',11,'left','Georgia');
+  drawSuspicionMeter(UI_X+8,H-94,UI_W-16,true);
 }
 
 function drawKeeperTD(x,y,angle,anim,frozen){
@@ -2412,6 +2706,7 @@ function drawEscapeUI(){
     ctx.save();ctx.translate(UI_X+20,py-4);ctx.scale(0.9,0.9);a.draw();ctx.restore();
     txt(a.name,UI_X+36,py,C.dimTxt,10,'left',"'Courier New',monospace");
   });
+  drawSuspicionMeter(UI_X+8,H-94,UI_W-16,true);
   rnd(UI_X+8,H-50,UI_W-16,36,6,'rgba(0,0,0,0.4)','#604040',1);
   txt('◄ Menu',UI_X+UI_W/2,H-28,C.dimTxt,12,'center',"'Courier New',monospace");
   if(mx>=UI_X+8&&mx<=UI_X+UI_W-8&&my>=H-50&&my<=H-14&&mclk){
@@ -2428,6 +2723,13 @@ function drawCaughtOverlay(){
   ctx.fillText('CAUGHT!',MAP_W/2,H/2-30);
   txt('The zookeeper spotted you!',MAP_W/2,H/2+10,'#ff8888',18,'center','Georgia');
   txt('Restarting zone...',MAP_W/2,H/2+40,C.dimTxt,14,'center',"'Courier New',monospace");
+}
+
+function endingSummary(){
+  if(suspicion<20)return'The secret stayed surprisingly tidy.';
+  if(suspicion<45)return'It was a close call, but nobody could prove a thing.';
+  if(suspicion<70)return'People definitely had questions about the closet.';
+  return'The secret survived by the absolute flimsiest margin.';
 }
 
 /* ================================================================
@@ -2452,7 +2754,8 @@ function drawCredits(){
   ctx.restore();
   txt('The End',W/2,100,C.gold,52,'center','Georgia');
   txt('"Good night, Hippo."  "Good night."',W/2,150,'#f0e0a8',18,'center','Georgia');
-  txt('Based on the book by a friend.',W/2,190,C.dimTxt,14,'center','Georgia');
+  txt(endingSummary(),W/2,190,C.dimTxt,14,'center','Georgia');
+  drawSuspicionMeter(W/2-120,212,240,false);
   txt('"Waaastin\' away again in Margaritaville..."',W/2,H-80,'#b0a080',13,'center','Georgia');
   // Play again
   const bx=W/2-120,by=H-50,bw=240,bh=38;
@@ -2460,7 +2763,7 @@ function drawCredits(){
   rnd(bx,by,bw,bh,6,bhov?'#3a2060':'#2a1040',C.dialogBdr,2);
   txt('Play Again',W/2,by+24,C.gold,16,'center','Georgia');
   if(bhov)canvas.style.cursor='pointer';
-  if(bhov&&mclk){mclk=false; phase='title'; sceneIdx=0;}
+  if(bhov&&mclk){mclk=false; resetRun(); phase='title';}
 }
 
 /* ================================================================
@@ -2479,6 +2782,7 @@ function loop(ts){
     case 'story':  handleStory(); break;
     case 'escape': updateEscape(dt); drawEscape(); break;
     case 'stealth': updateStealth(dt); drawStealth(); break;
+    case 'cleanup': updateCleanup(dt); drawCleanup(); break;
     case 'closet_game': updateCloset(dt); drawCloset(); break;
     case 'credits':drawCredits(); break;
     case 'epilogue':
@@ -2486,6 +2790,8 @@ function loop(ts){
       phase='story';
       break;
   }
+  if(phase!=='title'&&phase!=='diff')drawSuspicionNotice();
+  if(suspNotice.timer>0)suspNotice.timer--;
   // Clear one-shot click
   mclk=false;
   Object.keys(JP).forEach(k=>JP[k]=false);
