@@ -229,6 +229,28 @@ function drawHippoCool(cx,cy,sc,anim){
   ctx.restore();
 }
 
+function drawHippoFriendly(cx,cy,sc,anim){
+  sc=sc||1; anim=anim||0;
+  const bob=Math.sin(anim*0.05)*2;
+  ctx.save();ctx.translate(cx,cy);ctx.scale(sc,sc);
+  ellipse(0,48+bob,32,8,'rgba(0,0,0,0.16)');
+  ellipse(0,14+bob,36,30,C.hippo); strokeEllipse(0,14+bob,36,30,C.ink,2);
+  ellipse(0,-10+bob,25,21,C.hippo); strokeEllipse(0,-10+bob,25,21,C.ink,2);
+  ellipse(0,-2+bob,16,10,'#d7dbe2'); strokeEllipse(0,-2+bob,16,10,C.ink,2);
+  circ(-6,-6+bob,2.1,C.ink); circ(6,-6+bob,2.1,C.ink);
+  circ(-4,-7+bob,0.7,'#fff'); circ(8,-7+bob,0.7,'#fff');
+  circ(-5,0+bob,1.6,C.hippoDk); circ(5,0+bob,1.6,C.hippoDk);
+  ellipse(-15,-26+bob,7,8,C.hippo); ellipse(15,-26+bob,7,8,C.hippo);
+  strokeEllipse(-15,-26+bob,7,8,C.ink,2); strokeEllipse(15,-26+bob,7,8,C.ink,2);
+  line(-16,18+bob,-12,33+bob,C.hippoDk,8);
+  line(16,18+bob,12,33+bob,C.hippoDk,8);
+  ellipse(-15,41+bob,9,4,'#9499a8');
+  ellipse(15,41+bob,9,4,'#9499a8');
+  ctx.strokeStyle=C.hippoMouth;ctx.lineWidth=2.2;
+  ctx.beginPath();ctx.arc(0,4+bob,9,0.2,Math.PI-0.2);ctx.stroke();
+  ctx.restore();
+}
+
 function drawPflueger(cx,cy,sc,flip,anim){
   sc=sc||1; anim=anim||0;
   const bob=Math.sin(anim*0.08)*2;
@@ -276,9 +298,14 @@ function drawLisa(cx,cy,sc,flip,anim){
   circ(19,25+bob,4.8,C.tan);strokeCirc(19,25+bob,4.8,C.ink,2);
   fillRect(-4,0+bob,8,7,C.tan);
   ctx.fillStyle=C.lisaHair;
+  ellipse(0,-11+bob,15,13,C.lisaHair);
   circ(-16,-7+bob,7,C.lisaHair);circ(16,-7+bob,7,C.lisaHair);
-  ellipse(0,-13+bob,12,10,C.lisaHair);
+  strokeEllipse(0,-11+bob,15,13,C.ink,2);
   circ(0,-9+bob,13,C.tan);strokeCirc(0,-9+bob,13,C.ink,2);
+  ellipse(0,-18+bob,12,7,C.lisaHair);
+  strokeEllipse(0,-18+bob,12,7,C.ink,2);
+  line(-9,-17+bob,-4,-12+bob,C.lisaHair,4);
+  line(9,-17+bob,4,-12+bob,C.lisaHair,4);
   circ(-16,-14+bob,3,'#f17db1');circ(16,-14+bob,3,'#f17db1');
   rnd(-13,-13+bob,10,8,3,null,C.ink,1.8);
   rnd(3,-13+bob,10,8,3,null,C.ink,1.8);
@@ -801,7 +828,7 @@ function drawTitle(){
   rnd(48,46,300,106,18,'rgba(255,248,235,0.14)','rgba(255,233,190,0.38)',2);
   const bob=Math.sin(t*0.04)*6;
   ctx.save(); ctx.translate(W/2-80,H-220+bob);
-  drawHippoCool(0,0,1.3,t);
+  drawHippoFriendly(0,0,1.25,t);
   ctx.restore();
   ctx.save(); ctx.translate(W/2+110,H-190+bob*0.7);
   drawPflueger(0,0,1.1,false,t*0.6);
@@ -1407,16 +1434,19 @@ function drawMomTD(x,y,angle,anim){
 function drawDigoryTD(x,y,chasing,anim){
   ctx.save();ctx.translate(x,y);
   ellipse(0,6,10,4,'rgba(0,0,0,0.15)');
-  ellipse(0,1,12,8,'#c79c63');strokeEllipse(0,1,12,8,C.ink,2);
-  circ(0,-11,7,'#c79c63');strokeCirc(0,-11,7,C.ink,2);
-  ellipse(-6,-13,3.5,5,'#b4814f'); ellipse(6,-13,3.5,5,'#b4814f');
-  strokeEllipse(-6,-13,3.5,5,C.ink,1.5); strokeEllipse(6,-13,3.5,5,C.ink,1.5);
-  ellipse(0,-8,4.5,3,'#e2c09c');strokeEllipse(0,-8,4.5,3,C.ink,1.2);
+  ellipse(0,1,12,8,'#f4f4f4');strokeEllipse(0,1,12,8,C.ink,2);
+  ellipse(-2,-1,5,4,'#1f1f23');
+  ellipse(4,3,4,3,'#1f1f23');
+  circ(0,-11,7,'#f4f4f4');strokeCirc(0,-11,7,C.ink,2);
+  poly([[-6,-16],[-3,-22],[0,-14]],'#1f1f23',C.ink,1.3);
+  poly([[6,-16],[3,-22],[0,-14]],'#f4f4f4',C.ink,1.3);
+  ellipse(0,-8,4.5,3,'#f1d7be');strokeEllipse(0,-8,4.5,3,C.ink,1.2);
   circ(-2.5,-12,1.2,C.ink);circ(2.5,-12,1.2,C.ink);
-  if(chasing){line(-1,-5,1,-3,'#ef6a45',2);}
+  line(0,-4,0,-3,'#1f1f23',1.2);
+  if(chasing){line(-1,-5,2,-2,'#ef6a45',2);}
   const wagAng=Math.sin(anim*(chasing?0.4:0.12))*(chasing?0.48:0.2);
   ctx.save();ctx.translate(11,0);ctx.rotate(wagAng);
-  line(0,0,8,-5,'#a77749',3);
+  line(0,0,8,-8,'#f4f4f4',3);
   ctx.restore();
   if(chasing)txt('!',4,-24,'#ff6600',14,'center','Georgia');
   ctx.restore();
@@ -2298,9 +2328,16 @@ function drawMouseTD(x,y){
   line(x+6,y,x+12,y+4,'#b87e80',2);
 }
 function drawGiraffeTD(x,y){
-  fillRect(x-4,y-28,8,28,'#f0c84d'); strokeEllipse(x,y-31,7,8,C.ink,1.5);
-  circ(x,y-31,7,'#f0c84d'); fillRect(x-3,y-42,6,14,'#d5a634');
-  circ(x-2,y-30,1.1,C.ink); circ(x+2,y-30,1.1,C.ink);
+  ellipse(x,y+4,8,6,'#f0c84d'); strokeEllipse(x,y+4,8,6,C.ink,1.5);
+  fillRect(x-4,y-24,8,26,'#f0c84d');
+  circ(x,y-28,7,'#f0c84d'); strokeCirc(x,y-28,7,C.ink,1.5);
+  fillRect(x-2,y-38,4,10,'#d5a634');
+  line(x-3,y-35,x-5,y-42,'#8a5a24',2);
+  line(x+3,y-35,x+5,y-42,'#8a5a24',2);
+  circ(x-2,y-29,1.1,C.ink); circ(x+2,y-29,1.1,C.ink);
+  ellipse(x-2,y+3,2.5,2.5,'#bf8834');
+  ellipse(x+3,y+6,2.5,2.5,'#bf8834');
+  ellipse(x+1,y-8,2.2,2.2,'#bf8834');
 }
 function drawParrotTD(x,y){
   ellipse(x,y,8,9,'#45b95c'); strokeEllipse(x,y,8,9,C.ink,1.5);
