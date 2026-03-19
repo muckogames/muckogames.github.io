@@ -21,6 +21,7 @@ body::before{
 }
 #gc{
   display:block;cursor:default;border:4px solid #f3d59d;border-radius:18px;background:#fcf7ef;
+  touch-action:none;
   box-shadow:
     0 30px 90px rgba(18,8,28,.45),
     0 0 0 10px rgba(255,244,220,.12),
@@ -54,7 +55,11 @@ document.addEventListener('keydown',e=>{if(!K[e.code])JP[e.code]=true; K[e.code]
 document.addEventListener('keyup',e=>{K[e.code]=false;});
 function eat(c){if(JP[c]){JP[c]=false;return true;}return false;}
 let mx=W/2,my=H/2,mclk=false;
+const TOUCH_UI=('ontouchstart' in window)||(navigator.maxTouchPoints||0)>0||(window.matchMedia&&window.matchMedia('(pointer: coarse)').matches);
+const touchState={dirs:new Set(),buttons:new Set()};
+let touchSuppressUntil=0;
 canvas.addEventListener('click',e=>{
+  if(performance.now()<touchSuppressUntil)return;
   const r=canvas.getBoundingClientRect();
   mx=(e.clientX-r.left)*(W/r.width);
   my=(e.clientY-r.top)*(H/r.height);
@@ -64,6 +69,104 @@ canvas.addEventListener('mousemove',e=>{
   const r=canvas.getBoundingClientRect();
   mx=(e.clientX-r.left)*(W/r.width);
   my=(e.clientY-r.top)*(H/r.height);
+});
+function mobileControlsOn(){
+  return TOUCH_UI&&(phase==='escape'||phase==='stealth'||phase==='closet_game');
+}
+function mobileLayout(){
+  const buttons=[];
+  if(phase==='escape'||phase==='stealth'){
+    buttons.push({id:'action',cx:W-88,cy:H-90,r:32,label:'A',sub:phase==='escape'?'Talk':'Go'});
+    if(phase==='escape'){
+      buttons.push({id:'nik',cx:W-150,cy:H-142,r:26,label:'N',sub:'Nik',
+        disabled:!(esc&&esc.nikReady&&!esc.nikActive)});
+    }
+  } else if(phase==='closet_game'){
+    buttons.push({id:'rotate',cx:W-92,cy:H-92,r:34,label:'R',sub:'Rotate'});
+  }
+  return {
+    dpad:(phase==='escape'||phase==='stealth')?{cx:92,cy:H-92,r:34}:null,
+    buttons,
+  };
+}
+function getMobileDpadDir(tx,ty,dpad){
+  const dx=tx-dpad.cx,dy=ty-dpad.cy;
+  if(Math.hypot(dx,dy)>dpad.r*2.15)return null;
+  if(Math.abs(dx)>=Math.abs(dy))return dx<0?'left':'right';
+  return dy<0?'up':'down';
+}
+function hitMobileControl(tx,ty){
+  if(!mobileControlsOn())return null;
+  const layout=mobileLayout();
+  for(const btn of layout.buttons){
+    if(Math.hypot(tx-btn.cx,ty-btn.cy)<=btn.r)return{kind:'button',id:btn.id};
+  }
+  if(layout.dpad){
+    const dir=getMobileDpadDir(tx,ty,layout.dpad);
+    if(dir)return{kind:'dpad',dir};
+  }
+  return null;
+}
+function applyTouchDirs(dirs){
+  touchState.dirs=dirs;
+  K.ArrowLeft=dirs.has('left');
+  K.ArrowRight=dirs.has('right');
+  K.ArrowUp=dirs.has('up');
+  K.ArrowDown=dirs.has('down');
+}
+function fireMobileButton(id){
+  if(id==='action'){
+    JP.Space=true;
+    JP.Enter=true;
+    JP.KeyE=true;
+  } else if(id==='nik'){
+    if(esc&&esc.nikReady&&!esc.nikActive)JP.KeyN=true;
+  } else if(id==='rotate'){
+    JP.KeyR=true;
+  }
+}
+function syncTouchControls(e){
+  const rect=canvas.getBoundingClientRect();
+  const sx=W/rect.width,sy=H/rect.height;
+  const dirs=new Set(),buttons=new Set();
+  Array.from(e.touches).forEach(tch=>{
+    const tx=(tch.clientX-rect.left)*sx,ty=(tch.clientY-rect.top)*sy;
+    const hit=hitMobileControl(tx,ty);
+    if(!hit)return;
+    if(hit.kind==='dpad')dirs.add(hit.dir);
+    else buttons.add(hit.id);
+  });
+  buttons.forEach(id=>{if(!touchState.buttons.has(id))fireMobileButton(id);});
+  touchState.buttons=buttons;
+  applyTouchDirs(dirs);
+}
+canvas.addEventListener('touchstart',e=>{
+  touchSuppressUntil=performance.now()+500;
+  const rect=canvas.getBoundingClientRect();
+  const sx=W/rect.width,sy=H/rect.height;
+  Array.from(e.changedTouches).forEach(tch=>{
+    const tx=(tch.clientX-rect.left)*sx,ty=(tch.clientY-rect.top)*sy;
+    const hit=hitMobileControl(tx,ty);
+    if(!hit&&!mclk){mx=tx;my=ty;mclk=true;}
+  });
+  syncTouchControls(e);
+  e.preventDefault();
+},{passive:false});
+canvas.addEventListener('touchmove',e=>{
+  syncTouchControls(e);
+  e.preventDefault();
+},{passive:false});
+canvas.addEventListener('touchend',e=>{
+  syncTouchControls(e);
+  e.preventDefault();
+},{passive:false});
+canvas.addEventListener('touchcancel',e=>{
+  syncTouchControls(e);
+  e.preventDefault();
+},{passive:false});
+window.addEventListener('blur',()=>{
+  touchState.buttons.clear();
+  applyTouchDirs(new Set());
 });
 
 /* ─── CHEAT CODES ─── */
@@ -235,6 +338,39 @@ function drawSuspicionNotice(){
   const x=W/2-w/2,y=12;
   rnd(x,y,w,28,8,suspNotice.good?'rgba(24,70,32,0.9)':'rgba(92,36,28,0.92)',suspNotice.good?'#7bd66f':'#f28f62',1.5);
   txt(suspNotice.text,W/2,y+19,'#fff7ea',12,'center',"'Courier New',monospace");
+  ctx.restore();
+}
+
+function drawMobileControls(){
+  if(!mobileControlsOn())return;
+  const layout=mobileLayout();
+  ctx.save();
+  ctx.globalAlpha=0.96;
+  if(layout.dpad){
+    const d=layout.dpad;
+    circ(d.cx,d.cy,d.r*0.78,'rgba(20,12,30,0.58)');
+    strokeCirc(d.cx,d.cy,d.r*0.78,'rgba(246,213,122,0.5)',2);
+    const pads=[
+      {id:'up',x:d.cx,y:d.cy-d.r-4,glyph:'▲'},
+      {id:'down',x:d.cx,y:d.cy+d.r+4,glyph:'▼'},
+      {id:'left',x:d.cx-d.r-4,y:d.cy,glyph:'◀'},
+      {id:'right',x:d.cx+d.r+4,y:d.cy,glyph:'▶'},
+    ];
+    pads.forEach(p=>{
+      const active=touchState.dirs.has(p.id);
+      circ(p.x,p.y,22,active?'rgba(246,213,122,0.34)':'rgba(25,16,36,0.66)');
+      strokeCirc(p.x,p.y,22,active?C.gold:'rgba(246,213,122,0.45)',2);
+      txt(p.glyph,p.x,p.y+6,active?'#fff6d8':'#efe2c2',16,'center',"'Courier New',monospace");
+    });
+  }
+  layout.buttons.forEach(btn=>{
+    const active=touchState.buttons.has(btn.id);
+    circ(btn.cx,btn.cy,btn.r,btn.disabled?'rgba(42,30,34,0.54)':active?'rgba(246,213,122,0.34)':'rgba(25,16,36,0.7)');
+    strokeCirc(btn.cx,btn.cy,btn.r,btn.disabled?'rgba(170,145,118,0.35)':active?C.gold:'rgba(246,213,122,0.55)',2.2);
+    circ(btn.cx,btn.cy,btn.r-9,'rgba(255,255,255,0.05)');
+    txt(btn.label,btn.cx,btn.cy+6,btn.disabled?'#b19d84':'#fff7e7',18,'center',"'Courier New',monospace");
+    if(btn.sub)txt(btn.sub,btn.cx,btn.cy+btn.r+15,btn.disabled?C.dimTxt:C.cream,10,'center',"'Courier New',monospace");
+  });
   ctx.restore();
 }
 
@@ -1504,7 +1640,7 @@ function drawMomTD(x,y,angle,anim){
   ctx.save();ctx.translate(x,y);
   ctx.save();
   ctx.globalAlpha=0.18;ctx.fillStyle='#ff9933';
-  const vis=diff.vis*(diff.id==='easy'?0.65:1);
+  const vis=diff.vis*(diff.id==='easy'?0.65:1)+suspicion*0.35;
   ctx.beginPath();ctx.moveTo(0,0);
   ctx.arc(0,0,vis,-Math.PI/2.5+angle,Math.PI/2.5+angle);
   ctx.closePath();ctx.fill();
@@ -2790,6 +2926,7 @@ function loop(ts){
       phase='story';
       break;
   }
+  drawMobileControls();
   if(phase!=='title'&&phase!=='diff')drawSuspicionNotice();
   if(suspNotice.timer>0)suspNotice.timer--;
   // Clear one-shot click
