@@ -39,6 +39,7 @@ body::before{
    =================================================================== */
 const W=800,H=560;
 const MAX_RENDER_DPR=1.5;
+const PLAYER_SPEED_SCALE=1.15;
 const LOW_FPS_PHASES=new Set(['title','diff','story','dialog_harness','credits']);
 const DIALOG_DATA=window.HIPPO_DIALOG;
 const urlParams=new URLSearchParams(window.location.search);
@@ -1290,7 +1291,7 @@ function updateStealth(dt){
   const zd=STL_ZONE_DATA[s.zone];
   const map=zd.map;
   // Player movement
-  const spd=diff.id==='easy'?2.2:diff.id==='medium'?2:1.8;
+  const spd=(diff.id==='easy'?2.2:diff.id==='medium'?2:1.8)*PLAYER_SPEED_SCALE;
   let vx=0,vy=0;
   if(K['ArrowLeft']||K['KeyA']){vx=-spd;s.player.dir=2;}
   if(K['ArrowRight']||K['KeyD']){vx=spd;s.player.dir=3;}
@@ -2410,7 +2411,7 @@ function updateEscape(dt){
   const zd=ZONE_DATA[e.zone];
   const map=zd.map;
   // Player movement
-  const spd=diff.id==='easy'?2.2:diff.id==='medium'?2:1.8;
+  const spd=(diff.id==='easy'?2.2:diff.id==='medium'?2:1.8)*PLAYER_SPEED_SCALE;
   let vx=0,vy=0;
   if(K['ArrowLeft']||K['KeyA']){vx=-spd; e.player.dir=2;}
   if(K['ArrowRight']||K['KeyD']){vx=spd; e.player.dir=3;}
