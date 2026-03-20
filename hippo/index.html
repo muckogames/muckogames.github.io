@@ -37,15 +37,28 @@ body::before{
    PFLUEGER AND THE HIPPO  —  a web game
    =================================================================== */
 const W=800,H=560;
+const urlParams=new URLSearchParams(window.location.search);
+const DEBUG_HARNESS=urlParams.get('harness');
 const canvas=document.getElementById('gc');
 const ctx=canvas.getContext('2d');
-canvas.width=W; canvas.height=H;
-ctx.lineJoin='round';
-ctx.lineCap='round';
+let canvasScale=1;
+
+function configureCanvasContext(){
+  ctx.lineJoin='round';
+  ctx.lineCap='round';
+  ctx.imageSmoothingEnabled=true;
+}
 
 function resize(){
+  const dpr=Math.max(1,window.devicePixelRatio||1);
   const s=Math.min(window.innerWidth/(W+6),(window.innerHeight-6)/(H+6));
-  canvas.style.width=(W*s)+'px'; canvas.style.height=(H*s)+'px';
+  canvasScale=s;
+  canvas.style.width=Math.max(1,Math.round(W*s))+'px';
+  canvas.style.height=Math.max(1,Math.round(H*s))+'px';
+  canvas.width=Math.max(1,Math.round(W*dpr));
+  canvas.height=Math.max(1,Math.round(H*dpr));
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  configureCanvasContext();
 }
 window.addEventListener('resize',resize); resize();
 
@@ -213,6 +226,7 @@ function startPhase(p){
   else if(p==='stealth'){initStealth();}
   else if(p==='cleanup'){initCleanup();}
   else if(p==='closet_game'){initCloset();}
+  else if(p==='dialog_harness'){initDialogHarness();}
   else if(p==='epilogue'){sceneIdx=findScene('epilogue_start');}
   phase=p;
 }
@@ -264,10 +278,43 @@ function txtW(s,sz,font){
   ctx.font=`${sz||16}px ${font||'Georgia'}`;
   return ctx.measureText(s).width;
 }
+function roundedRectPath(x,y,w,h,r){
+  const rr=Math.max(0,Math.min(r||0,Math.abs(w)/2,Math.abs(h)/2));
+  const x2=x+w,y2=y+h;
+  ctx.beginPath();
+  if(!rr){
+    ctx.rect(x,y,w,h);
+    return;
+  }
+  ctx.moveTo(x+rr,y);
+  ctx.lineTo(x2-rr,y);
+  ctx.arcTo(x2,y,x2,y+rr,rr);
+  ctx.lineTo(x2,y2-rr);
+  ctx.arcTo(x2,y2,x2-rr,y2,rr);
+  ctx.lineTo(x+rr,y2);
+  ctx.arcTo(x,y2,x,y2-rr,rr);
+  ctx.lineTo(x,y+rr);
+  ctx.arcTo(x,y,x+rr,y,rr);
+  ctx.closePath();
+}
 function rnd(x,y,w,h,r,fill,stroke,sw){
-  ctx.beginPath(); ctx.roundRect(x,y,w,h,r||0);
+  if(typeof ctx.roundRect==='function'){
+    ctx.beginPath();
+    ctx.roundRect(x,y,w,h,r||0);
+  } else roundedRectPath(x,y,w,h,r);
   if(fill){ctx.fillStyle=fill;ctx.fill();}
   if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=sw||2;ctx.stroke();}
+}
+function cloneWith(base,extras){
+  const out={};
+  let k;
+  for(k in base){
+    if(Object.prototype.hasOwnProperty.call(base,k))out[k]=base[k];
+  }
+  for(k in extras){
+    if(Object.prototype.hasOwnProperty.call(extras,k))out[k]=extras[k];
+  }
+  return out;
 }
 
 /* ─── COLOR PALETTE ─── */
@@ -731,7 +778,8 @@ function bgBackyard(){
     line(fx,fy,fx,fy+16,'#72ac55',2);
     circ(fx,fy,5,'#f8e840'); circ(fx,fy,3,'#f8c020');
   }
-  const sceneId=SCENES[sceneIdx]?.id||'';
+  const scene=SCENES[sceneIdx];
+  const sceneId=scene&&scene.id?scene.id:'';
   if(sceneId.startsWith('decision')||sceneId.startsWith('epilogue')){
     ellipse(548,H-78,102,42,'#d6f6a6');
     strokeEllipse(548,H-78,102,42,'rgba(100,130,60,.55)',3);
@@ -748,6 +796,7 @@ function bgBackyard(){
    ================================================================ */
 
 let dlgState={active:false,lines:[],lineIdx:0,charIdx:0,charTimer:0,portrait:null,speaker:'',cb:null};
+let dlgHarness=null;
 
 function startDialog(lines,portrait,speaker,cb){
   dlgState={active:true,lines:lines.map(l=>l||''),lineIdx:0,charIdx:0,charTimer:0,portrait:portrait||null,speaker:speaker||'',cb:cb||null};
@@ -777,49 +826,69 @@ function updateDialog(dt){
   }
 }
 
-function drawDialog(){
-  if(!dlgState.active)return;
-  // In game phases, stay within the map area (left of right panel)
-  const inGame=(phase==='escape'||phase==='stealth'||phase==='closet_game');
-  const bx=10,by=H-130,bw=inGame?630:W-40,bh=115;
+function drawDialogText(text,x,y,maxW,fontSize,lineH,col,font){
+  ctx.save();
+  ctx.fillStyle=col;
+  ctx.font=`${fontSize}px ${font||'Georgia'}`;
+  ctx.textAlign='left';
+  ctx.textBaseline='alphabetic';
+  let lx=x,ly=y;
+  text.split(' ').forEach(w=>{
+    const ww=ctx.measureText(w+' ').width;
+    if(lx>x&&lx+ww>x+maxW){lx=x;ly+=lineH;}
+    ctx.fillText(w+' ',lx,ly);
+    lx+=ww;
+  });
+  ctx.restore();
+}
+
+function drawDialogBox(opts){
+  const bx=opts.x,by=opts.y,bw=opts.w,bh=opts.h;
   rnd(bx,by,bw,bh,8,C.dialogBg,C.dialogBdr,2);
   // portrait
-  const hasPortrait=!!dlgState.portrait;
+  const hasPortrait=!!opts.portrait;
   const textX=bx+(hasPortrait?90:20);
   const textW=bw-(hasPortrait?110:40);
   if(hasPortrait){
     rnd(bx+10,by+10,72,72,4,'rgba(0,0,0,0.4)',C.dialogBdr,1);
     ctx.save(); ctx.translate(bx+46,by+70);
-    if(dlgState.portrait==='hippo')drawHippoSide(0,0,0.55,false,t);
-    else if(dlgState.portrait==='pflueger')drawPflueger(0,0,0.55,false,t);
-    else if(dlgState.portrait==='lisa')drawLisa(0,0,0.55,false,t);
-    else if(dlgState.portrait==='mom')drawMom(0,0,0.55,t);
+    if(opts.portrait==='hippo')drawHippoSide(0,0,0.55,false,t);
+    else if(opts.portrait==='pflueger')drawPflueger(0,0,0.55,false,t);
+    else if(opts.portrait==='lisa')drawLisa(0,0,0.55,false,t);
+    else if(opts.portrait==='mom')drawMom(0,0,0.55,t);
     ctx.restore();
   }
-  if(dlgState.speaker){
-    txt(dlgState.speaker,textX,by+20,C.gold,14,'left',"'Courier New',monospace");
+  if(opts.speaker){
+    txt(opts.speaker,textX,by+20,C.gold,14,'left',"'Courier New',monospace");
   }
-  // word-wrapped text
-  const line=(dlgState.lines[dlgState.lineIdx]||'').substring(0,dlgState.charIdx);
-  const words=line.split(' ');
-  ctx.font=`16px Georgia`;
-  let lx=textX,ly=by+(dlgState.speaker?42:28),lineH=22;
-  words.forEach(w=>{
-    const ww=ctx.measureText(w+' ').width;
-    if(lx>textX&&lx+ww>bx+bw-20){lx=textX;ly+=lineH;}
-    ctx.fillStyle=C.cream; ctx.fillText(w+' ',lx,ly);
-    lx+=ww;
-  });
+  drawDialogText(opts.visibleText,textX,by+(opts.speaker?42:28),textW,16,22,C.cream,'Georgia');
   // advance indicator
-  const line2=dlgState.lines[dlgState.lineIdx]||'';
-  if(dlgState.charIdx>=line2.length){
+  if(opts.showAdvance){
     const blk=Math.floor(t/20)%2===0;
     if(blk)txt('▼',bx+bw-30,by+bh-15,C.gold,14);
   }
   // line counter
-  if(dlgState.lines.length>1){
-    txt(`${dlgState.lineIdx+1}/${dlgState.lines.length}`,bx+bw-60,by+18,C.dimTxt,11,'left',"'Courier New',monospace");
+  if(opts.lineCount>1){
+    txt(`${opts.lineIndex+1}/${opts.lineCount}`,bx+bw-60,by+18,C.dimTxt,11,'left',"'Courier New',monospace");
   }
+}
+
+function drawDialog(){
+  if(!dlgState.active)return;
+  // In game phases, stay within the map area (left of right panel)
+  const inGame=(phase==='escape'||phase==='stealth'||phase==='closet_game'||(phase==='dialog_harness'&&dlgHarness&&dlgHarness.caseDef&&dlgHarness.caseDef.inGame));
+  const bx=10,by=H-130,bw=inGame?630:W-40,bh=115;
+  const line=(dlgState.lines[dlgState.lineIdx]||'').substring(0,dlgState.charIdx);
+  const line2=dlgState.lines[dlgState.lineIdx]||'';
+  drawDialogBox({
+    x:bx,y:by,w:bw,h:bh,
+    portrait:dlgState.portrait,
+    speaker:dlgState.speaker,
+    visibleText:line,
+    lineIndex:dlgState.lineIdx,
+    lineCount:dlgState.lines.length,
+    showAdvance:dlgState.charIdx>=line2.length,
+  });
 }
 
 /* ================================================================
@@ -1159,7 +1228,8 @@ function drawScene(scene){
 }
 
 function getChapterLabel(idx){
-  const id=SCENES[idx]?.id||'';
+  const scene=SCENES[idx];
+  const id=scene&&scene.id?scene.id:'';
   if(id.startsWith('ch1'))return 'Chapter 1: Once Upon a Time';
   if(id.startsWith('ch2'))return 'Chapter 2: The Hippo Arrives';
   if(id.startsWith('ch3'))return 'Chapter 3: Following Everywhere';
@@ -1708,8 +1778,8 @@ function initCleanup(){
   cln={
     time:limit,
     startTime:limit,
-    items:CLEANUP_ITEMS_DEF.map(it=>({...it,done:false})),
-    decoys:CLEANUP_DECOYS_DEF.map(it=>({...it})),
+    items:CLEANUP_ITEMS_DEF.map(it=>cloneWith(it,{done:false})),
+    decoys:CLEANUP_DECOYS_DEF.map(it=>cloneWith(it,{})),
     hover:null,
     wrongTimer:0,
     won:false,
@@ -1841,8 +1911,9 @@ function drawCleanup(){
   txt('EVIDENCE LEFT',216,34,C.dimTxt,10,'left',"'Courier New',monospace");
   txt(`${cleanupRemaining()}`,216,60,'#fff5d3',28,'left','Georgia');
   drawSuspicionMeter(W-188,16,178,true);
-  s.decoys.forEach(item=>drawCleanupThing(item,s.hover?.item?.id===item.id,false));
-  s.items.forEach(item=>{if(!item.done)drawCleanupThing(item,s.hover?.item?.id===item.id,true);});
+  const hoverItemId=s.hover&&s.hover.item?s.hover.item.id:null;
+  s.decoys.forEach(item=>drawCleanupThing(item,hoverItemId===item.id,false));
+  s.items.forEach(item=>{if(!item.done)drawCleanupThing(item,hoverItemId===item.id,true);});
   if(s.hover){
     const lab=s.hover.kind==='item'?s.hover.item.label:'Not evidence';
     const lw=Math.max(88,txtW(lab,11,"'Courier New',monospace")+18);
@@ -1918,7 +1989,7 @@ function clGetRots(cells){
 function initCloset(){
   cls={
     grid:Array.from({length:CL_ROWS},()=>Array(CL_COLS).fill(-1)),
-    pieces:CL_PIECES.map(p=>({...p,rot:0,placed:false,gr:0,gc:0,rots:clGetRots(p.cells)})),
+    pieces:CL_PIECES.map(p=>cloneWith(p,{rot:0,placed:false,gr:0,gc:0,rots:clGetRots(p.cells)})),
     sel:-1,
     hoverR:-1,hoverC:-1,
     won:false,
@@ -1954,7 +2025,8 @@ function clUnplace(pidx){
   cls.pieces[pidx].placed=false;
 }
 function clPieceAt(gr,gc){
-  const v=cls.grid[gr]?.[gc];
+  const row=cls.grid[gr];
+  const v=row?row[gc]:undefined;
   return(v!==undefined&&v!==-1)?v:-1;
 }
 
@@ -2869,6 +2941,125 @@ function endingSummary(){
 }
 
 /* ================================================================
+   DIALOG HARNESS
+   ================================================================ */
+function dialogHarnessCases(){
+  return[
+    {
+      title:'Zoo Cutscene',
+      subtitle:'Speakerless dialog after centered HUD text',
+      inGame:true,
+      lines:Z1_DIALOG,
+      speaker:'',
+      portrait:null,
+    },
+    {
+      title:'Open Plaza NPC',
+      subtitle:'Short gameplay tip without a speaker tag',
+      inGame:true,
+      lines:[Z2_NPCS[0].msg],
+      speaker:'',
+      portrait:null,
+    },
+    {
+      title:'Story Speaker',
+      subtitle:'Speaker label and portrait for comparison',
+      inGame:false,
+      lines:["Lisa, you've gotta help me! There's a hippo in my house, and I don't know where it came from!"],
+      speaker:'Pflueger',
+      portrait:'pflueger',
+    },
+  ];
+}
+
+function loadDialogHarnessCase(idx){
+  const cases=dialogHarnessCases();
+  const next=((idx%cases.length)+cases.length)%cases.length;
+  dlgHarness.caseIdx=next;
+  dlgHarness.caseDef=cases[next];
+  startDialog(dlgHarness.caseDef.lines,dlgHarness.caseDef.portrait,dlgHarness.caseDef.speaker,()=>{
+    if(dlgHarness)dlgHarness.loopPending=true;
+  });
+  dlgHarness.loopPending=false;
+}
+
+function initDialogHarness(){
+  dlgHarness={caseIdx:0,caseDef:null,poisonAlign:true,loopPending:false};
+  loadDialogHarnessCase(0);
+}
+
+function updateDialogHarness(dt){
+  if(!dlgHarness)initDialogHarness();
+  if(eat('ArrowRight')||eat('KeyD'))loadDialogHarnessCase(dlgHarness.caseIdx+1);
+  if(eat('ArrowLeft')||eat('KeyA'))loadDialogHarnessCase(dlgHarness.caseIdx-1);
+  if(eat('KeyP'))dlgHarness.poisonAlign=!dlgHarness.poisonAlign;
+  if(eat('KeyR'))loadDialogHarnessCase(dlgHarness.caseIdx);
+  if(eat('Escape')||eat('Backspace')){
+    dlgHarness=null;
+    dlgState.active=false;
+    phase='title';
+    return;
+  }
+  updateDialog(dt);
+  if(dlgHarness&&dlgHarness.loopPending&&!dlgState.active){
+    loadDialogHarnessCase(dlgHarness.caseIdx);
+  }
+}
+
+function drawDialogHarness(){
+  if(!dlgHarness)initDialogHarness();
+  const c=dlgHarness.caseDef;
+  const rect=canvas.getBoundingClientRect();
+  const cssW=Math.round(rect.width);
+  const cssH=Math.round(rect.height);
+  const dpr=(window.devicePixelRatio||1).toFixed(2);
+  const bg=ctx.createLinearGradient(0,0,0,H);
+  bg.addColorStop(0,'#1a222d');
+  bg.addColorStop(1,'#0c1016');
+  fillRect(0,0,W,H,bg);
+  rnd(8,8,W-16,H-16,18,null,'rgba(255,255,255,0.12)',2);
+  if(c.inGame){
+    const mg=ctx.createLinearGradient(0,0,0,MAP_H);
+    mg.addColorStop(0,'#35582f');
+    mg.addColorStop(1,'#192c17');
+    fillRect(0,0,MAP_W,MAP_H,mg);
+    for(let row=0;row<ROWS;row++){
+      for(let col=0;col<COLS;col++){
+        fillRect(col*TILE,row*TILE,TILE,TILE,(row+col)%2===0?'rgba(255,255,255,0.03)':'rgba(0,0,0,0.04)');
+      }
+    }
+    drawViewportFrame('#557c43');
+    fillRect(0,MAP_H,MAP_W,H-MAP_H,'rgba(5,22,12,0.36)');
+    line(0,MAP_H,MAP_W,MAP_H,'rgba(220,255,200,0.16)',2);
+    drawUiShell('#557c43');
+    txt('ZONE 2',UI_X+UI_W/2,30,C.gold,14,'center',"'Courier New',monospace");
+    txt('Panda Enclosure',UI_X+UI_W/2,50,C.dimTxt,11,'center','Georgia');
+    txt('Centered UI text before dialog',UI_X+UI_W/2,84,'#c8d4be',10,'center',"'Courier New',monospace");
+  } else {
+    const sg=ctx.createLinearGradient(0,0,0,H);
+    sg.addColorStop(0,'#3e315e');
+    sg.addColorStop(1,'#181125');
+    fillRect(0,0,W,H,sg);
+    rnd(34,56,W-68,250,18,'rgba(255,255,255,0.05)','rgba(255,255,255,0.12)',1.5);
+    txt('Story-style dialog sample',W/2,100,C.gold,22,'center','Georgia');
+    txt('Use this to compare with the in-game speakerless box.',W/2,132,C.cream,13,'center',"'Courier New',monospace");
+  }
+  rnd(16,14,360,92,10,'rgba(9,12,18,0.78)','rgba(255,255,255,0.14)',1.4);
+  txt('DIALOG HARNESS',30,36,C.gold,15,'left',"'Courier New',monospace");
+  txt(`${c.title} — ${c.subtitle}`,30,58,C.cream,12,'left','Georgia');
+  txt(`Canvas CSS ${cssW}×${cssH}  DPR ${dpr}  Scale ${canvasScale.toFixed(2)}`,30,80,C.dimTxt,10,'left',"'Courier New',monospace");
+  txt('[←/→] case  [R] restart  [P] poison align  [Esc] menu',30,98,C.dimTxt,10,'left',"'Courier New',monospace");
+  if(dlgHarness.poisonAlign){
+    ctx.textAlign='center';
+    ctx.textBaseline='middle';
+    ctx.font='bold 40px Georgia';
+  }
+  drawDialog();
+  rnd(16,H-166,250,28,8,'rgba(9,12,18,0.7)','rgba(255,255,255,0.12)',1);
+  txt(`Poisoned text state: ${dlgHarness.poisonAlign?'ON':'OFF'}`,28,H-147,dlgHarness.poisonAlign?'#ffb36a':'#9ddf8f',10,'left',"'Courier New',monospace");
+}
+
+/* ================================================================
    CREDITS SCREEN
    ================================================================ */
 function drawCredits(){
@@ -2916,6 +3107,7 @@ function loop(ts){
     case 'title':  drawTitle();  break;
     case 'diff':   drawDiff();   break;
     case 'story':  handleStory(); break;
+    case 'dialog_harness': updateDialogHarness(dt); drawDialogHarness(); break;
     case 'escape': updateEscape(dt); drawEscape(); break;
     case 'stealth': updateStealth(dt); drawStealth(); break;
     case 'cleanup': updateCleanup(dt); drawCleanup(); break;
@@ -2927,12 +3119,16 @@ function loop(ts){
       break;
   }
   drawMobileControls();
-  if(phase!=='title'&&phase!=='diff')drawSuspicionNotice();
+  if(phase!=='title'&&phase!=='diff'&&phase!=='dialog_harness')drawSuspicionNotice();
   if(suspNotice.timer>0)suspNotice.timer--;
   // Clear one-shot click
   mclk=false;
   Object.keys(JP).forEach(k=>JP[k]=false);
   requestAnimationFrame(loop);
+}
+if(DEBUG_HARNESS==='dialog'){
+  initDialogHarness();
+  phase='dialog_harness';
 }
 requestAnimationFrame(loop);
 </script>
