@@ -1049,10 +1049,6 @@ function drawTitle(){
   txt('& the Hippo',W/2,188,'#f0e0a8',42,'center','Georgia');
   ctx.restore();
   txt('Pastel storybook adventure with JRPG minigames',W/2,220,'#f5ead6',14,'center','Georgia');
-  rnd(W/2-150,H-82,300,42,12,'rgba(35,20,44,0.54)','rgba(246,213,122,0.7)',2);
-  if(Math.floor(t/30)%2===0){
-    txt('Click or press SPACE to start',W/2,H-53,'#f3dd9d',15,'center',"'Courier New',monospace");
-  }
   rnd(10,10,W-20,H-20,22,null,'rgba(255,248,227,0.32)',3);
   if(mclk||eat('Space')){mclk=false; phase='diff';}
 }
