@@ -900,179 +900,38 @@ function drawDialog(){
    action: 'escape','stealth','library','closet','epilogue_story','diff','next'
 */
 const SCENES=[
-  // ── CHAPTER 1: Introduction ──────────────────────────────────────
-  {id:'ch1_1',bg:bgNeighborhood,
-   chars:[{type:'pflueger',x:500,y:310,sc:1.1}],
-   text:"Once upon a time, there was a little boy named Pflueger."},
-  {id:'ch1_2',bg:bgStreet,
-   chars:[{type:'hippocool',x:260,y:330,sc:1.1}],
-   text:"And there was a hippo."},
-  {id:'ch1_3',bg:bgKitchen,
-   chars:[{type:'pflueger',x:480,y:330,sc:1}],
-   text:"Every day after school, Pflueger would make himself a peanut butter and jelly sandwich.",
-   bubble:{txt:"HEY MA!\nWE'RE OUTTA\nGRAPE JELLY!",x:480,y:307}},
-  {id:'ch1_4',bg:bgKitchen,
-   chars:[{type:'pflueger',x:360,y:360,sc:1}],
-   text:"Scrape, scrape... the perfect afternoon routine."},
-  // ── CHAPTER 2: The Hippo Arrives ─────────────────────────────────
-  {id:'ch2_1',bg:bgNeighborhood,
-   chars:[{type:'pflueger',x:530,y:330,sc:1}],
-   text:"Until one day... DING DONG!"},
-  {id:'ch2_2',bg:bgNeighborhood,
-   chars:[{type:'pflueger',x:500,y:330,sc:1},{type:'hippocool',x:220,y:340,sc:1.1}],
-   text:"\"GAH!\" ...the hippo walked right into his life.",
-   bubble:{txt:"GAH!",x:500,y:307}},
-  {id:'ch2_3',bg:bgBedroom,
-   chars:[{type:'pflueger',x:240,y:370,sc:0.95},{type:'hippo',x:520,y:390,sc:1.2}],
-   text:"Pflueger snuck the hippo into his bedroom. \"Okay, eat this... and don't make too much noise, or my mom will come in...\"",
-   speaker:'Pflueger'},
+  // ── SHORT INTRO ──────────────────────────────────────────────────
+  {id:'ch1_1',bg:bgBedroom,
+   chars:[{type:'pflueger',x:250,y:370,sc:0.95},{type:'hippo',x:530,y:395,sc:1.15}],
+   text:"One day, a hippo showed up at Pflueger's house, and he hid it in his bedroom."},
   {id:'stealth_intro',bg:bgBedroom,
-   chars:[{type:'pflueger',x:340,y:370,sc:1}],
-   text:"\"Wait here! I'll sneak downstairs and make you a PB&J. Just don't make any noise — and watch out for Digory!\"",
-   speaker:'Pflueger',
+   chars:[{type:'pflueger',x:320,y:370,sc:1},{type:'hippo',x:565,y:400,sc:1.1,flip:true}],
+   text:"Time to sneak upstairs with a PB&J before anyone notices.",
    action:'stealth'},
-  {id:'ch2_4',bg:bgBedroom,
-   chars:[{type:'hippo',x:430,y:400,sc:1.3},{type:'pflueger',x:220,y:380,sc:0.9}],
-   text:"MUNCH! The hippo was NOT quiet. \"Oh God. Oh God Oh God Oh God. How do I get out of this one?\"",
-   bubble:{txt:"MUNCH!",x:475,y:370}},
-  // ── CHAPTER 3: Following Everywhere ──────────────────────────────
-  {id:'ch3_1',bg:bgStreet,
-   chars:[{type:'hippocool',x:350,y:340,sc:1.1},{type:'pflueger',x:540,y:340,sc:1,flip:true}],
-   text:"Pflueger tried to go about his day, but the hippo followed him everywhere..."},
-  {id:'ch3_2',bg:bgStreet,
-   chars:[{type:'hippo',x:420,y:360,sc:1.4}],
-   text:"...to the post office, down the street in a very unconvincing disguise, to the laundromat, and to the supermarket. MUNCH MUNCH.",
-   bubble:{txt:"MUNCH\nMUNCH",x:468,y:335}},
-  {id:'ch3_3',bg:bgBedroom,
-   chars:[{type:'pflueger',x:280,y:370,sc:1},{type:'hippo',x:530,y:410,sc:1.2,flip:true}],
-   text:"Making the bed... setting the table... the hippo was everywhere."},
-  // ── CHAPTER 4: Pflueger's Dilemma ────────────────────────────────
-  {id:'ch4_1',bg:bgBedroom,
-   chars:[{type:'pflueger',x:310,y:360,sc:1},{type:'hippo',x:560,y:390,sc:1.1,flip:true}],
-   text:"\"Where did he come from? Is he going to follow me forever? What will my friends think? Am I supposed to bring him to school?\"",
-   speaker:'Pflueger'},
-  {id:'ch4_2',bg:bgBedroom,
-   chars:[{type:'pflueger',x:320,y:360,sc:1},{type:'hippo',x:570,y:400,sc:1,flip:true}],
-   text:"Pflueger read every book about hippos he could find. \"How do I get rid of this thing? I don't know anything about hippos.\"",
-   bubble:{txt:"HOW DO I GET\nRID OF THIS\nTHING??",x:318,y:330}},
-  {id:'ch4_3',bg:bgBedroom,
-   chars:[{type:'hippo',x:510,y:390,sc:1.1,flip:true},{type:'pflueger',x:280,y:360,sc:1}],
-   text:"The hippo held up a little picture — a drawing of him and Pflueger together, with a tiny heart.",
-   bubble:{txt:"...",x:278,y:330}},
-  {id:'ch4_4',bg:bgBedroom,
-   chars:[{type:'pflueger',x:340,y:360,sc:1}],
-   text:"Pflueger thought about it. The hippo didn't seem dangerous. Just... enormous. And loud. ...sigh.",
-   bubble:{txt:"sigh...",x:340,y:330}},
-  {id:'ch4_5',bg:bgBedroom,
-   chars:[{type:'pflueger',x:280,y:360,sc:1},{type:'hippo',x:560,y:390,sc:1.1,flip:true}],
-   text:"\"Okay, look here, Hippo... You can stay here, but just for today. And I'll try to find out where you really belong. And above all... you must be QUIET!\"",
-   speaker:'Pflueger'},
-  // ── CHAPTER 5: Long and Hard ──────────────────────────────────────
-  {id:'ch5_1',bg:bgKitchen,
-   chars:[{type:'pflueger',x:320,y:340,sc:1},{type:'hippo',x:580,y:380,sc:1.1}],
-   text:"Pflueger thought long and hard about his dilemma. In the bath. At dinner. Reading before bed.",
-   bubble:{txt:'"THE HIPPO KILLS\nMORE PEOPLE IN\nAFRICA THAN ANY\nOTHER ANIMAL..."\n"EVEN THE LION."',x:290,y:300}},
-  {id:'ch5_2',bg:bgBedroom,
-   chars:[{type:'hippo',x:500,y:400,sc:1.3},{type:'pflueger',x:230,y:370,sc:0.9}],
-   text:"\"...could that really be true?\" YAWWWWN! The hippo yawned enormously. Pflueger whimpered.",
-   bubble:{txt:"YAWWWN!",x:544,y:368}},
-  {id:'ch5_3',bg:bgBedroom,
-   chars:[{type:'hippo',x:500,y:410,sc:1.4},{type:'pflueger',x:220,y:370,sc:0.9}],
-   text:"They ended up sharing the bed. Whimper tremble tremble tremble... ZZZZZZZ.",
-   bubble:{txt:"NNNNZZ",x:550,y:378}},
-  // ── CHAPTER 6: Morning ────────────────────────────────────────────
-  {id:'ch6_1',bg:bgBedroom,
-   chars:[{type:'pflueger',x:380,y:330,sc:1}],
-   text:"The next morning... blink blink. Pflueger woke up alone.",
-   bubble:{txt:"blink\nblink",x:380,y:300}},
-  {id:'ch6_2',bg:bgBedroom,
-   chars:[{type:'pflueger',x:370,y:350,sc:1}],
-   text:"\"...hippo?\" ...\"Oh Mr. Hippo...\" ...\"Maybe he's gone!\"",speaker:'Pflueger'},
-  {id:'ch6_3',bg:bgKitchen,
-   chars:[{type:'pflueger',x:220,y:360,sc:1},{type:'hippo',x:580,y:380,sc:1.2}],
-   text:"\"...oh.\" The hippo was in the kitchen. In a chef's hat. Making a truly enormous stack of pancakes.",
-   bubble:{txt:"...OH",x:220,y:330}},
-  // ── CHAPTER 7: Calling Lisa ────────────────────────────────────────
-  {id:'ch7_1',bg:bgNeighborhood,
-   chars:[{type:'pflueger',x:360,y:350,sc:1}],
-   text:"\"Meanwhile, across the street...\" Pflueger picked up the phone."},
-  {id:'ch7_2',bg:bgKitchen,
-   chars:[{type:'pflueger',x:330,y:350,sc:1}],
-   text:"\"Lisa, you've gotta help me! There's a hippo in my house, and I don't know where it came from!\"",speaker:'Pflueger'},
-  {id:'ch7_3',bg:bgNeighborhood,
-   chars:[{type:'lisa',x:440,y:340,sc:1}],
-   text:"\"I'm sorry, I was heating up macaroni. It sounded like you said, 'There's a hippo in my house.'\"",speaker:'Lisa'},
-  {id:'ch7_4',bg:bgKitchen,
-   chars:[{type:'pflueger',x:300,y:340,sc:1},{type:'hippo',x:580,y:370,sc:1,flip:true}],
-   text:"\"There IS a—\" GLOMPF! The hippo ate the phone. Lisa: \"Pflueger, you're breaking up. You sound like the digestive tract of a large animal.\"",
-   bubble:{txt:"GLOMPF!",x:544,y:348}},
-  {id:'ch7_5',bg:bgNeighborhood,
-   chars:[{type:'lisa',x:430,y:340,sc:1}],
-   text:"\"I'll be right over.\" — Lisa arrived minutes later with a stack of books taller than herself.",speaker:'Lisa'},
-  // ── CHAPTER 8: The Library ────────────────────────────────────────
-  {id:'ch8_1',bg:bgLibrary,
+  {id:'ch2_4',bg:bgLibrary,
    chars:[{type:'pflueger',x:310,y:370,sc:0.95},{type:'lisa',x:490,y:360,sc:0.95}],
-   text:"\"Who knew the library's zoology section had so many hippo books?\" \"Of course it does. The library has everything.\""},
-  {id:'ch8_2',bg:bgLibrary,
-   chars:[{type:'pflueger',x:320,y:370,sc:0.95},{type:'lisa',x:500,y:360,sc:0.95}],
-   text:"\"Even a picture of the world's oldest hippo: 55 years.\" \"GASP!\"",
-   bubble:{txt:"GASP!",x:488,y:332}},
-  {id:'ch8_3',bg:bgLibrary,
+   text:"Later, Lisa helped investigate, and they learned the hippo had escaped from the zoo."},
+  {id:'escape_intro',bg:bgLibrary,
    chars:[{type:'pflueger',x:310,y:370,sc:0.95},{type:'lisa',x:490,y:360,sc:0.95}],
-   text:"They found a news article on the library computer..."},
-  // NEWSPAPER SCENE
-  {id:'ch8_news',bg:bgLibrary,chars:[{type:'pflueger',x:310,y:430,sc:0.85},{type:'lisa',x:490,y:420,sc:0.85}],
-   text:"\"HIPPO ESCAPES FROM LOCAL ZOO — ZOOKEEPERS BAFFLED, CITY IN TURMOIL.\" Pflueger: \"Ohhh boy.\" Lisa: \"That's our guy.\"",
-   special:'newspaper'},
-  {id:'ch8_4',bg:bgLibrary,
-   chars:[{type:'pflueger',x:310,y:370,sc:0.95},{type:'lisa',x:490,y:360,sc:0.95}],
-   text:"\"Zoo officials report that he had always been a mischievous fellow.\" \"Last seen carrying flip-flops and a pair of giant hippo-sized swim trunks.\""},
-  // TRANSITION TO ESCAPE
-  {id:'escape_intro',bg:bgBackyard,chars:[],
-   text:"But how did it all begin? Let's go back to that morning at the zoo...",
+   text:"Back to the zoo...",
    action:'escape'},
-  // ── POST-ESCAPE: The Decision ─────────────────────────────────────
   {id:'decision_1',bg:bgBackyard,
    chars:[{type:'hippo',x:450,y:400,sc:1.3},{type:'pflueger',x:200,y:360,sc:0.95},{type:'lisa',x:620,y:360,sc:0.95}],
-   text:"The hippo was in the backyard, floating in a kiddie pool, singing to himself. \"Waaastin' away again in Margaritaville...\"",
-   bubble:{txt:"WAAASTIN'\nAWAY AGAIN\nIN\nMARGARITAVILLE",x:475,y:368}},
-  {id:'decision_2',bg:bgBackyard,
-   chars:[{type:'pflueger',x:280,y:360,sc:0.95},{type:'lisa',x:460,y:360,sc:0.95}],
-   text:"\"Well we can't just send him back to the zoo.\" \"It wouldn't be right.\""},
-  {id:'decision_3',bg:bgBackyard,
-   chars:[{type:'pflueger',x:280,y:360,sc:0.95},{type:'lisa',x:460,y:360,sc:0.95},{type:'hippo',x:620,y:410,sc:1}],
-   text:"\"I suppose I could stash him in my closet.\" \"He could use my backyard for exercise... as long as my mom's not home.\""},
-  {id:'decision_4',bg:bgBackyard,
-   chars:[{type:'pflueger',x:310,y:360,sc:0.95},{type:'lisa',x:480,y:360,sc:0.95}],
-   text:"\"You know what this means, then... We have to keep this a secret! Nobody else can know!\""},
+   text:"The hippo made it home. Now Pflueger and Lisa had to keep him hidden."},
   {id:'cleanup_intro',bg:bgBedroom,
    chars:[{type:'pflueger',x:270,y:360,sc:0.95},{type:'lisa',x:430,y:356,sc:0.95},{type:'hippo',x:590,y:400,sc:1.05,flip:true}],
-   text:"Lisa peeked through the curtains. \"Your mom's car just turned onto the street. We have to hide all this hippo evidence. Now.\"",
-   speaker:'Lisa',
+   text:"Mom's car turned onto the street. Hide the hippo evidence fast.",
    action:'cleanup'},
-  // ── CHAPTER 9: Moving In ──────────────────────────────────────────
   {id:'closet_intro',bg:bgBedroom,
    chars:[{type:'pflueger',x:320,y:360,sc:1},{type:'hippo',x:560,y:400,sc:1.1,flip:true}],
-   text:"\"Okay, the plan is: you live in my closet. But first... we have to make everything fit.\"",
-   speaker:'Pflueger',
+   text:"New plan: make the hippo fit in the closet.",
    action:'closet_game'},
-  // ── EPILOGUE ──────────────────────────────────────────────────────
   {id:'epilogue_start',bg:bgNeighborhood,
    chars:[{type:'pflueger',x:350,y:340,sc:1},{type:'hippo',x:560,y:350,sc:1.1}],
-   text:"And every day after school... Pflueger would make himself two peanut butter and jelly sandwiches."},
-  {id:'epilogue_2',bg:bgKitchen,
-   chars:[{type:'mom',x:260,y:330,sc:1}],
-   text:"Mom: \"Out of jelly again?\" She never did figure out how he went through it so quickly.",speaker:'Mom'},
-  {id:'epilogue_3',bg:bgBedroom,
-   chars:[{type:'pflueger',x:250,y:360,sc:0.9},{type:'hippo',x:580,y:420,sc:1.1,flip:true}],
-   text:"At night, the hippo would bring Pflueger midnight snacks — ice cream sundaes, made somehow in the closet. \"How the heck did you make ice cream sundaes in my closet?\" \"...are those palm fronds in there?\""},
-  {id:'epilogue_4',bg:bgBedroom,
-   chars:[{type:'pflueger',x:300,y:360,sc:0.9}],
-   text:"\"Waaastin' away again in Margaritaville...\" came the singing from the closet.",
-   bubble:{txt:"WAAASTIN'\nAWAY AGAIN\nIN MARGARITAVILLE",x:580,y:265}},
+   text:"After that, Pflueger and the hippo shared snacks, songs, and one very big secret."},
   {id:'epilogue_end',bg:bgBedroom,
-   chars:[{type:'pflueger',x:300,y:360,sc:0.9}],
-   text:"\"Go to sleep, Hippo.\" ZZZZZ. \"Good night.\" ...\"Good night.\"",
+   chars:[{type:'pflueger',x:300,y:360,sc:0.9},{type:'hippo',x:580,y:420,sc:1.1,flip:true}],
+   text:"Good night, Hippo. Good night.",
    action:'credits'},
 ];
 
@@ -1230,18 +1089,11 @@ function drawScene(scene){
 function getChapterLabel(idx){
   const scene=SCENES[idx];
   const id=scene&&scene.id?scene.id:'';
-  if(id.startsWith('ch1'))return 'Chapter 1: Once Upon a Time';
-  if(id.startsWith('ch2'))return 'Chapter 2: The Hippo Arrives';
-  if(id.startsWith('ch3'))return 'Chapter 3: Following Everywhere';
-  if(id.startsWith('ch4'))return 'Chapter 4: Pflueger\'s Dilemma';
-  if(id.startsWith('ch5'))return 'Chapter 5: Long and Hard';
-  if(id.startsWith('ch6'))return 'Chapter 6: The Next Morning';
-  if(id.startsWith('ch7'))return 'Chapter 7: Calling Lisa';
-  if(id.startsWith('ch8'))return 'Chapter 8: The Library';
-  if(id.startsWith('decision'))return 'The Decision';
-  if(id.startsWith('cleanup'))return 'Chapter 9: Mom Is Coming Home';
-  if(id.startsWith('closet'))return 'Chapter 10: Moving In';
-  if(id.startsWith('epilogue'))return 'Epilogue: The New Normal';
+  if(id==='ch1_1'||id==='stealth_intro')return 'PB&J Trouble';
+  if(id==='ch2_4'||id==='escape_intro')return 'Zoo Flashback';
+  if(id.startsWith('decision')||id.startsWith('cleanup'))return 'Hide The Hippo';
+  if(id.startsWith('closet'))return 'Closet Plan';
+  if(id.startsWith('epilogue'))return 'Epilogue';
   return '';
 }
 
