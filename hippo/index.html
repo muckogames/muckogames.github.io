@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pflueger and the Hippo</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext x='50%25' y='50%25' dy='.35em' text-anchor='middle' font-size='82'%3E%F0%9F%A6%9B%3C/text%3E%3C/svg%3E">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{
@@ -19,18 +20,25 @@ body::before{
     linear-gradient(180deg,rgba(255,255,255,.18),transparent 30%),
     repeating-linear-gradient(135deg,rgba(255,255,255,.07) 0 12px,rgba(0,0,0,.03) 12px 24px);
 }
-#gc{
-  display:block;cursor:default;border:4px solid #f3d59d;border-radius:18px;background:#fcf7ef;
-  touch-action:none;
+#stage{
+  position:relative;display:block;border:4px solid #f3d59d;border-radius:18px;overflow:hidden;background:#fcf7ef;
   box-shadow:
     0 30px 90px rgba(18,8,28,.45),
     0 0 0 10px rgba(255,244,220,.12),
     inset 0 0 0 3px rgba(124,74,35,.35);
 }
+#bgc,#gc{
+  display:block;position:absolute;inset:0;width:100%;height:100%;
+}
+#bgc{pointer-events:none}
+#gc{cursor:default;background:transparent;touch-action:none}
 </style>
 </head>
 <body>
-<canvas id="gc"></canvas>
+<div id="stage">
+  <canvas id="bgc"></canvas>
+  <canvas id="gc"></canvas>
+</div>
 <script src="dialog-data.js"></script>
 <script>
 'use strict';
@@ -44,15 +52,19 @@ const LOW_FPS_PHASES=new Set(['title','diff','story','dialog_harness','credits']
 const DIALOG_DATA=window.HIPPO_DIALOG;
 const urlParams=new URLSearchParams(window.location.search);
 const DEBUG_HARNESS=urlParams.get('harness');
+const stage=document.getElementById('stage');
+const bgCanvas=document.getElementById('bgc');
 const canvas=document.getElementById('gc');
+const bgCtx=bgCanvas.getContext('2d');
 const ctx=canvas.getContext('2d');
 let canvasScale=1;
 const backdropCache=new Map();
+let activeBackdropKey=null;
 
-function configureCanvasContext(){
-  ctx.lineJoin='round';
-  ctx.lineCap='round';
-  ctx.imageSmoothingEnabled=true;
+function configureCanvasContext(targetCtx){
+  targetCtx.lineJoin='round';
+  targetCtx.lineCap='round';
+  targetCtx.imageSmoothingEnabled=true;
 }
 
 function renderDpr(){
@@ -60,6 +72,11 @@ function renderDpr(){
 }
 function clearBackdropCache(){
   backdropCache.clear();
+  clearBackdropLayer();
+}
+function clearBackdropLayer(){
+  bgCtx.clearRect(0,0,W,H);
+  activeBackdropKey=null;
 }
 function snapshotBackdrop(){
   const cached=document.createElement('canvas');
@@ -70,26 +87,38 @@ function snapshotBackdrop(){
   cachedCtx.drawImage(canvas,0,0);
   return cached;
 }
+function presentBackdrop(cached){
+  bgCtx.clearRect(0,0,W,H);
+  bgCtx.drawImage(cached,0,0,cached.width,cached.height,0,0,W,H);
+}
 function drawCachedBackdrop(key,drawFn){
-  const cached=backdropCache.get(key);
-  if(cached){
-    ctx.drawImage(cached,0,0,cached.width,cached.height,0,0,W,H);
-    return;
+  let cached=backdropCache.get(key);
+  if(!cached){
+    drawFn();
+    cached=snapshotBackdrop();
+    backdropCache.set(key,cached);
+    ctx.clearRect(0,0,W,H);
   }
-  drawFn();
-  backdropCache.set(key,snapshotBackdrop());
+  if(activeBackdropKey!==key){
+    presentBackdrop(cached);
+    activeBackdropKey=key;
+  }
 }
 
 function resize(){
   const dpr=renderDpr();
   const s=Math.min(window.innerWidth/(W+6),(window.innerHeight-6)/(H+6));
   canvasScale=s;
-  canvas.style.width=Math.max(1,Math.round(W*s))+'px';
-  canvas.style.height=Math.max(1,Math.round(H*s))+'px';
+  stage.style.width=Math.max(1,Math.round(W*s))+'px';
+  stage.style.height=Math.max(1,Math.round(H*s))+'px';
+  bgCanvas.width=Math.max(1,Math.round(W*dpr));
+  bgCanvas.height=Math.max(1,Math.round(H*dpr));
   canvas.width=Math.max(1,Math.round(W*dpr));
   canvas.height=Math.max(1,Math.round(H*dpr));
+  bgCtx.setTransform(dpr,0,0,dpr,0,0);
   ctx.setTransform(dpr,0,0,dpr,0,0);
-  configureCanvasContext();
+  configureCanvasContext(bgCtx);
+  configureCanvasContext(ctx);
   clearBackdropCache();
 }
 window.addEventListener('resize',resize); resize();
@@ -1482,22 +1511,29 @@ function drawZooTile(tile,row,col){
   }
 }
 
+function drawStealthBackdrop(s,zd){
+  drawCachedBackdrop(`stealth:${s.zone}`,()=>{
+    const bg=ctx.createLinearGradient(0,0,0,H);
+    bg.addColorStop(0,'#362314');bg.addColorStop(1,'#21130f');
+    fillRect(0,0,W,H,bg);
+    const map=zd.map;
+    for(let row=0;row<ROWS;row++){
+      for(let col=0;col<COLS;col++){
+        drawStealthTile(map[row][col],row,col,s.zone);
+      }
+    }
+    drawViewportFrame('#7b593a');
+    fillRect(0,MAP_H,MAP_W,H-MAP_H,'rgba(18,8,6,0.38)');
+    line(0,MAP_H,MAP_W,MAP_H,'rgba(255,230,180,0.2)',2);
+    drawUiShell('#7b593a');
+  });
+}
+
 function drawStealth(){
   const s=stl;
-  const bg=ctx.createLinearGradient(0,0,0,H);
-  bg.addColorStop(0,'#362314');bg.addColorStop(1,'#21130f');
-  fillRect(0,0,W,H,bg);
   if(s.won){drawStealthWin();return;}
   const zd=STL_ZONE_DATA[s.zone];
-  const map=zd.map;
-  for(let row=0;row<ROWS;row++){
-    for(let col=0;col<COLS;col++){
-      drawStealthTile(map[row][col],row,col,s.zone);
-    }
-  }
-  drawViewportFrame('#7b593a');
-  fillRect(0,MAP_H,MAP_W,H-MAP_H,'rgba(18,8,6,0.38)');
-  line(0,MAP_H,MAP_W,MAP_H,'rgba(255,230,180,0.2)',2);
+  drawStealthBackdrop(s,zd);
   drawMomTD(s.mom.x,s.mom.y,s.mom.angle,t);
   if(zd.hasDigory)drawDigoryTD(s.digory.x,s.digory.y,s.digory.chasing,s.digory.anim);
   drawPfluegerTD(s.player.x,s.player.y,s.player.dir,s.player.anim,s.hasSandwich);
@@ -1538,7 +1574,6 @@ function drawStealthWin(){
 
 function drawStealthUI(){
   const s=stl;
-  drawUiShell('#7b593a');
   txt('PB&J RUN',UI_X+UI_W/2,28,C.gold,14,'center',"'Courier New',monospace");
   txt(STL_ZONE_DATA[s.zone].name,UI_X+UI_W/2,48,'#d8cdbd',11,'center','Georgia');
   txt('FLOORS',UI_X+UI_W/2,78,C.dimTxt,11,'center',"'Courier New',monospace");
@@ -2532,23 +2567,48 @@ function restartZone(){
 }
 
 /* ── Escape Rendering ── */
+function drawEscapeBackdrop(e){
+  if(e.zone===1){
+    drawCachedBackdrop('escape:z1',()=>{
+      fillRect(0,0,MAP_W,H,'#e7f0df');
+      fillRect(0,0,MAP_W,H*0.58,'#cce4c4');
+      fillRect(0,H*0.58,MAP_W,H*0.42,'#a9d68c');
+      for(let i=0;i<6;i++){
+        const bx=80+i*100;
+        fillRect(bx-5,20,10,H*0.55,'#60a030');
+        for(let j=0;j<4;j++){
+          fillRect(bx-20,60+j*60,40,6,'#508828');
+        }
+      }
+      drawViewportFrame('#6ca552');
+      drawUiShell('#6ca552');
+    });
+    return;
+  }
+  const zd=ZONE_DATA[e.zone];
+  drawCachedBackdrop(`escape:${e.zone}`,()=>{
+    const bg=ctx.createLinearGradient(0,0,0,H);
+    bg.addColorStop(0,'#20341d');bg.addColorStop(1,'#111d12');
+    fillRect(0,0,W,H,bg);
+    const map=zd.map;
+    for(let row=0;row<ROWS;row++){
+      for(let col=0;col<COLS;col++){
+        drawZooTile(map[row][col],row,col);
+      }
+    }
+    drawViewportFrame('#557c43');
+    fillRect(0,MAP_H,MAP_W,H-MAP_H,'rgba(5,22,12,0.36)');
+    line(0,MAP_H,MAP_W,MAP_H,'rgba(220,255,200,0.16)',2);
+    drawUiShell('#557c43');
+  });
+}
+
 function drawEscape(){
   const e=esc;
-  const bg=ctx.createLinearGradient(0,0,0,H);
-  bg.addColorStop(0,'#20341d');bg.addColorStop(1,'#111d12');
-  fillRect(0,0,W,H,bg);
   if(e.won){drawEscapeWin();return;}
   if(e.zone===1){drawZ1Cutscene();return;}
+  drawEscapeBackdrop(e);
   const zd=ZONE_DATA[e.zone];
-  const map=zd.map;
-  for(let row=0;row<ROWS;row++){
-    for(let col=0;col<COLS;col++){
-      drawZooTile(map[row][col],row,col);
-    }
-  }
-  drawViewportFrame('#557c43');
-  fillRect(0,MAP_H,MAP_W,H-MAP_H,'rgba(5,22,12,0.36)');
-  line(0,MAP_H,MAP_W,MAP_H,'rgba(220,255,200,0.16)',2);
   zd.npcs.forEach(n=>{
     if(n.type==='mouse'){drawMouseTD(n.x,n.y);}
     else if(n.type==='giraffe'){drawGiraffeTD(n.x,n.y);}
@@ -2608,25 +2668,14 @@ function drawEscapeWin(){
 }
 
 function drawZ1Cutscene(){
-  fillRect(0,0,MAP_W,H,'#e7f0df');
-  fillRect(0,0,MAP_W,H*0.58,'#cce4c4');
-  fillRect(0,H*0.58,MAP_W,H*0.42,'#a9d68c');
-  for(let i=0;i<6;i++){
-    const bx=80+i*100;
-    fillRect(bx-5,20,10,H*0.55,'#60a030');
-    for(let j=0;j<4;j++){
-      fillRect(bx-20,60+j*60,40,6,'#508828');
-    }
-  }
+  drawEscapeBackdrop(esc);
   ctx.save(); ctx.translate(MAP_W/2-80,H*0.55);
   drawLekanTD(0,0,t);
   ctx.restore();
   ctx.save(); ctx.translate(MAP_W/2+80,H*0.6);
   drawHippoTD(0,0,1,t,false);
   ctx.restore();
-  drawViewportFrame('#6ca552');
   drawDialog();
-  drawUiShell('#6ca552');
   txt('ZONE 2',UI_X+UI_W/2,30,C.gold,14,'center',"'Courier New',monospace");
   txt('Panda Enclosure',UI_X+8,50,C.dimTxt,11,'left',"'Courier New',monospace");
   txt('Meeting Lekan...',UI_X+8,70,'#c0b090',11,'left','Georgia');
@@ -2709,7 +2758,6 @@ function drawLekanTD(x,y,anim){
 
 function drawNikAnimation(){
   const e=esc;
-  e.nikScreenAnim++;
   // Nik runs across the screen
   const nikX=(e.nikScreenAnim*3)%(MAP_W+60)-30;
   const nikY=H*0.4+Math.sin(e.nikScreenAnim*0.3)*20;
@@ -2775,7 +2823,6 @@ function drawCatTD(x,y){
 
 function drawEscapeUI(){
   const e=esc;
-  drawUiShell('#557c43');
   const zd=ZONE_DATA[e.zone]||ZONE_DATA[0];
   txt(zd.name.split(':')[0],UI_X+UI_W/2,26,C.gold,13,'center',"'Courier New',monospace");
   txt((zd.name.split(':')[1]||'').trim(),UI_X+UI_W/2,44,'#d4d7c4',11,'center','Georgia');
@@ -3021,6 +3068,10 @@ function drawCredits(){
    MAIN GAME LOOP
    ================================================================ */
 let lastTs=0;
+let lastRenderTs=0;
+let simDebt=0;
+const SIM_STEP=1/60;
+const MAX_SIM_CATCHUP=SIM_STEP*6;
 function targetFps(){
   if(LOW_FPS_PHASES.has(phase))return 30;
   if(phase==='escape'&&esc&&(esc.won||esc.zone===1))return 30;
@@ -3029,38 +3080,61 @@ function targetFps(){
   if(phase==='closet_game'&&cls&&cls.won)return 30;
   return 60;
 }
+function phaseUsesBackdropLayer(){
+  return phase==='story'||phase==='escape'||phase==='stealth'||phase==='cleanup'||phase==='closet_game'||phase==='credits';
+}
+function stepSimulation(dt){
+  t++;
+  switch(phase){
+    case 'dialog_harness': updateDialogHarness(dt); break;
+    case 'escape': updateEscape(dt); break;
+    case 'stealth': updateStealth(dt); break;
+    case 'cleanup': updateCleanup(dt); break;
+    case 'closet_game': updateCloset(dt); break;
+  }
+  if(suspNotice.timer>0)suspNotice.timer=Math.max(0,suspNotice.timer-dt*60);
+}
+function renderPhase(){
+  switch(phase){
+    case 'title': drawTitle(); break;
+    case 'diff': drawDiff(); break;
+    case 'story': handleStory(); break;
+    case 'dialog_harness': drawDialogHarness(); break;
+    case 'escape': drawEscape(); break;
+    case 'stealth': drawStealth(); break;
+    case 'cleanup': drawCleanup(); break;
+    case 'closet_game': drawCloset(); break;
+    case 'credits': drawCredits(); break;
+    case 'epilogue':
+      sceneIdx=findScene('epilogue_start');
+      phase='story';
+      handleStory();
+      break;
+  }
+}
 function loop(ts){
+  const elapsed=lastTs?Math.min((ts-lastTs)/1000,MAX_SIM_CATCHUP):0;
+  lastTs=ts;
+  simDebt=Math.min(simDebt+elapsed,MAX_SIM_CATCHUP);
+  while(simDebt>=SIM_STEP){
+    stepSimulation(SIM_STEP);
+    simDebt-=SIM_STEP;
+  }
   const fps=targetFps();
   if(fps<60){
     const minFrameMs=1000/fps;
-    if(lastTs&&ts-lastTs<minFrameMs){
+    if(lastRenderTs&&ts-lastRenderTs<minFrameMs){
       requestAnimationFrame(loop);
       return;
     }
   }
-  const dt=lastTs?Math.min((ts-lastTs)/1000,0.1):0;
-  lastTs=ts;
-  t+=dt*60;
+  lastRenderTs=ts;
+  if(!phaseUsesBackdropLayer()&&activeBackdropKey!==null)clearBackdropLayer();
   ctx.clearRect(0,0,W,H);
   canvas.style.cursor='default';
-  switch(phase){
-    case 'title':  drawTitle();  break;
-    case 'diff':   drawDiff();   break;
-    case 'story':  handleStory(); break;
-    case 'dialog_harness': updateDialogHarness(dt); drawDialogHarness(); break;
-    case 'escape': updateEscape(dt); drawEscape(); break;
-    case 'stealth': updateStealth(dt); drawStealth(); break;
-    case 'cleanup': updateCleanup(dt); drawCleanup(); break;
-    case 'closet_game': updateCloset(dt); drawCloset(); break;
-    case 'credits':drawCredits(); break;
-    case 'epilogue':
-      sceneIdx=findScene('epilogue_start');
-      phase='story';
-      break;
-  }
+  renderPhase();
   drawMobileControls();
   if(phase!=='title'&&phase!=='diff'&&phase!=='dialog_harness')drawSuspicionNotice();
-  if(suspNotice.timer>0)suspNotice.timer=Math.max(0,suspNotice.timer-dt*60);
   // Clear one-shot click
   mclk=false;
   Object.keys(JP).forEach(k=>JP[k]=false);
