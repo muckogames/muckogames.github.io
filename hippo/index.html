@@ -31,17 +31,22 @@ body::before{
 </head>
 <body>
 <canvas id="gc"></canvas>
+<script src="dialog-data.js"></script>
 <script>
 'use strict';
 /* ===================================================================
    PFLUEGER AND THE HIPPO  —  a web game
    =================================================================== */
 const W=800,H=560;
+const MAX_RENDER_DPR=1.5;
+const LOW_FPS_PHASES=new Set(['title','diff','story','dialog_harness','credits']);
+const DIALOG_DATA=window.HIPPO_DIALOG;
 const urlParams=new URLSearchParams(window.location.search);
 const DEBUG_HARNESS=urlParams.get('harness');
 const canvas=document.getElementById('gc');
 const ctx=canvas.getContext('2d');
 let canvasScale=1;
+const backdropCache=new Map();
 
 function configureCanvasContext(){
   ctx.lineJoin='round';
@@ -49,8 +54,33 @@ function configureCanvasContext(){
   ctx.imageSmoothingEnabled=true;
 }
 
+function renderDpr(){
+  return Math.min(MAX_RENDER_DPR,Math.max(1,window.devicePixelRatio||1));
+}
+function clearBackdropCache(){
+  backdropCache.clear();
+}
+function snapshotBackdrop(){
+  const cached=document.createElement('canvas');
+  cached.width=canvas.width;
+  cached.height=canvas.height;
+  const cachedCtx=cached.getContext('2d');
+  cachedCtx.imageSmoothingEnabled=true;
+  cachedCtx.drawImage(canvas,0,0);
+  return cached;
+}
+function drawCachedBackdrop(key,drawFn){
+  const cached=backdropCache.get(key);
+  if(cached){
+    ctx.drawImage(cached,0,0,cached.width,cached.height,0,0,W,H);
+    return;
+  }
+  drawFn();
+  backdropCache.set(key,snapshotBackdrop());
+}
+
 function resize(){
-  const dpr=Math.max(1,window.devicePixelRatio||1);
+  const dpr=renderDpr();
   const s=Math.min(window.innerWidth/(W+6),(window.innerHeight-6)/(H+6));
   canvasScale=s;
   canvas.style.width=Math.max(1,Math.round(W*s))+'px';
@@ -59,6 +89,7 @@ function resize(){
   canvas.height=Math.max(1,Math.round(H*dpr));
   ctx.setTransform(dpr,0,0,dpr,0,0);
   configureCanvasContext();
+  clearBackdropCache();
 }
 window.addEventListener('resize',resize); resize();
 
@@ -325,7 +356,7 @@ const C={
   wall:'#96a7cb',wallDk:'#62739a',
   water:'#77b8ea',waterDk:'#4f89c4',waterLt:'#c0e6fa',
   bush:'#79b35f',bushDk:'#527e42',
-  hippo:'#bcc0ca',hippoDk:'#8d919b',hippoMouth:'#d9787b',
+  hippo:'#bcc0ca',hippoDk:'#8d919b',hippoMouth:'#9a6770',
   pflShirt:'#ef6a45',pflOrange:'#f5a33c',pflBlue:'#5f86d9',pflHair:'#f2cc56',
   lisaPink:'#ef97c0',lisaPurp:'#b184d7',lisaHair:'#bd8b4c',
   momShirt:'#b7a58d',momHair:'#e6d06f',
@@ -438,19 +469,23 @@ function drawHippoSide(cx,cy,sc,flip,anim){
   ellipse(-3,8+bob,36,28,C.hippo);
   strokeEllipse(-3,8+bob,36,28,C.ink,2);
   ellipse(10,11+bob,19,18,'rgba(255,255,255,0.12)');
+  ellipse(12,-18+bob,5.5,7,'#aeb4be',-0.55);
+  strokeEllipse(12,-18+bob,5.5,7,C.ink,2,-0.55);
+  ellipse(13,-18+bob,2.2,3.4,'#d5d9e1',-0.55);
   ellipse(31,-1+bob,22,18,C.hippo);
   strokeEllipse(31,-1+bob,22,18,C.ink,2);
   ellipse(43,5+bob,12,8,'#d6d9e1');
   strokeEllipse(43,5+bob,12,8,C.ink,2);
-  circ(39,3+bob,1.8,C.hippoDk);
-  circ(45,3+bob,1.8,C.hippoDk);
-  ellipse(11,-18+bob,6,8,C.hippo);
-  strokeEllipse(11,-18+bob,6,8,C.ink,2,-0.3);
-  circ(34,-7+bob,2.5,C.ink);
+  circ(41,4.5+bob,1.5,C.hippoDk);
+  circ(46.5,4.5+bob,1.5,C.hippoDk);
+  circ(28,-9.5+bob,2.5,C.ink);
   ctx.fillStyle='#ffffff';
-  ctx.beginPath();ctx.arc(35,-8+bob,0.9,0,TAU);ctx.fill();
+  ctx.beginPath();ctx.arc(29,-10.4+bob,0.9,0,TAU);ctx.fill();
   ctx.strokeStyle=C.hippoMouth;ctx.lineWidth=2;
-  ctx.beginPath();ctx.arc(36,9+bob,8,0.1,1.7);ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(33,12+bob);
+  ctx.quadraticCurveTo(39.5,15.5+bob,45,11.5+bob);
+  ctx.stroke();
   // satchel and strap from the book art
   line(1,-8+bob,-8,18+bob,C.woodDk,2);
   rnd(-18,18+bob,16,15,4,'#d2a86b',C.woodDk,2);
@@ -463,14 +498,17 @@ function drawHippoCool(cx,cy,sc,anim){
   drawHippoSide(cx,cy,sc,false,anim);
   const bob=Math.sin((anim||0)*0.05)*2;
   ctx.save(); ctx.translate(cx,cy); ctx.scale(sc,sc);
-  ctx.fillStyle='#4a70c5';
-  ctx.beginPath();ctx.ellipse(23,-17+bob,16,6,0,0,TAU);ctx.fill();
-  fillRect(12,-27+bob,24,11,'#4a70c5');
-  fillRect(10,-30+bob,20,5,'#26477e');
-  strokeEllipse(23,-17+bob,16,6,C.ink,2);
-  rnd(18,-11+bob,15,8,3,'#171622','#7784a1',1.5);
-  fillRect(17,-8+bob,4,2,'#505060');
-  line(33,-7+bob,37,-5+bob,'#171622',2);
+  ellipse(24,-22+bob,12,4.5,'#5375c1',0.08);
+  strokeEllipse(24,-22+bob,12,4.5,C.ink,2,0.08);
+  rnd(16,-31+bob,18,11,3,'#5375c1',C.ink,2);
+  rnd(18,-34+bob,14,4,2,'#26477e');
+  poly([
+    [22,-12.6+bob],[31.5,-12.6+bob],[34,-10.6+bob],
+    [33,-6.1+bob],[24.6,-5+bob],[21,-7.6+bob]
+  ],'#171622','#7784a1',1.45);
+  line(22,-10.6+bob,17,-13.9+bob,'#171622',1.8);
+  line(24.6,-11.1+bob,30.4,-11.1+bob,'rgba(182,192,218,0.42)',1);
+  fillRect(20.8,-9.7+bob,2.1,1.4,'#505060');
   ctx.restore();
 }
 
@@ -482,17 +520,25 @@ function drawHippoFriendly(cx,cy,sc,anim){
   ellipse(0,14+bob,36,30,C.hippo); strokeEllipse(0,14+bob,36,30,C.ink,2);
   ellipse(0,-10+bob,25,21,C.hippo); strokeEllipse(0,-10+bob,25,21,C.ink,2);
   ellipse(0,-2+bob,16,10,'#d7dbe2'); strokeEllipse(0,-2+bob,16,10,C.ink,2);
-  circ(-6,-6+bob,2.1,C.ink); circ(6,-6+bob,2.1,C.ink);
-  circ(-4,-7+bob,0.7,'#fff'); circ(8,-7+bob,0.7,'#fff');
-  circ(-5,0+bob,1.6,C.hippoDk); circ(5,0+bob,1.6,C.hippoDk);
-  ellipse(-15,-26+bob,7,8,C.hippo); ellipse(15,-26+bob,7,8,C.hippo);
-  strokeEllipse(-15,-26+bob,7,8,C.ink,2); strokeEllipse(15,-26+bob,7,8,C.ink,2);
+  circ(-10,-9.5+bob,2.2,C.ink); circ(10,-9.5+bob,2.2,C.ink);
+  circ(-8.7,-10.4+bob,0.7,'#fff'); circ(11.3,-10.4+bob,0.7,'#fff');
+  circ(-4.5,-0.5+bob,1.6,C.hippoDk); circ(4.5,-0.5+bob,1.6,C.hippoDk);
+  ellipse(-14,-26+bob,6.5,7.5,C.hippo); ellipse(14,-26+bob,6.5,7.5,C.hippo);
+  strokeEllipse(-14,-26+bob,6.5,7.5,C.ink,2); strokeEllipse(14,-26+bob,6.5,7.5,C.ink,2);
   line(-16,18+bob,-12,33+bob,C.hippoDk,8);
   line(16,18+bob,12,33+bob,C.hippoDk,8);
   ellipse(-15,41+bob,9,4,'#9499a8');
   ellipse(15,41+bob,9,4,'#9499a8');
   ctx.strokeStyle=C.hippoMouth;ctx.lineWidth=2.2;
-  ctx.beginPath();ctx.arc(0,4+bob,9,0.2,Math.PI-0.2);ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(-6,7.5+bob);
+  ctx.quadraticCurveTo(0,10.5+bob,6,7.5+bob);
+  ctx.stroke();
+  ctx.lineWidth=1.6;
+  ctx.beginPath();
+  ctx.moveTo(0,7.5+bob);
+  ctx.lineTo(0,9.3+bob);
+  ctx.stroke();
   ctx.restore();
 }
 
@@ -833,11 +879,14 @@ function drawDialogText(text,x,y,maxW,fontSize,lineH,col,font){
   ctx.textAlign='left';
   ctx.textBaseline='alphabetic';
   let lx=x,ly=y;
-  text.split(' ').forEach(w=>{
-    const ww=ctx.measureText(w+' ').width;
-    if(lx>x&&lx+ww>x+maxW){lx=x;ly+=lineH;}
-    ctx.fillText(w+' ',lx,ly);
-    lx+=ww;
+  text.split('\n').forEach((para,pi,arr)=>{
+    para.split(' ').forEach(w=>{
+      const ww=ctx.measureText(w+' ').width;
+      if(lx>x&&lx+ww>x+maxW){lx=x;ly+=lineH;}
+      ctx.fillText(w+' ',lx,ly);
+      lx+=ww;
+    });
+    if(pi<arr.length-1){lx=x;ly+=lineH;}
   });
   ctx.restore();
 }
@@ -903,35 +952,35 @@ const SCENES=[
   // ── SHORT INTRO ──────────────────────────────────────────────────
   {id:'ch1_1',bg:bgBedroom,
    chars:[{type:'pflueger',x:250,y:370,sc:0.95},{type:'hippo',x:530,y:395,sc:1.15}],
-   text:"One day, a hippo showed up at Pflueger's house, and he hid it in his bedroom."},
+   text:DIALOG_DATA.scenes.ch1_1},
   {id:'stealth_intro',bg:bgBedroom,
    chars:[{type:'pflueger',x:320,y:370,sc:1},{type:'hippo',x:565,y:400,sc:1.1,flip:true}],
-   text:"Time to sneak upstairs with a PB&J before anyone notices.",
+   text:DIALOG_DATA.scenes.stealth_intro,
    action:'stealth'},
   {id:'ch2_4',bg:bgLibrary,
    chars:[{type:'pflueger',x:310,y:370,sc:0.95},{type:'lisa',x:490,y:360,sc:0.95}],
-   text:"Later, Lisa helped investigate, and they learned the hippo had escaped from the zoo."},
+   text:DIALOG_DATA.scenes.ch2_4},
   {id:'escape_intro',bg:bgLibrary,
    chars:[{type:'pflueger',x:310,y:370,sc:0.95},{type:'lisa',x:490,y:360,sc:0.95}],
-   text:"Back to the zoo...",
+   text:DIALOG_DATA.scenes.escape_intro,
    action:'escape'},
   {id:'decision_1',bg:bgBackyard,
    chars:[{type:'hippo',x:450,y:400,sc:1.3},{type:'pflueger',x:200,y:360,sc:0.95},{type:'lisa',x:620,y:360,sc:0.95}],
-   text:"The hippo made it home. Now Pflueger and Lisa had to keep him hidden."},
+   text:DIALOG_DATA.scenes.decision_1},
   {id:'cleanup_intro',bg:bgBedroom,
    chars:[{type:'pflueger',x:270,y:360,sc:0.95},{type:'lisa',x:430,y:356,sc:0.95},{type:'hippo',x:590,y:400,sc:1.05,flip:true}],
-   text:"Mom's car turned onto the street. Hide the hippo evidence fast.",
+   text:DIALOG_DATA.scenes.cleanup_intro,
    action:'cleanup'},
   {id:'closet_intro',bg:bgBedroom,
    chars:[{type:'pflueger',x:320,y:360,sc:1},{type:'hippo',x:560,y:400,sc:1.1,flip:true}],
-   text:"New plan: make the hippo fit in the closet.",
+   text:DIALOG_DATA.scenes.closet_intro,
    action:'closet_game'},
   {id:'epilogue_start',bg:bgNeighborhood,
    chars:[{type:'pflueger',x:350,y:340,sc:1},{type:'hippo',x:560,y:350,sc:1.1}],
-   text:"After that, Pflueger and the hippo shared snacks, songs, and one very big secret."},
+   text:DIALOG_DATA.scenes.epilogue_start},
   {id:'epilogue_end',bg:bgBedroom,
    chars:[{type:'pflueger',x:300,y:360,sc:0.9},{type:'hippo',x:580,y:420,sc:1.1,flip:true}],
-   text:"Good night, Hippo. Good night.",
+   text:DIALOG_DATA.scenes.epilogue_end,
    action:'credits'},
 ];
 
@@ -1021,8 +1070,8 @@ function drawDiff(){
 function resolveSceneText(scene){
   if(scene.id==='epilogue_2'){
     if(suspicion<25)return scene.text;
-    if(suspicion<55)return 'Mom: "Out of jelly again? And why does your room smell faintly like sunscreen?" She had a few questions, but never quite solved it.';
-    return 'Mom: "Out of jelly again? And why are there flip-flops by your closet?" Somehow the secret was still barely holding together.';
+    if(suspicion<55)return DIALOG_DATA.variants.epilogue_2.medium_suspicion;
+    return DIALOG_DATA.variants.epilogue_2.high_suspicion;
   }
   return scene.text||'';
 }
@@ -1031,13 +1080,15 @@ function resolveSceneText(scene){
    STORY ENGINE
    ================================================================ */
 function drawScene(scene){
-  if(scene.bg)scene.bg();
-  else fillRect(0,0,W,H,'#1a1030');
-  const vignette=ctx.createLinearGradient(0,0,0,H);
-  vignette.addColorStop(0,'rgba(255,255,255,0.05)');
-  vignette.addColorStop(1,'rgba(40,28,38,0.12)');
-  fillRect(0,0,W,H,vignette);
-  rnd(8,8,W-16,H-16,18,null,'rgba(82,61,59,0.18)',2.5);
+  drawCachedBackdrop(`scene:${scene.id}`,()=>{
+    if(scene.bg)scene.bg();
+    else fillRect(0,0,W,H,'#1a1030');
+    const vignette=ctx.createLinearGradient(0,0,0,H);
+    vignette.addColorStop(0,'rgba(255,255,255,0.05)');
+    vignette.addColorStop(1,'rgba(40,28,38,0.12)');
+    fillRect(0,0,W,H,vignette);
+    rnd(8,8,W-16,H-16,18,null,'rgba(82,61,59,0.18)',2.5);
+  });
   (scene.chars||[]).forEach(ch=>{
     ctx.save();
     const anim=t+(ch.animOff||0);
@@ -1112,12 +1163,14 @@ function drawBubble(text,bx,by){
 function wrapText(text,x,y,maxW,lineH,col,align,font){
   ctx.fillStyle=col; ctx.font=`${lineH}px ${font||'Georgia'}`;
   ctx.textAlign=align||'left'; ctx.textBaseline='alphabetic';
-  const words=text.split(' ');
   let lx=x,ly=y;
-  words.forEach(w=>{
-    const ww=ctx.measureText(w+' ').width;
-    if(lx>x&&lx+ww>x+maxW){lx=x;ly+=lineH+4;}
-    ctx.fillText(w+' ',lx,ly); lx+=ww;
+  text.split('\n').forEach((para,pi,arr)=>{
+    para.split(' ').forEach(w=>{
+      const ww=ctx.measureText(w+' ').width;
+      if(lx>x&&lx+ww>x+maxW){lx=x;ly+=lineH+4;}
+      ctx.fillText(w+' ',lx,ly); lx+=ww;
+    });
+    if(pi<arr.length-1){lx=x;ly+=lineH+4;}
   });
 }
 
@@ -1463,7 +1516,7 @@ function drawStealth(){
 }
 
 function drawStealthWin(){
-  bgBedroom();
+  drawCachedBackdrop('room:bedroom',()=>{bgBedroom();});
   ctx.save();ctx.translate(520,380);drawHippoSide(0,0,1.2,false,t);ctx.restore();
   ctx.save();ctx.translate(270,360);drawPflueger(0,0,1,false,t);ctx.restore();
   // PB&J art
@@ -1579,20 +1632,38 @@ function drawMomTD(x,y,angle,anim){
 
 function drawDigoryTD(x,y,chasing,anim){
   ctx.save();ctx.translate(x,y);
-  ellipse(0,6,10,4,'rgba(0,0,0,0.15)');
-  ellipse(0,1,12,8,'#f4f4f4');strokeEllipse(0,1,12,8,C.ink,2);
-  ellipse(-2,-1,5,4,'#1f1f23');
-  ellipse(4,3,4,3,'#1f1f23');
-  circ(0,-11,7,'#f4f4f4');strokeCirc(0,-11,7,C.ink,2);
-  poly([[-6,-16],[-3,-22],[0,-14]],'#1f1f23',C.ink,1.3);
-  poly([[6,-16],[3,-22],[0,-14]],'#f4f4f4',C.ink,1.3);
-  ellipse(0,-8,4.5,3,'#f1d7be');strokeEllipse(0,-8,4.5,3,C.ink,1.2);
-  circ(-2.5,-12,1.2,C.ink);circ(2.5,-12,1.2,C.ink);
-  line(0,-4,0,-3,'#1f1f23',1.2);
-  if(chasing){line(-1,-5,2,-2,'#ef6a45',2);}
+  const white='#f7f5f0',black='#18181c',tan='#b8845f',tan2='#d1a17a';
+  const collar='#89919a',tag='#d0d4d8';
+  ellipse(0,7,11.5,4.2,'rgba(0,0,0,0.16)');
+  line(-5.3,6.8,-5.8,15.3,white,3);
+  line(-1.4,7.4,-1,16,white,2.8);
+  line(2.8,7.4,2.5,15.8,white,2.8);
+  line(6,6.5,6.8,14.7,white,2.8);
+  ellipse(0,1.5,12.8,8.5,white);strokeEllipse(0,1.5,12.8,8.5,C.ink,2);
+  ellipse(1.2,-0.9,5.8,4,black);
+  ellipse(5,1,3.3,4,black);
+  ellipse(-6.6,1.6,1.8,2.6,black);
+  ellipse(0,4.5,7.8,2.8,white);
+  ellipse(0,-11.2,6.4,6,black);strokeEllipse(0,-11.2,6.4,6,C.ink,2);
+  ellipse(-5.6,-11.3,1.6,3.8,black,-0.9);strokeEllipse(-5.6,-11.3,1.6,3.8,C.ink,1,-0.9);
+  ellipse(5.6,-11.3,1.6,3.8,black,0.9);strokeEllipse(5.6,-11.3,1.6,3.8,C.ink,1,0.9);
+  ellipse(0,-7.9,4.3,3.1,tan2);strokeEllipse(0,-7.9,4.3,3.1,C.ink,1);
+  ellipse(-1.5,-8.5,1.35,2,tan);
+  ellipse(1.5,-8.5,1.35,2,tan);
+  ellipse(0,-5.5,2.1,1.6,'#f0e6db');
+  ellipse(-2.4,-14,0.7,0.4,'#b8885c');
+  ellipse(2.4,-14,0.7,0.4,'#b8885c');
+  circ(-1.75,-12,0.72,black);circ(1.75,-12,0.72,black);
+  circ(-1.5,-12.25,0.18,'#f7f2eb');circ(2,-12.25,0.18,'#f7f2eb');
+  circ(0,-7.2,0.8,black);
+  line(0,-6.35,0,-5.1,black,0.9);
+  line(-2.1,-4,2.1,-4,collar,1.1);
+  circ(2.5,-3.2,0.5,tag);strokeCirc(2.5,-3.2,0.5,C.ink,0.7);
+  if(chasing)ellipse(0.4,-4.2,0.8,1.2,'#ef6a45');
   const wagAng=Math.sin(anim*(chasing?0.4:0.12))*(chasing?0.48:0.2);
-  ctx.save();ctx.translate(11,0);ctx.rotate(wagAng);
-  line(0,0,8,-8,'#f4f4f4',3);
+  ctx.save();ctx.translate(11.4,1);ctx.rotate(wagAng);
+  line(0,0,5.4,-4.1,black,2.2);
+  line(5.4,-4.1,7.8,-6.2,white,1.9);
   ctx.restore();
   if(chasing)txt('!',4,-24,'#ff6600',14,'center','Georgia');
   ctx.restore();
@@ -1748,14 +1819,16 @@ function drawCleanup(){
   const s=cln;
   const menuBox={x:16,y:H-48,w:96,h:32};
   const continueBox={x:W/2-120,y:H/2+40,w:240,h:46};
-  bgBedroom();
-  ctx.save();
-  ctx.globalAlpha=0.12;
-  fillRect(0,0,W,H,'#3a1424');
-  ctx.restore();
-  rnd(10,10,W-20,H-20,20,null,'rgba(255,248,227,0.25)',2.5);
-  txt("MOM'S COMING HOME!",W/2,42,'#fff2cf',28,'center','Georgia');
-  txt('Hide every piece of hippo evidence before she gets upstairs.',W/2,66,'#f6e7d2',13,'center',"'Courier New',monospace");
+  drawCachedBackdrop('cleanup-shell',()=>{
+    bgBedroom();
+    ctx.save();
+    ctx.globalAlpha=0.12;
+    fillRect(0,0,W,H,'#3a1424');
+    ctx.restore();
+    rnd(10,10,W-20,H-20,20,null,'rgba(255,248,227,0.25)',2.5);
+    txt("MOM'S COMING HOME!",W/2,42,'#fff2cf',28,'center','Georgia');
+    txt('Hide every piece of hippo evidence before she gets upstairs.',W/2,66,'#f6e7d2',13,'center',"'Courier New',monospace");
+  });
   rnd(20,16,170,54,12,'rgba(20,12,28,0.7)',C.dialogBdr,1.5);
   txt(`TIME LEFT`,30,34,C.dimTxt,10,'left',"'Courier New',monospace");
   txt(`${Math.ceil(s.time/60)}s`,28,60,'#fff5d3',28,'left','Georgia');
@@ -1928,8 +2001,8 @@ function updateCloset(dt){
 /* ── Closet Rendering ── */
 function drawCloset(){
   const s=cls;
-  bgBedroom();
   if(s.won){drawClosetWin();return;}
+  drawCachedBackdrop('room:bedroom',()=>{bgBedroom();});
 
   // Closet frame
   const fx=CL_X-20,fy=CL_Y-40,fw=CL_W+40,fh=CL_H+60;
@@ -2006,7 +2079,9 @@ function drawClosetPieceIcon(id){
     ctx.save();ctx.scale(0.7,0.7);
     ellipse(0,4,18,13,C.hippo);
     ellipse(17,0,11,8,C.hippo);
-    circ(14,-1,2,'#607888');circ(19,-1,2,'#607888');
+    circ(11,-4,1.6,C.ink);
+    circ(11.7,-4.7,0.5,'#fff');
+    circ(18,1,1.1,C.hippoDk);circ(21.2,1,1.1,C.hippoDk);
     ctx.restore();
   } else if(id==='clothes'){
     // hanger
@@ -2090,7 +2165,7 @@ function drawClosetPanel(){
 }
 
 function drawClosetWin(){
-  bgBedroom();
+  drawCachedBackdrop('room:bedroom',()=>{bgBedroom();});
   // Closed closet doors with bulging hippo inside
   const fx=CL_X-20,fy=CL_Y-40,fw=CL_W+40,fh=CL_H+60;
   fillRect(fx,fy,fw,fh,'#7a5212');
@@ -2171,15 +2246,7 @@ const Z0_KEEPERS=[
 ];
 
 // Zone 1: Panda Enclosure (meeting Lekan) — cutscene only
-const Z1_DIALOG=[
-  "You make it past the enclosure gate. In the shadows nearby, a round black-and-white shape waits.",
-  "LEKAN: \"Ah. Right on time. I have been watching the keepers for weeks. Here is the plan.\"",
-  "LEKAN: \"Take the main path north. Two keepers patrol the open plaza — they move on a pattern.\"",
-  "LEKAN: \"When you need to pass a guarded point... use this.\" [Nik unlocked!]",
-  "LEKAN: \"Nik will cause a distraction. Deafening yells. Keepers will freeze. But only for a short time — and only once per area.\"",
-  "LEKAN: \"Use him wisely. The main gate is just past the open plaza. Good luck, friend.\"",
-  "LEKAN: \"Oh, and... Pras the koala says good luck too. Well, he is asleep, but I am sure he would say it if he were awake.\"",
-];
+const Z1_DIALOG=DIALOG_DATA.cutscenes.z1_intro;
 
 // Zone 2: Open Zoo Plaza
 const Z2_MAP=[
@@ -2205,9 +2272,9 @@ const Z2_KEEPERS=[
   {x:15*TILE,y:3*TILE,angle:Math.PI,patrol:[{x:2*TILE,y:3*TILE},{x:17*TILE,y:3*TILE}],pidx:1,frozen:false,ft:0},
 ];
 const Z2_NPCS=[
-  {type:'mouse',x:12*TILE,y:11*TILE,msg:"MANDY: Psst! Keeper B patrols left-right at the top. Wait for her to go RIGHT, then dash through!",talked:false},
-  {type:'giraffe',x:17*TILE,y:6*TILE,msg:"J. LONG: *peers over fence* Keeper A is heading south. Go now!",talked:false},
-  {type:'parrot',x:3*TILE,y:12*TILE,msg:"NATASHA: *wink* ...",talked:false},
+  {type:'mouse',x:12*TILE,y:11*TILE,msg:DIALOG_DATA.npcs.z2_mandy,talked:false},
+  {type:'giraffe',x:17*TILE,y:6*TILE,msg:DIALOG_DATA.npcs.z2_giraffe,talked:false},
+  {type:'parrot',x:3*TILE,y:12*TILE,msg:DIALOG_DATA.npcs.z2_parrot,talked:false},
 ];
 
 // Zone 3: Main Gate
@@ -2233,7 +2300,7 @@ const Z3_KEEPERS=[
   {x:9*TILE,y:1.5*TILE,angle:Math.PI,patrol:[{x:2*TILE,y:1.5*TILE},{x:17*TILE,y:1.5*TILE}],pidx:1,frozen:false,ft:0},
 ];
 const Z3_NPCS=[
-  {type:'cat',x:14*TILE,y:4*TILE,msg:"LESLIE: *sees everything* ...I'm just a cat. I don't know anything.",talked:false},
+  {type:'cat',x:14*TILE,y:4*TILE,msg:DIALOG_DATA.npcs.z3_cat,talked:false},
 ];
 
 const ZONE_DATA=[
@@ -2509,7 +2576,7 @@ function drawEscape(){
 }
 
 function drawEscapeWin(){
-  bgBackyard();
+  drawCachedBackdrop('escape-win-backyard',()=>{bgBackyard();});
   // Animate hippo in pool
   ctx.save(); ctx.translate(W/2,H-180);
   drawHippoSide(0,0,1.4,false,t);
@@ -2786,10 +2853,10 @@ function drawCaughtOverlay(){
 }
 
 function endingSummary(){
-  if(suspicion<20)return'The secret stayed surprisingly tidy.';
-  if(suspicion<45)return'It was a close call, but nobody could prove a thing.';
-  if(suspicion<70)return'People definitely had questions about the closet.';
-  return'The secret survived by the absolute flimsiest margin.';
+  if(suspicion<20)return DIALOG_DATA.endings.summary.tidy;
+  if(suspicion<45)return DIALOG_DATA.endings.summary.close_call;
+  if(suspicion<70)return DIALOG_DATA.endings.summary.closet_questions;
+  return DIALOG_DATA.endings.summary.flimsy_margin;
 }
 
 /* ================================================================
@@ -2864,7 +2931,7 @@ function drawDialogHarness(){
   const rect=canvas.getBoundingClientRect();
   const cssW=Math.round(rect.width);
   const cssH=Math.round(rect.height);
-  const dpr=(window.devicePixelRatio||1).toFixed(2);
+  const dpr=renderDpr().toFixed(2);
   const bg=ctx.createLinearGradient(0,0,0,H);
   bg.addColorStop(0,'#1a222d');
   bg.addColorStop(1,'#0c1016');
@@ -2915,12 +2982,16 @@ function drawDialogHarness(){
    CREDITS SCREEN
    ================================================================ */
 function drawCredits(){
-  const g=ctx.createLinearGradient(0,0,0,H);
-  g.addColorStop(0,'#0a0520'); g.addColorStop(1,'#1a1038');
-  fillRect(0,0,W,H,g);
-  // stars
-  ctx.fillStyle='rgba(255,255,255,0.5)';
-  for(let i=0;i<50;i++){const sx=(i*137+30)%W,sy=(i*97+20)%(H*0.8); ctx.beginPath();ctx.arc(sx,sy,1,0,TAU);ctx.fill();}
+  drawCachedBackdrop('credits-bg',()=>{
+    const g=ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,'#0a0520'); g.addColorStop(1,'#1a1038');
+    fillRect(0,0,W,H,g);
+    ctx.fillStyle='rgba(255,255,255,0.5)';
+    for(let i=0;i<50;i++){
+      const sx=(i*137+30)%W,sy=(i*97+20)%(H*0.8);
+      ctx.beginPath();ctx.arc(sx,sy,1,0,TAU);ctx.fill();
+    }
+  });
   // Characters
   ctx.save(); ctx.translate(240,H-140);
   drawPflueger(0,0,1.2,false,t*0.5);
@@ -2949,10 +3020,26 @@ function drawCredits(){
    MAIN GAME LOOP
    ================================================================ */
 let lastTs=0;
+function targetFps(){
+  if(LOW_FPS_PHASES.has(phase))return 30;
+  if(phase==='escape'&&esc&&(esc.won||esc.zone===1))return 30;
+  if(phase==='stealth'&&stl&&(stl.won||stl.caught||stl.sandwichEaten))return 30;
+  if(phase==='cleanup'&&cln&&(cln.won||cln.failed))return 30;
+  if(phase==='closet_game'&&cls&&cls.won)return 30;
+  return 60;
+}
 function loop(ts){
-  const dt=Math.min((ts-lastTs)/1000,0.1);
+  const fps=targetFps();
+  if(fps<60){
+    const minFrameMs=1000/fps;
+    if(lastTs&&ts-lastTs<minFrameMs){
+      requestAnimationFrame(loop);
+      return;
+    }
+  }
+  const dt=lastTs?Math.min((ts-lastTs)/1000,0.1):0;
   lastTs=ts;
-  t++;
+  t+=dt*60;
   ctx.clearRect(0,0,W,H);
   canvas.style.cursor='default';
   switch(phase){
@@ -2972,7 +3059,7 @@ function loop(ts){
   }
   drawMobileControls();
   if(phase!=='title'&&phase!=='diff'&&phase!=='dialog_harness')drawSuspicionNotice();
-  if(suspNotice.timer>0)suspNotice.timer--;
+  if(suspNotice.timer>0)suspNotice.timer=Math.max(0,suspNotice.timer-dt*60);
   // Clear one-shot click
   mclk=false;
   Object.keys(JP).forEach(k=>JP[k]=false);
