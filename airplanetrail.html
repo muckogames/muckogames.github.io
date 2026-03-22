@@ -87,6 +87,7 @@ input[type=text]:focus{outline:none;border-color:#ffd700}
 /* Scoreboard */
 .sb-row{display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #1a1008}
 .sb-row:nth-child(odd){background:rgba(0,0,0,.2)}
+.sb-new{background:rgba(255,215,0,0.07)!important;font-weight:bold}
 canvas{display:block;margin:0 auto;border:2px solid #5a4010;border-radius:5px;cursor:crosshair;max-width:100%;height:auto}
 @media(max-width:600px){body{padding:6px}button{padding:10px 14px;font-size:.95em}.btn-go{font-size:1em!important;padding:12px 20px!important}.diff-row{flex-direction:column;align-items:center}.dcard{width:90%!important}}
 #back-btn{position:fixed;top:10px;left:10px;z-index:999;font-family:'Courier New',monospace;font-size:.78em;color:#d4a853;background:rgba(10,13,20,0.88);border:1px solid #5a4010;padding:5px 11px;text-decoration:none;opacity:.65;transition:opacity .15s;white-space:nowrap}
@@ -1495,14 +1496,28 @@ function calcScore(){
 }
 
 function saveScore(score){
+  const entry={name:G.name,score,diff:G.diff.name,crew:G.crewHp.filter(h=>h>0).length,date:new Date().toLocaleDateString()};
   let sc=[];try{sc=JSON.parse(localStorage.getItem('mucko_scores')||'[]');}catch{}
-  sc.push({name:G.name,score,diff:G.diff.name,crew:G.crewHp.filter(h=>h>0).length,date:new Date().toLocaleDateString()});
+  sc.push(entry);
   sc.sort((a,b)=>b.score-a.score);
-  localStorage.setItem('mucko_scores',JSON.stringify(sc.slice(0,20)));
+  sc=sc.slice(0,20);
+  localStorage.setItem('mucko_scores',JSON.stringify(sc));
+  return sc.findIndex(e=>e.score===entry.score&&e.date===entry.date)+1;
 }
 
 function showVictory(el){
-  const score=calcScore(); saveScore(score);
+  const score=calcScore();
+  const rank=saveScore(score);
+  let sc=[];try{sc=JSON.parse(localStorage.getItem('mucko_scores')||'[]');}catch{}
+  const hsRows=sc.slice(0,8).map((s,i)=>`
+    <div class="sb-row${(i===rank-1)?' sb-new':''}">
+      <span style="width:30px;color:${i===0?'#ffd700':i===1?'#c0c0c0':i===2?'#cd7f32':'#5a4010'}">${i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1}</span>
+      <span style="flex:1">${s.name}</span>
+      <span style="width:90px;text-align:center;font-size:.75em;color:#6a5010">${s.diff}</span>
+      <span style="width:50px;text-align:center;color:#87ceeb">${s.crew}/4</span>
+      <span style="width:80px;text-align:right;color:${i===rank-1?'#ffd700':'#44cc44'}">${s.score.toLocaleString()}</span>
+    </div>`).join('');
+  const hsNewMsg=rank<=3?`<div style="color:#ffd700;text-align:center;font-size:.82em;margin-top:6px">🌟 New personal best — #${rank}!</div>`:'';
   const survived=G.crewHp.filter(h=>h>0).length;
   el.innerHTML=`
   <div style="text-align:center;padding:8px 0 14px">
@@ -1531,8 +1546,13 @@ function showVictory(el){
       </div>
     </div>
     ${crewRow()}
+    <div class="panel" style="max-width:480px;margin:0 auto 14px;text-align:left">
+      <div style="color:#d4a853;font-weight:bold;font-size:.85em;margin-bottom:8px;text-align:center">🏆 Best Voyages — This Device</div>
+      ${hsRows}
+      ${hsNewMsg}
+    </div>
     <button class="btn-go" onclick="G={screen:'diff',sel:'first'};render()">Play Again</button>
-    <button onclick="G.screen='scores';render()">🏆 Scoreboard</button>
+    <button onclick="G.screen='scores';render()">Full Scoreboard</button>
     <button onclick="G={screen:'menu'};render()">Main Menu</button>
   </div>`;
   startArrivalAnim();

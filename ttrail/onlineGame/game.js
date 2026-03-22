@@ -47,6 +47,19 @@ function resetGS() {
   };
 }
 
+// ── Local high-score helpers ──────────────────────────────────────────────
+function getHS(key) {
+  try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; }
+}
+function saveHS(key, entry, limit = 10) {
+  const sc = getHS(key);
+  sc.push(entry);
+  sc.sort((a, b) => b.score - a.score);
+  const trimmed = sc.slice(0, limit);
+  localStorage.setItem(key, JSON.stringify(trimmed));
+  return trimmed.findIndex(e => e === trimmed.find(x => x.score === entry.score && x.date === entry.date)) + 1;
+}
+
 // ── Screen management ─────────────────────────────────────────────────────
 let _cleanup = null;
 function goTo(buildFn) {
@@ -2341,6 +2354,12 @@ function buildEnding(app) {
   const survivors = Math.min(alive, gs.lifeboats);
   const { total, rows, rating } = calculateScore();
 
+  // Save this run and get its rank
+  const hsEntry = { score: total, rating: rating.slice(0,1), sank: gs.sank,
+                    date: new Date().toLocaleDateString() };
+  const hsRank  = saveHS('mucko_hs_ttrail', hsEntry);
+  const hsAll   = getHS('mucko_hs_ttrail');
+
   let narrative;
   if (survived) {
     if (alive===5) narrative = 'Against all odds, the Titanic navigated safely through the iceberg field. Your entire party arrived in New York healthy and in good spirits. Crowds cheered as the great ship docked at Pier 59.';
@@ -2389,6 +2408,21 @@ function buildEnding(app) {
 
     <div class="ending-hist">Historical note: On April 15, 1912, the real RMS Titanic sank after striking an iceberg at 11:40 PM the previous night. Of the 2,224 people aboard, 1,517 perished — largely due to a shortage of lifeboats. She carried only 20 lifeboats, enough for 1,178 people. Her wreck was discovered in 1985 at a depth of 12,500 feet.</div>
     <div class="ending-hist">The Titanic's sister ship, HMHS Britannic, was converted into a hospital ship during World War I. On November 21, 1916, she struck a German naval mine in the Aegean Sea near the Greek island of Kea and sank in just 55 minutes — faster than the Titanic. Thanks to the daylight and calmer seas, most of her 1,066 crew and medical staff survived. She remains the largest ocean liner ever sunk.</div>
+    <div class="ending-hs">
+      <div class="ending-hs-title">🏆 Best Crossings — This Device</div>
+      ${hsAll.length === 0 ? '' : `<table class="ending-hs-table">
+        <tr class="ending-hs-header"><th>#</th><th>Score</th><th>Rating</th><th>Outcome</th><th>Date</th></tr>
+        ${hsAll.slice(0,8).map((e,i) => `<tr class="${i === hsRank-1 ? 'ending-hs-new' : ''}">
+          <td>${i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1}</td>
+          <td>${e.score.toLocaleString()}</td>
+          <td>${e.rating}</td>
+          <td>${e.sank ? '💀 Sank' : '⚓ Safe'}</td>
+          <td>${e.date}</td>
+        </tr>`).join('')}
+      </table>`}
+      ${hsRank <= 3 ? `<div class="ending-hs-new-msg">🌟 New personal best — #${hsRank}!</div>` : ''}
+    </div>
+
     <div class="ending-btns">
       <button id="play-again" class="btn-green btn-large">Play Again</button>
     </div>`;

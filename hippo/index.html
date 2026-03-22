@@ -291,6 +291,18 @@ function startPhase(p){
   else if(p==='epilogue'){sceneIdx=findScene('epilogue_start');}
   phase=p;
 }
+// ── Local high-score helpers ──────────────────────────────────────────────
+function getHS(key){try{return JSON.parse(localStorage.getItem(key)||'[]');}catch{return[];}}
+function saveHS(key,entry,limit=10){
+  const sc=getHS(key);
+  sc.push(entry);
+  sc.sort((a,b)=>b.score-a.score);
+  const trimmed=sc.slice(0,limit);
+  localStorage.setItem(key,JSON.stringify(trimmed));
+  return trimmed.findIndex(e=>e.score===entry.score&&e.date===entry.date)+1;
+}
+let hippoScoreSaved=false;
+
 function resetRun(){
   sceneIdx=0;
   suspicion=0;
@@ -299,6 +311,7 @@ function resetRun(){
   stl=null;
   cln=null;
   cls=null;
+  hippoScoreSaved=false;
 }
 function findScene(id){
   const idx=SCENES.findIndex(s=>s.id===id);
@@ -3026,6 +3039,14 @@ function drawDialogHarness(){
    CREDITS SCREEN
    ================================================================ */
 function drawCredits(){
+  // Save score once per run (stealth score = 100 − suspicion; higher is better)
+  if(!hippoScoreSaved){
+    hippoScoreSaved=true;
+    const stealthScore=Math.max(0,100-Math.round(suspicion));
+    saveHS('mucko_hs_hippo',{score:stealthScore,suspicion:Math.round(suspicion),
+      label:suspicionLabel(),date:new Date().toLocaleDateString()});
+  }
+
   drawCachedBackdrop('credits-bg',()=>{
     const g=ctx.createLinearGradient(0,0,0,H);
     g.addColorStop(0,'#0a0520'); g.addColorStop(1,'#1a1038');
@@ -3050,12 +3071,28 @@ function drawCredits(){
   txt('"Good night, Hippo."  "Good night."',W/2,150,'#f0e0a8',18,'center','Georgia');
   txt(endingSummary(),W/2,190,C.dimTxt,14,'center','Georgia');
   drawSuspicionMeter(W/2-120,212,240,false);
+
+  // High score board (left column, below suspicion meter)
+  const hsAll=getHS('mucko_hs_hippo');
+  if(hsAll.length>0){
+    const bx=14,by=250,bw=200,rowH=22;
+    const rows=hsAll.slice(0,6);
+    rnd(bx,by-22,bw,22+rows.length*rowH+6,4,'rgba(10,5,30,0.82)','rgba(80,50,120,0.5)',1);
+    txt('Best Runs',bx+bw/2,by-8,C.gold,11,'center','Georgia');
+    rows.forEach((e,i)=>{
+      const ry=by+i*rowH;
+      const medal=i===0?'🥇':i===1?'🥈':i===2?'🥉':`${i+1}.`;
+      txt(`${medal} ${e.score}pts`,bx+8,ry+14,'#d4c090',11,'left',"'Courier New',monospace");
+      txt(e.label,bx+bw-8,ry+14,'#8060a0',10,'right',"'Courier New',monospace");
+    });
+  }
+
   txt('"Waaastin\' away again in Margaritaville..."',W/2,H-80,'#b0a080',13,'center','Georgia');
   // Play again
-  const bx=W/2-120,by=H-50,bw=240,bh=38;
-  const bhov=mx>=bx&&mx<=bx+bw&&my>=by&&my<=by+bh;
-  rnd(bx,by,bw,bh,6,bhov?'#3a2060':'#2a1040',C.dialogBdr,2);
-  txt('Play Again',W/2,by+24,C.gold,16,'center','Georgia');
+  const bx2=W/2-120,by2=H-50,bw2=240,bh2=38;
+  const bhov=mx>=bx2&&mx<=bx2+bw2&&my>=by2&&my<=by2+bh2;
+  rnd(bx2,by2,bw2,bh2,6,bhov?'#3a2060':'#2a1040',C.dialogBdr,2);
+  txt('Play Again',W/2,by2+24,C.gold,16,'center','Georgia');
   if(bhov)canvas.style.cursor='pointer';
   if(bhov&&mclk){mclk=false; resetRun(); phase='title';}
 }
