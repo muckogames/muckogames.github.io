@@ -1169,8 +1169,10 @@ function buildIceberg(app) {
   // If the player received an ice warning but chose to maintain speed, the hull
   // is stressed from high-speed navigation — start damaged.
   let hull = (gs.receivedIceWarning && !gs.slowedForIce) ? 80 : 100;
-  let timeLeft = 60;   // one minute
-  let tick = 0;
+  let timeLeft = 60;    // one minute (wall-clock countdown)
+  let gameElapsed = 0;  // seconds elapsed in 'playing' phase
+  let spawnAccum  = 0;  // spawn timing accumulator (seconds)
+  let lastTs = 0;       // previous RAF timestamp (ms)
   let animTick = 0;
   // phases: 'playing', 'sinking', 'arriving'
   let phase = 'playing';
@@ -1185,6 +1187,20 @@ function buildIceberg(app) {
     x: rng()*W, y: rng()*(H*3/5),
     r: rng()>0.8?2:1, ph: rng()*Math.PI*2,
   }));
+
+  // Cache static night background once — sky gradient + moon crescent
+  const bgCanvas = document.createElement('canvas');
+  bgCanvas.width = W; bgCanvas.height = H;
+  const bgCtx = bgCanvas.getContext('2d');
+  const _bgSky = bgCtx.createLinearGradient(0,0,0,H*3/5);
+  _bgSky.addColorStop(0,'#02020f'); _bgSky.addColorStop(1,'#051432');
+  bgCtx.fillStyle = _bgSky; bgCtx.fillRect(0,0,W,H*3/5);
+  const _bgSea = bgCtx.createLinearGradient(0,H*3/5,0,H);
+  _bgSea.addColorStop(0,'#051432'); _bgSea.addColorStop(1,'#000a22');
+  bgCtx.fillStyle = _bgSea; bgCtx.fillRect(0,H*3/5,W,H*2/5);
+  bgCtx.fillStyle='rgba(255,248,200,0.75)'; bgCtx.beginPath(); bgCtx.arc(W-75,55,28,0,Math.PI*2); bgCtx.fill();
+  bgCtx.fillStyle='#02020f';                bgCtx.beginPath(); bgCtx.arc(W-62,51,28,0,Math.PI*2); bgCtx.fill();
+  bgCtx.fillStyle='rgba(255,248,150,0.06)'; bgCtx.fillRect(W-90,H*3/5,30,H);
 
   const onKey = e => { keys[e.key] = e.type === 'keydown'; e.preventDefault(); };
   canvas.addEventListener('keydown', onKey);
@@ -1232,28 +1248,36 @@ function buildIceberg(app) {
   });
 
   let raf;
-  function frame() {
-    tick++;
+  function frame(ts) {
+    const dt = lastTs ? Math.min((ts - lastTs) / 1000, 0.1) : 0;
+    lastTs = ts;
     if (phase !== 'playing') animTick++;
 
     // ── Gameplay logic ───────────────────────────────────────────────────
     if (phase === 'playing') {
+      gameElapsed += dt;
+      timeLeft = Math.max(0, 60 - gameElapsed);
+
       const movL = keys['ArrowLeft']  || keys['a'];
       const movR = keys['ArrowRight'] || keys['d'];
-      if (movL) { shipX = Math.max(SHIP_W/2+5, shipX-6); shipLean = Math.max(-1, shipLean-0.15); }
-      if (movR) { shipX = Math.min(W-SHIP_W/2-5, shipX+6); shipLean = Math.min(1, shipLean+0.15); }
-      if (!movL && !movR) shipLean *= 0.82;
+      const mv = 6 * dt * 60;
+      if (movL) { shipX = Math.max(SHIP_W/2+5, shipX-mv); shipLean = Math.max(-1, shipLean-0.15); }
+      if (movR) { shipX = Math.min(W-SHIP_W/2-5, shipX+mv); shipLean = Math.min(1, shipLean+0.15); }
+      if (!movL && !movR) shipLean *= Math.pow(0.82, dt * 60);
 
-      const spawnRate = Math.max(13, 50 - Math.floor((60-timeLeft)/3));
-      if (tick % spawnRate === 0) {
+      // Spawn icebergs using time accumulator instead of frame counter
+      spawnAccum += dt;
+      const spawnInterval = Math.max(13, 50 - Math.floor(gameElapsed / 3)) / 60;
+      while (spawnAccum >= spawnInterval) {
+        spawnAccum -= spawnInterval;
         icebergs.push({ x:Math.random()*(W-80)+5, y:-60,
           w:30+Math.random()*60, h:25+Math.random()*35, dx:(Math.random()*4-2) });
       }
 
-      const iceSpeed = 3 + Math.floor((60-timeLeft)/10);
+      const iceSpeed = (3 + Math.floor(gameElapsed / 10)) * dt * 60;
       for (let i = icebergs.length-1; i >= 0; i--) {
         const ice = icebergs[i];
-        ice.y += iceSpeed; ice.x += ice.dx;
+        ice.y += iceSpeed; ice.x += ice.dx * dt * 60;
         if (ice.x < 0) { ice.x=0; ice.dx*=-1; }
         if (ice.x+ice.w > W) { ice.x=W-ice.w; ice.dx*=-1; }
         if (ice.y > H) { icebergs.splice(i,1); continue; }
@@ -1279,15 +1303,15 @@ function buildIceberg(app) {
           }
         }
       }
-      if (tick % 60 === 0) {
-        timeLeft--;
-        if (timeLeft <= 0) { phase='arriving'; gs.sank=false; }
-      }
+      if (timeLeft <= 0) { phase='arriving'; gs.sank=false; }
       for (let i = iceParticles.length-1; i >= 0; i--) {
         const p = iceParticles[i];
-        p.x += p.vx; p.y += p.vy; p.vy += 0.28; p.rot += p.rotV; p.life--;
+        p.x += p.vx * dt * 60; p.y += p.vy * dt * 60;
+        p.vy += 0.28 * dt * 60; p.rot += p.rotV * dt * 60;
+        p.life -= dt * 60;
         if (p.life <= 0) iceParticles.splice(i, 1);
       }
+      if (hitFlash > 0) hitFlash = Math.max(0, hitFlash - dt * 60);
     }
 
     // ── Draw ─────────────────────────────────────────────────────────────
@@ -1298,28 +1322,20 @@ function buildIceberg(app) {
         // prompt drawn inside drawArrivalScene
       }
     } else {
-      // Night ocean scene
-      const sky = ctx.createLinearGradient(0,0,0,H*3/5);
-      sky.addColorStop(0,'#02020f'); sky.addColorStop(1,'#051432');
-      ctx.fillStyle=sky; ctx.fillRect(0,0,W,H*3/5);
-      const sea = ctx.createLinearGradient(0,H*3/5,0,H);
-      sea.addColorStop(0,'#051432'); sea.addColorStop(1,'#000a22');
-      ctx.fillStyle=sea; ctx.fillRect(0,H*3/5,W,H*2/5);
-
+      // Blit cached static background (sky gradient + moon crescent)
+      ctx.drawImage(bgCanvas, 0, 0);
+      // Stars: twinkling via wall-clock time (ts in ms; 0.0015 ≈ 0.025 rad/frame @60 fps)
       stars.forEach(s => {
-        const a = (0.3+0.7*Math.abs(Math.sin(tick*0.025+s.ph))).toFixed(2);
+        const a = (0.3+0.7*Math.abs(Math.sin(ts*0.0015+s.ph))).toFixed(2);
         ctx.fillStyle=`rgba(255,255,255,${a})`;
         ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,Math.PI*2); ctx.fill();
       });
-      ctx.fillStyle='rgba(255,248,200,0.75)'; ctx.beginPath(); ctx.arc(W-75,55,28,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='#02020f';                ctx.beginPath(); ctx.arc(W-62,51,28,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='rgba(255,248,150,0.06)'; ctx.fillRect(W-90,H*3/5,30,H);
 
       if (phase === 'playing') {
         icebergs.forEach(ice => drawIceberg(ctx, ice.x, ice.y, ice.w, ice.h));
         // Ice-crunch particles
         iceParticles.forEach(p => {
-          ctx.globalAlpha = p.life / p.maxLife;
+          ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
           ctx.fillStyle = p.col;
           ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
           ctx.fillRect(-p.sz/2, -p.sz/2, p.sz, p.sz);
@@ -1338,9 +1354,9 @@ function buildIceberg(app) {
         }
         if (hitFlash > 0) {
           ctx.fillStyle=`rgba(200,0,0,${(hitFlash/8*0.25).toFixed(2)})`;
-          ctx.fillRect(0,0,W,H); hitFlash--;
+          ctx.fillRect(0,0,W,H);
         }
-        drawIcebergHUD(ctx, W, H, hull, timeLeft, tick);
+        drawIcebergHUD(ctx, W, H, hull, Math.ceil(timeLeft));
         drawTouchHints(ctx, W, H, keys);
       } else {
         // Sinking animation
@@ -1385,8 +1401,10 @@ function buildMineField(app) {
   let shipX = W / 2;
   let shipLean = 0;
   let hull = 100;
-  let timeLeft = 45;
-  let tick = 0;
+  let timeLeft = 45;    // wall-clock countdown
+  let gameElapsed = 0;  // seconds elapsed in 'playing' phase
+  let spawnAccum  = 0;  // spawn timing accumulator (seconds)
+  let lastTs = 0;       // previous RAF timestamp (ms)
   let animTick = 0;
   // phases: 'intro', 'playing', 'clear', 'sinking'
   let phase = 'intro';
@@ -1395,6 +1413,17 @@ function buildMineField(app) {
   const keys = {};
   const mines = [];
   const explosions = [];  // mine-hit explosion effects
+
+  // Cache static Aegean sky+sea gradient (clouds/waves still drawn per-frame)
+  const bgCanvas = document.createElement('canvas');
+  bgCanvas.width = W; bgCanvas.height = H;
+  const bgCtx = bgCanvas.getContext('2d');
+  const _bgSky = bgCtx.createLinearGradient(0, 0, 0, H*0.55);
+  _bgSky.addColorStop(0, '#1a4a8a'); _bgSky.addColorStop(1, '#5aa0e8');
+  bgCtx.fillStyle = _bgSky; bgCtx.fillRect(0, 0, W, H*0.55);
+  const _bgSea = bgCtx.createLinearGradient(0, H*0.55, 0, H);
+  _bgSea.addColorStop(0, '#1a78c8'); _bgSea.addColorStop(1, '#0a3a6a');
+  bgCtx.fillStyle = _bgSea; bgCtx.fillRect(0, H*0.55, W, H*0.45);
 
   const onKey = e => { keys[e.key] = e.type === 'keydown'; e.preventDefault(); };
   canvas.addEventListener('keydown', onKey);
@@ -1443,22 +1472,30 @@ function buildMineField(app) {
   });
 
   let raf;
-  function frame() {
-    tick++;
+  function frame(ts) {
+    const dt = lastTs ? Math.min((ts - lastTs) / 1000, 0.1) : 0;
+    lastTs = ts;
     if (phase !== 'playing') animTick++;
 
     if (phase === 'intro') {
-      if (animTick >= 300) { phase = 'playing'; animTick = 0; tick = 0; }
+      if (animTick >= 300) { phase = 'playing'; animTick = 0; gameElapsed = 0; spawnAccum = 0; }
       else clickReady = animTick > 60;
     } else if (phase === 'playing') {
+      gameElapsed += dt;
+      timeLeft = Math.max(0, 45 - gameElapsed);
+
       const movL = keys['ArrowLeft']  || keys['a'];
       const movR = keys['ArrowRight'] || keys['d'];
-      if (movL) { shipX = Math.max(SHIP_W/2+5, shipX-6); shipLean = Math.max(-1, shipLean-0.15); }
-      if (movR) { shipX = Math.min(W-SHIP_W/2-5, shipX+6); shipLean = Math.min(1, shipLean+0.15); }
-      if (!movL && !movR) shipLean *= 0.82;
+      const mv = 6 * dt * 60;
+      if (movL) { shipX = Math.max(SHIP_W/2+5, shipX-mv); shipLean = Math.max(-1, shipLean-0.15); }
+      if (movR) { shipX = Math.min(W-SHIP_W/2-5, shipX+mv); shipLean = Math.min(1, shipLean+0.15); }
+      if (!movL && !movR) shipLean *= Math.pow(0.82, dt * 60);
 
-      const spawnRate = Math.max(18, 55 - Math.floor((45-timeLeft)/2));
-      if (tick % spawnRate === 0) {
+      // Spawn mines using time accumulator instead of frame counter
+      spawnAccum += dt;
+      const spawnInterval = Math.max(18, 55 - Math.floor(gameElapsed / 2)) / 60;
+      while (spawnAccum >= spawnInterval) {
+        spawnAccum -= spawnInterval;
         const r = 15 + Math.random() * 13;
         mines.push({ x: Math.random()*(W - r*2) + r, y: -r - 20, r,
           dx: Math.random()*2 - 1, bobPhase: Math.random()*Math.PI*2 });
@@ -1466,8 +1503,8 @@ function buildMineField(app) {
 
       for (let i = mines.length-1; i >= 0; i--) {
         const mine = mines[i];
-        mine.y += 2 + Math.floor((45-timeLeft)/12);
-        mine.x += mine.dx + Math.sin(tick*0.04 + mine.bobPhase) * 0.5;
+        mine.y += (2 + Math.floor(gameElapsed / 12)) * dt * 60;
+        mine.x += (mine.dx + Math.sin(ts * 0.00004 * 60 + mine.bobPhase) * 0.5) * dt * 60;
         if (mine.x < mine.r)   { mine.x = mine.r;   mine.dx *= -1; }
         if (mine.x+mine.r > W) { mine.x = W-mine.r; mine.dx *= -1; }
         if (mine.y > H + mine.r) { mines.splice(i, 1); continue; }
@@ -1496,20 +1533,19 @@ function buildMineField(app) {
         }
       }
 
-      if (tick % 60 === 0) {
-        timeLeft--;
-        if (timeLeft <= 0) { phase = 'clear'; }
-      }
+      if (timeLeft <= 0) { phase = 'clear'; }
       for (let i = explosions.length-1; i >= 0; i--) {
         const ex = explosions[i];
-        ex.life--;
+        ex.life -= dt * 60;
         for (let j = ex.sparks.length-1; j >= 0; j--) {
           const s = ex.sparks[j];
-          s.x += s.vx; s.y += s.vy; s.vy += 0.18; s.life--;
+          s.x += s.vx * dt * 60; s.y += s.vy * dt * 60;
+          s.vy += 0.18 * dt * 60; s.life -= dt * 60;
           if (s.life <= 0) ex.sparks.splice(j, 1);
         }
         if (ex.life <= 0) explosions.splice(i, 1);
       }
+      if (hitFlash > 0) hitFlash = Math.max(0, hitFlash - dt * 60);
     }
 
     // ── Draw ─────────────────────────────────────────────────────────────
@@ -1519,7 +1555,9 @@ function buildMineField(app) {
       drawMineClearScene(ctx, W, H, animTick);
       if (animTick > 180) clickReady = true;
     } else {
-      drawAegeanBackground(ctx, W, H, tick);
+      // Blit cached static background, then draw animated clouds+waves on top
+      ctx.drawImage(bgCanvas, 0, 0);
+      drawAegeanAnimated(ctx, W, H, ts);
       if (phase === 'playing') {
         mines.forEach(m => drawMine(ctx, m.x, m.y, m.r));
         // Mine explosion effects
@@ -1549,7 +1587,7 @@ function buildMineField(app) {
           }
           // Sparks
           ex.sparks.forEach(s => {
-            ctx.globalAlpha = s.life / s.maxLife;
+            ctx.globalAlpha = Math.max(0, s.life / s.maxLife);
             ctx.fillStyle = s.col;
             ctx.beginPath(); ctx.arc(s.x, s.y, s.sz, 0, Math.PI*2); ctx.fill();
           });
@@ -1565,9 +1603,9 @@ function buildMineField(app) {
         }
         if (hitFlash > 0) {
           ctx.fillStyle = `rgba(200,0,0,${(hitFlash/8*0.25).toFixed(2)})`;
-          ctx.fillRect(0, 0, W, H); hitFlash--;
+          ctx.fillRect(0, 0, W, H);
         }
-        drawMineHUD(ctx, W, H, hull, timeLeft);
+        drawMineHUD(ctx, W, H, hull, Math.ceil(timeLeft));
         drawTouchHints(ctx, W, H, keys);
       } else {
         // Sinking animation (hull = 0 from mine)
@@ -1679,28 +1717,24 @@ function drawMineClearScene(ctx, W, H, animTick) {
   }
 }
 
-function drawAegeanBackground(ctx, W, H, tick) {
-  const sky = ctx.createLinearGradient(0, 0, 0, H*0.55);
-  sky.addColorStop(0, '#1a4a8a'); sky.addColorStop(1, '#5aa0e8');
-  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H*0.55);
-
-  // Clouds
+// Draws only the animated parts of the Aegean scene (clouds + waves).
+// The static sky/sea gradient is pre-blit'd from bgCanvas by the caller.
+function drawAegeanAnimated(ctx, W, H, ts) {
+  // ts is the RAF wall-clock timestamp in ms
+  // Clouds drift slowly (0.004 rad/frame @60fps = 0.24 rad/s)
   ctx.fillStyle = 'rgba(255,255,255,0.82)';
   [[0.13,0.10,85,22],[0.42,0.07,110,27],[0.70,0.14,72,18],[0.87,0.09,92,24]].forEach(([fx, fy, cw, ch]) => {
-    const cx = (fx*W + Math.sin(tick*0.004 + fx*10)*8);
+    const cx = (fx*W + Math.sin(ts * 0.00024 + fx*10)*8);
     ctx.beginPath(); ctx.ellipse(cx, fy*H, cw, ch, 0, 0, Math.PI*2); ctx.fill();
   });
 
-  const sea = ctx.createLinearGradient(0, H*0.55, 0, H);
-  sea.addColorStop(0, '#1a78c8'); sea.addColorStop(1, '#0a3a6a');
-  ctx.fillStyle = sea; ctx.fillRect(0, H*0.55, W, H*0.45);
-
+  // Animated wave lines (0.04 rad/frame @60fps = 2.4 rad/s)
   ctx.strokeStyle = 'rgba(255,255,255,0.14)'; ctx.lineWidth = 1.5;
   for (let row = 0; row < 8; row++) {
     const wy = H*0.55 + row*25;
     ctx.beginPath();
     for (let wx = 0; wx <= W; wx += 5) {
-      const y = wy + Math.sin(wx*0.04 + tick*0.04 + row) * 2;
+      const y = wy + Math.sin(wx*0.04 + ts * 0.0024 + row) * 2;
       wx === 0 ? ctx.moveTo(wx, y) : ctx.lineTo(wx, y);
     }
     ctx.stroke();
@@ -1845,7 +1879,7 @@ function drawMiniShip(ctx, cx, topY, lean) {
   ctx.restore();
 }
 
-function drawIcebergHUD(ctx, W, H, hull, timeLeft, tick) {
+function drawIcebergHUD(ctx, W, H, hull, timeLeft) {
   ctx.textAlign='left'; ctx.font='bold 13px sans-serif'; ctx.fillStyle='#ffffff';
   ctx.fillText('HULL INTEGRITY', 10, 20);
   ctx.fillStyle='#222'; ctx.fillRect(10,24,200,16);
@@ -2394,6 +2428,33 @@ scaleToViewport();
     buf = (buf + e.key).slice(-SEQ.length);
     if (buf === SEQ) { buf = ''; gs.init(); goTo(buildMineField); }
   });
+})();
+
+// ── Dev skip buttons (visible only when ?dev is in the URL) ───────────────
+// Useful on mobile where keyboard cheats aren't available.
+// Access via: index.html?dev
+(function() {
+  if (!new URLSearchParams(window.location.search).has('dev')) return;
+  const bar = document.createElement('div');
+  bar.style.cssText = [
+    'position:fixed', 'bottom:8px', 'left:50%', 'transform:translateX(-50%)',
+    'display:flex', 'gap:10px', 'z-index:9999', 'pointer-events:auto',
+  ].join(';');
+  const mkBtn = (label, fn) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.style.cssText = [
+      'background:rgba(20,20,40,0.82)', 'color:#d4af37',
+      'border:1px solid #d4af37', 'border-radius:6px',
+      'padding:6px 14px', 'font:bold 13px Georgia,serif',
+      'cursor:pointer', 'opacity:0.85',
+    ].join(';');
+    b.addEventListener('click', fn);
+    return b;
+  };
+  bar.appendChild(mkBtn('⚓ Skip → Icebergs', () => { gs.init(); goTo(buildIceberg); }));
+  bar.appendChild(mkBtn('💣 Skip → Mines',    () => { gs.init(); goTo(buildMineField); }));
+  document.body.appendChild(bar);
 })();
 
 // ── Start the game ────────────────────────────────────────────────────────
