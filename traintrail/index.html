@@ -1488,7 +1488,13 @@ function buildSteam(app) {
     ctx.fillText('🐟', jx, jy);
     // Speech bubble
     ctx.fillStyle='rgba(30,20,10,0.9)'; ctx.strokeStyle='#c8901a'; ctx.lineWidth=1.5;
-    ctx.beginPath(); ctx.roundRect(jx-90, jy-120, 180, 60, 8); ctx.fill(); ctx.stroke();
+    ctx.beginPath();
+    const [rbx,rby,rbw,rbh,rbr]=[jx-90,jy-120,180,60,8];
+    ctx.moveTo(rbx+rbr,rby); ctx.lineTo(rbx+rbw-rbr,rby); ctx.arc(rbx+rbw-rbr,rby+rbr,rbr,-Math.PI/2,0);
+    ctx.lineTo(rbx+rbw,rby+rbh-rbr); ctx.arc(rbx+rbw-rbr,rby+rbh-rbr,rbr,0,Math.PI/2);
+    ctx.lineTo(rbx+rbr,rby+rbh); ctx.arc(rbx+rbr,rby+rbh-rbr,rbr,Math.PI/2,Math.PI);
+    ctx.lineTo(rbx,rby+rbr); ctx.arc(rbx+rbr,rby+rbr,rbr,Math.PI,Math.PI*1.5); ctx.closePath();
+    ctx.fill(); ctx.stroke();
     ctx.font='11px Georgia'; ctx.fillStyle='#e8d8b0'; ctx.textAlign='center';
     const sayings = done ? ['Done!','Pressure OK!'] : pressure > 70 ? ['TOO HOT!','SEAL THEM!'] : pressure > 30 ? ['Leaking!','Click gaskets!'] : ['Looking good!','Stay sharp!'];
     ctx.fillText(sayings[Math.floor(ts/800)%sayings.length], jx, jy-95);
