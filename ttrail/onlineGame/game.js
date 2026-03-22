@@ -19,7 +19,7 @@ function resetGS() {
     speed: 2, rations: 2,
     visitedCherbourg: false, visitedQueenstown: false,
     receivedIceWarning: false, slowedForIce: false, coalCrisisShown: false,
-    icebergHits: 0, sank: false,
+    icebergHits: 0, mineHits: 0, sank: false, britannicSank: false,
     lastFishDay: -10,
     log: [],
     init() {
@@ -1178,6 +1178,7 @@ function buildIceberg(app) {
   let hitFlash = 0;
   const keys = {};
   const icebergs = [];
+  const iceParticles = [];  // ice-crunch debris on collision
 
   const rng = seededRng(42);
   const stars = Array.from({length:150}, () => ({
@@ -1209,7 +1210,7 @@ function buildIceberg(app) {
           cancelAnimationFrame(raf);
           window.removeEventListener('keydown', onKey);
           window.removeEventListener('keyup', onKey);
-          goTo(buildEnding);
+          goTo(buildMineField);
         }
       } else {
         touchSides.set(t.identifier, t.clientX < midX ? 'left' : 'right');
@@ -1227,7 +1228,7 @@ function buildIceberg(app) {
     cancelAnimationFrame(raf);
     window.removeEventListener('keydown', onKey);
     window.removeEventListener('keyup',   onKey);
-    goTo(buildEnding);
+    goTo(buildMineField);
   });
 
   let raf;
@@ -1262,6 +1263,18 @@ function buildIceberg(app) {
             hull = Math.max(0, hull-30);
             gs.icebergHits++;
             hitFlash = 8;
+            // Spawn ice-chunk particles at collision point
+            const icx = ice.x + ice.w/2, icy = ice.y + ice.h/2;
+            for (let p = 0; p < 14; p++) {
+              const ang = Math.random()*Math.PI*2, spd = 2.5 + Math.random()*5;
+              const life = 24 + Math.floor(Math.random()*14);
+              iceParticles.push({ x: icx+(Math.random()-0.5)*ice.w*0.5,
+                y: icy+(Math.random()-0.5)*ice.h*0.5,
+                vx: Math.cos(ang)*spd, vy: Math.sin(ang)*spd - 1.5,
+                life, maxLife: life, sz: 3+Math.random()*5,
+                rot: Math.random()*Math.PI*2, rotV: (Math.random()-0.5)*0.35,
+                col: Math.random()>0.45 ? '#dceeff' : '#a8d8f0' });
+            }
             if (hull <= 0) { phase='sinking'; gs.sank=true; }
           }
         }
@@ -1269,6 +1282,11 @@ function buildIceberg(app) {
       if (tick % 60 === 0) {
         timeLeft--;
         if (timeLeft <= 0) { phase='arriving'; gs.sank=false; }
+      }
+      for (let i = iceParticles.length-1; i >= 0; i--) {
+        const p = iceParticles[i];
+        p.x += p.vx; p.y += p.vy; p.vy += 0.28; p.rot += p.rotV; p.life--;
+        if (p.life <= 0) iceParticles.splice(i, 1);
       }
     }
 
@@ -1299,6 +1317,15 @@ function buildIceberg(app) {
 
       if (phase === 'playing') {
         icebergs.forEach(ice => drawIceberg(ctx, ice.x, ice.y, ice.w, ice.h));
+        // Ice-crunch particles
+        iceParticles.forEach(p => {
+          ctx.globalAlpha = p.life / p.maxLife;
+          ctx.fillStyle = p.col;
+          ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+          ctx.fillRect(-p.sz/2, -p.sz/2, p.sz, p.sz);
+          ctx.restore();
+        });
+        ctx.globalAlpha = 1;
         // Bow wave just ahead of the bow
         ctx.fillStyle = 'rgba(160,215,255,0.22)';
         ctx.beginPath(); ctx.ellipse(shipX, shipY - 4, SHIP_W / 2 + 4, 6, 0, 0, Math.PI * 2); ctx.fill();
@@ -1337,6 +1364,404 @@ function buildIceberg(app) {
     window.removeEventListener('keydown', onKey);
     window.removeEventListener('keyup',   onKey);
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MINE FIELD  — HMHS Britannic, November 21, 1916, Aegean Sea
+// ─────────────────────────────────────────────────────────────────────────────
+function buildMineField(app) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 820; canvas.height = 620;
+  canvas.style.cssText = 'display:block;width:100%;height:100%;outline:none;';
+  canvas.tabIndex = 0;
+  app.appendChild(canvas);
+  const ctx = canvas.getContext('2d');
+  canvas.focus();
+
+  const W = 820, H = 620;
+  const SHIP_W = 36, SHIP_H = 64;
+  const shipY = H - 90;
+
+  let shipX = W / 2;
+  let shipLean = 0;
+  let hull = 100;
+  let timeLeft = 45;
+  let tick = 0;
+  let animTick = 0;
+  // phases: 'intro', 'playing', 'clear', 'sinking'
+  let phase = 'intro';
+  let clickReady = false;
+  let hitFlash = 0;
+  const keys = {};
+  const mines = [];
+  const explosions = [];  // mine-hit explosion effects
+
+  const onKey = e => { keys[e.key] = e.type === 'keydown'; e.preventDefault(); };
+  canvas.addEventListener('keydown', onKey);
+  canvas.addEventListener('keyup',   onKey);
+  window.addEventListener('keydown', onKey);
+  window.addEventListener('keyup',   onKey);
+
+  const touchSides = new Map();
+  const updateTouchKeys = () => {
+    const vals = [...touchSides.values()];
+    keys['ArrowLeft']  = vals.includes('left');
+    keys['ArrowRight'] = vals.includes('right');
+  };
+  const onTouch = e => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const midX = rect.left + rect.width / 2;
+    Array.from(e.changedTouches).forEach(t => {
+      if (e.type === 'touchend' || e.type === 'touchcancel') {
+        touchSides.delete(t.identifier);
+        if (e.type === 'touchend' && clickReady) {
+          if (phase === 'intro') { phase = 'playing'; animTick = 0; tick = 0; clickReady = false; return; }
+          cancelAnimationFrame(raf);
+          window.removeEventListener('keydown', onKey);
+          window.removeEventListener('keyup', onKey);
+          goTo(buildEnding);
+        }
+      } else {
+        touchSides.set(t.identifier, t.clientX < midX ? 'left' : 'right');
+      }
+    });
+    updateTouchKeys();
+  };
+  canvas.addEventListener('touchstart',  onTouch, {passive: false});
+  canvas.addEventListener('touchmove',   onTouch, {passive: false});
+  canvas.addEventListener('touchend',    onTouch, {passive: false});
+  canvas.addEventListener('touchcancel', onTouch, {passive: false});
+
+  canvas.addEventListener('click', () => {
+    if (!clickReady) return;
+    if (phase === 'intro') { phase = 'playing'; animTick = 0; tick = 0; clickReady = false; return; }
+    cancelAnimationFrame(raf);
+    window.removeEventListener('keydown', onKey);
+    window.removeEventListener('keyup',   onKey);
+    goTo(buildEnding);
+  });
+
+  let raf;
+  function frame() {
+    tick++;
+    if (phase !== 'playing') animTick++;
+
+    if (phase === 'intro') {
+      if (animTick >= 300) { phase = 'playing'; animTick = 0; tick = 0; }
+      else clickReady = animTick > 60;
+    } else if (phase === 'playing') {
+      const movL = keys['ArrowLeft']  || keys['a'];
+      const movR = keys['ArrowRight'] || keys['d'];
+      if (movL) { shipX = Math.max(SHIP_W/2+5, shipX-6); shipLean = Math.max(-1, shipLean-0.15); }
+      if (movR) { shipX = Math.min(W-SHIP_W/2-5, shipX+6); shipLean = Math.min(1, shipLean+0.15); }
+      if (!movL && !movR) shipLean *= 0.82;
+
+      const spawnRate = Math.max(18, 55 - Math.floor((45-timeLeft)/2));
+      if (tick % spawnRate === 0) {
+        const r = 15 + Math.random() * 13;
+        mines.push({ x: Math.random()*(W - r*2) + r, y: -r - 20, r,
+          dx: Math.random()*2 - 1, bobPhase: Math.random()*Math.PI*2 });
+      }
+
+      for (let i = mines.length-1; i >= 0; i--) {
+        const mine = mines[i];
+        mine.y += 2 + Math.floor((45-timeLeft)/12);
+        mine.x += mine.dx + Math.sin(tick*0.04 + mine.bobPhase) * 0.5;
+        if (mine.x < mine.r)   { mine.x = mine.r;   mine.dx *= -1; }
+        if (mine.x+mine.r > W) { mine.x = W-mine.r; mine.dx *= -1; }
+        if (mine.y > H + mine.r) { mines.splice(i, 1); continue; }
+        // Circle-AABB collision with ship rectangle
+        const nearX = Math.max(shipX - SHIP_W/2, Math.min(shipX + SHIP_W/2, mine.x));
+        const nearY = Math.max(shipY, Math.min(shipY + SHIP_H, mine.y));
+        const dx = mine.x - nearX, dy = mine.y - nearY;
+        if (dx*dx + dy*dy < mine.r * mine.r) {
+          mines.splice(i, 1);
+          hull = Math.max(0, hull - 25);
+          gs.mineHits++;
+          hitFlash = 8;
+          // Spawn explosion at mine centre
+          const sparks = [];
+          const sparkColors = ['#ff8800','#ffcc00','#ff4400','#ffffff','#ffaa22'];
+          for (let p = 0; p < 20; p++) {
+            const ang = Math.random()*Math.PI*2, spd = 3 + Math.random()*7;
+            const life = 22 + Math.floor(Math.random()*20);
+            sparks.push({ x: mine.x, y: mine.y,
+              vx: Math.cos(ang)*spd, vy: Math.sin(ang)*spd - 1,
+              life, maxLife: life, sz: 2 + Math.random()*3,
+              col: sparkColors[Math.floor(Math.random()*sparkColors.length)] });
+          }
+          explosions.push({ x: mine.x, y: mine.y, r: mine.r, life: 45, maxLife: 45, sparks });
+          if (hull <= 0) { phase = 'sinking'; gs.britannicSank = true; }
+        }
+      }
+
+      if (tick % 60 === 0) {
+        timeLeft--;
+        if (timeLeft <= 0) { phase = 'clear'; }
+      }
+      for (let i = explosions.length-1; i >= 0; i--) {
+        const ex = explosions[i];
+        ex.life--;
+        for (let j = ex.sparks.length-1; j >= 0; j--) {
+          const s = ex.sparks[j];
+          s.x += s.vx; s.y += s.vy; s.vy += 0.18; s.life--;
+          if (s.life <= 0) ex.sparks.splice(j, 1);
+        }
+        if (ex.life <= 0) explosions.splice(i, 1);
+      }
+    }
+
+    // ── Draw ─────────────────────────────────────────────────────────────
+    if (phase === 'intro') {
+      drawMineIntro(ctx, W, H, animTick);
+    } else if (phase === 'clear') {
+      drawMineClearScene(ctx, W, H, animTick);
+      if (animTick > 180) clickReady = true;
+    } else {
+      drawAegeanBackground(ctx, W, H, tick);
+      if (phase === 'playing') {
+        mines.forEach(m => drawMine(ctx, m.x, m.y, m.r));
+        // Mine explosion effects
+        explosions.forEach(ex => {
+          const prog = 1 - ex.life / ex.maxLife;
+          // Expanding ring
+          const ringR = ex.r + prog * 50;
+          const ringA = Math.max(0, 0.75 * (1 - prog * 1.6));
+          ctx.strokeStyle = `rgba(255,140,30,${ringA.toFixed(2)})`; ctx.lineWidth = 3;
+          ctx.beginPath(); ctx.arc(ex.x, ex.y, ringR, 0, Math.PI*2); ctx.stroke();
+          // Second, slightly delayed ring
+          if (prog > 0.12) {
+            const r2 = ex.r + (prog - 0.12) * 70, a2 = Math.max(0, 0.5*(1-(prog-0.12)*2));
+            ctx.strokeStyle = `rgba(255,210,80,${a2.toFixed(2)})`; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.arc(ex.x, ex.y, r2, 0, Math.PI*2); ctx.stroke();
+          }
+          // Central fireball
+          if (prog < 0.45) {
+            const fbA = (0.45 - prog) / 0.45;
+            const fbR = ex.r * (0.8 + prog * 1.4);
+            const fg = ctx.createRadialGradient(ex.x, ex.y, 0, ex.x, ex.y, fbR);
+            fg.addColorStop(0,   `rgba(255,255,200,${fbA.toFixed(2)})`);
+            fg.addColorStop(0.45, `rgba(255,150,30,${(fbA*0.7).toFixed(2)})`);
+            fg.addColorStop(1,   'rgba(255,60,0,0)');
+            ctx.fillStyle = fg;
+            ctx.beginPath(); ctx.arc(ex.x, ex.y, fbR, 0, Math.PI*2); ctx.fill();
+          }
+          // Sparks
+          ex.sparks.forEach(s => {
+            ctx.globalAlpha = s.life / s.maxLife;
+            ctx.fillStyle = s.col;
+            ctx.beginPath(); ctx.arc(s.x, s.y, s.sz, 0, Math.PI*2); ctx.fill();
+          });
+          ctx.globalAlpha = 1;
+        });
+        ctx.fillStyle = 'rgba(160,220,255,0.25)';
+        ctx.beginPath(); ctx.ellipse(shipX, shipY - 4, SHIP_W/2+4, 6, 0, 0, Math.PI*2); ctx.fill();
+        drawMiniShip(ctx, shipX, shipY, shipLean);
+        for (let i = 1; i <= 5; i++) {
+          const spread = i * 6;
+          ctx.fillStyle = `rgba(100,180,255,${(0.17 - i * 0.025).toFixed(2)})`;
+          ctx.fillRect(shipX - SHIP_W/2 - spread, shipY + SHIP_H + i*5 - 4, SHIP_W + spread*2, 3);
+        }
+        if (hitFlash > 0) {
+          ctx.fillStyle = `rgba(200,0,0,${(hitFlash/8*0.25).toFixed(2)})`;
+          ctx.fillRect(0, 0, W, H); hitFlash--;
+        }
+        drawMineHUD(ctx, W, H, hull, timeLeft);
+        drawTouchHints(ctx, W, H, keys);
+      } else {
+        // Sinking animation (hull = 0 from mine)
+        drawSinkingAnimation(ctx, W, H, animTick);
+        if (animTick > 580) {
+          clickReady = true;
+          const a = Math.abs(Math.sin(animTick * 0.07)).toFixed(2);
+          ctx.textAlign = 'center'; ctx.font = '14px Georgia,serif';
+          ctx.fillStyle = `rgba(180,170,150,${a})`;
+          ctx.fillText('Click to continue...', W/2, H-20);
+        }
+      }
+    }
+
+    raf = requestAnimationFrame(frame);
+  }
+  raf = requestAnimationFrame(frame);
+
+  return () => {
+    cancelAnimationFrame(raf);
+    window.removeEventListener('keydown', onKey);
+    window.removeEventListener('keyup',   onKey);
+  };
+}
+
+function drawMineIntro(ctx, W, H, animTick) {
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#0a1428'); bg.addColorStop(1, '#1a2840');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+
+  ctx.globalAlpha = Math.min(animTick / 60, 1);
+  ctx.textAlign = 'center';
+  ctx.shadowColor = '#000'; ctx.shadowBlur = 15;
+
+  ctx.font = 'bold 30px Georgia,serif'; ctx.fillStyle = '#d4af37';
+  ctx.fillText('HMHS BRITANNIC — November 21, 1916', W/2, H * 0.22);
+
+  ctx.strokeStyle = '#d4af37'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(W*0.15, H*0.27); ctx.lineTo(W*0.85, H*0.27); ctx.stroke();
+
+  ctx.font = '17px Georgia,serif'; ctx.fillStyle = '#dcd2b4'; ctx.shadowBlur = 6;
+  const lines = [
+    "The Titanic's sister ship, HMHS Britannic, was converted",
+    'into a hospital ship during the First World War.',
+    '',
+    'On the morning of November 21, 1916, while sailing',
+    'through the Aegean Sea near the Greek island of Kea,',
+    'she struck a German naval mine.',
+    '',
+    'Now you must steer the Britannic safely',
+    'through the minefield before it is too late!',
+  ];
+  lines.forEach((line, i) => ctx.fillText(line, W/2, H*0.36 + i*28));
+
+  ctx.shadowBlur = 0;
+  if (animTick > 60) {
+    const blink = Math.abs(Math.sin(animTick * 0.07)).toFixed(2);
+    ctx.font = 'bold 15px Georgia,serif';
+    ctx.fillStyle = `rgba(212,175,55,${blink})`;
+    ctx.fillText('Click to begin — or wait 5 seconds', W/2, H - 25);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawMineClearScene(ctx, W, H, animTick) {
+  const progress = Math.min(animTick / 180, 1);
+
+  const sky = ctx.createLinearGradient(0, 0, 0, H*0.55);
+  sky.addColorStop(0, '#1a5aa0'); sky.addColorStop(1, '#5ab0f0');
+  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H*0.55);
+
+  const sea = ctx.createLinearGradient(0, H*0.55, 0, H);
+  sea.addColorStop(0, '#1a78c8'); sea.addColorStop(1, '#0a3a6a');
+  ctx.fillStyle = sea; ctx.fillRect(0, H*0.55, W, H*0.45);
+
+  const sunX = W*0.8, sunY = H*0.14;
+  const glow = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, 90);
+  glow.addColorStop(0, 'rgba(255,220,100,0.5)'); glow.addColorStop(1, 'rgba(255,160,30,0)');
+  ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = 'rgba(255,230,100,0.95)';
+  ctx.beginPath(); ctx.arc(sunX, sunY, 22, 0, Math.PI*2); ctx.fill();
+
+  // Ship sailing toward port
+  const shipStartX = W + 220, shipEndX = W*0.35;
+  const shipCX = shipStartX + (shipEndX - shipStartX) * easeOut(progress);
+  const sY = H*0.55 - 32;
+  ctx.save(); ctx.scale(-1, 1);
+  drawShip(ctx, -shipCX, sY, 260);
+  ctx.restore();
+  ctx.fillStyle = 'rgba(100,200,255,0.18)';
+  for (let i = 1; i <= 5; i++) ctx.fillRect(shipCX, sY+18+i, i*24, 3);
+
+  if (progress > 0.4) {
+    const ta = Math.min((progress - 0.4) / 0.25, 1).toFixed(2);
+    ctx.textAlign = 'center';
+    ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 12;
+    ctx.font = 'bold 38px Georgia,serif'; ctx.fillStyle = `rgba(212,175,55,${ta})`;
+    ctx.fillText('SAFE PASSAGE!', W/2, H*0.38);
+    ctx.font = '16px Georgia,serif'; ctx.fillStyle = `rgba(220,210,180,${ta})`;
+    ctx.fillText('The Britannic cleared the minefield — the wounded will reach port safely.', W/2, H*0.38 + 34);
+    ctx.shadowBlur = 0;
+  }
+
+  if (progress > 0.88) {
+    const ca = Math.abs(Math.sin(animTick * 0.07)).toFixed(2);
+    ctx.font = '14px Georgia,serif'; ctx.fillStyle = `rgba(180,170,150,${ca})`;
+    ctx.textAlign = 'center';
+    ctx.fillText('Click to continue...', W/2, H - 18);
+  }
+}
+
+function drawAegeanBackground(ctx, W, H, tick) {
+  const sky = ctx.createLinearGradient(0, 0, 0, H*0.55);
+  sky.addColorStop(0, '#1a4a8a'); sky.addColorStop(1, '#5aa0e8');
+  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H*0.55);
+
+  // Clouds
+  ctx.fillStyle = 'rgba(255,255,255,0.82)';
+  [[0.13,0.10,85,22],[0.42,0.07,110,27],[0.70,0.14,72,18],[0.87,0.09,92,24]].forEach(([fx, fy, cw, ch]) => {
+    const cx = (fx*W + Math.sin(tick*0.004 + fx*10)*8);
+    ctx.beginPath(); ctx.ellipse(cx, fy*H, cw, ch, 0, 0, Math.PI*2); ctx.fill();
+  });
+
+  const sea = ctx.createLinearGradient(0, H*0.55, 0, H);
+  sea.addColorStop(0, '#1a78c8'); sea.addColorStop(1, '#0a3a6a');
+  ctx.fillStyle = sea; ctx.fillRect(0, H*0.55, W, H*0.45);
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.14)'; ctx.lineWidth = 1.5;
+  for (let row = 0; row < 8; row++) {
+    const wy = H*0.55 + row*25;
+    ctx.beginPath();
+    for (let wx = 0; wx <= W; wx += 5) {
+      const y = wy + Math.sin(wx*0.04 + tick*0.04 + row) * 2;
+      wx === 0 ? ctx.moveTo(wx, y) : ctx.lineTo(wx, y);
+    }
+    ctx.stroke();
+  }
+}
+
+function drawMine(ctx, mx, my, r) {
+  // Anchor chain
+  ctx.strokeStyle = 'rgba(80,60,40,0.5)'; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(mx, my + r);
+  ctx.lineTo(mx + Math.sin(my * 0.05) * 4, my + r + 18);
+  ctx.stroke();
+
+  // Main sphere
+  const g = ctx.createRadialGradient(mx - r*0.3, my - r*0.3, r*0.1, mx, my, r);
+  g.addColorStop(0, '#5a5a6a'); g.addColorStop(0.6, '#2a2a38'); g.addColorStop(1, '#111118');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(mx, my, r, 0, Math.PI*2); ctx.fill();
+
+  // Rust patches
+  ctx.fillStyle = 'rgba(120,55,20,0.35)';
+  ctx.beginPath(); ctx.ellipse(mx + r*0.2, my - r*0.1, r*0.25, r*0.2,  0.5, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(mx - r*0.3, my + r*0.2, r*0.18, r*0.15, -0.3, 0, Math.PI*2); ctx.fill();
+
+  // Contact horns (6 spikes)
+  for (let i = 0; i < 6; i++) {
+    const angle = (i / 6) * Math.PI * 2;
+    const hx1 = mx + Math.cos(angle) * r,      hy1 = my + Math.sin(angle) * r;
+    const hx2 = mx + Math.cos(angle) * (r + r*0.55), hy2 = my + Math.sin(angle) * (r + r*0.55);
+    ctx.strokeStyle = '#3a3a4a'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(hx1, hy1); ctx.lineTo(hx2, hy2); ctx.stroke();
+    ctx.fillStyle = '#555566';
+    ctx.beginPath(); ctx.arc(hx2, hy2, 3, 0, Math.PI*2); ctx.fill();
+  }
+
+  // Highlight
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  ctx.beginPath(); ctx.arc(mx - r*0.28, my - r*0.28, r*0.35, 0, Math.PI*2); ctx.fill();
+}
+
+function drawMineHUD(ctx, W, H, hull, timeLeft) {
+  ctx.textAlign = 'left'; ctx.font = 'bold 13px sans-serif'; ctx.fillStyle = '#ffffff';
+  ctx.fillText('HULL INTEGRITY', 10, 20);
+  ctx.fillStyle = '#222'; ctx.fillRect(10, 24, 200, 16);
+  ctx.fillStyle = hull > 60 ? '#28a046' : hull > 30 ? '#d4af37' : '#be2828';
+  ctx.fillRect(10, 24, hull*2, 16);
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1; ctx.strokeRect(10, 24, 200, 16);
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 11px sans-serif';
+  ctx.fillText(`${hull}%`, 218, 37);
+
+  ctx.textAlign = 'right'; ctx.font = 'bold 13px sans-serif'; ctx.fillStyle = '#ffffff';
+  ctx.fillText(`TIME: ${timeLeft}s`, W-10, 20);
+
+  ctx.textAlign = 'center'; ctx.font = 'bold 15px Georgia,serif'; ctx.fillStyle = '#d4af37';
+  ctx.fillText('AEGEAN SEA  —  November 21, 1916  —  HMHS BRITANNIC', W/2, 18);
+  ctx.font = '11px sans-serif'; ctx.fillStyle = 'rgba(180,170,150,0.9)';
+  ctx.fillText('Arrow keys / WASD: steer  |  Avoid the mines!  |  Survive 45 seconds', W/2, 34);
+
+  ctx.textAlign = 'left'; ctx.font = 'bold 12px sans-serif'; ctx.fillStyle = '#be2828';
+  ctx.fillText(`Mine Hits: ${gs.mineHits}`, 10, 55);
 }
 
 function drawIceberg(ctx, x, y, w, h) {
@@ -1846,6 +2271,7 @@ function calculateScore() {
 
   // Penalties
   if (gs.icebergHits > 0) add(`Iceberg Collisions (${gs.icebergHits})`, -(gs.icebergHits * 260), 'neg');
+  if (gs.mineHits > 0)    add(`Mine Collisions — Britannic (${gs.mineHits})`, -(gs.mineHits * 150), 'neg');
 
   // ── Class hardship multiplier ─────────────────────────────────────────
   // Steerage has fewest resources and lifeboats — harder, so worth more
@@ -1920,12 +2346,15 @@ function buildEnding(app) {
         <tr><td>Days at Sea</td><td>${gs.dayNum}</td></tr>
         <tr><td>Passengers Alive</td><td>${alive} / 5</td></tr>
         <tr><td>Iceberg Hits</td><td>${gs.icebergHits}</td></tr>
+        <tr><td>Mine Hits (Britannic)</td><td>${gs.mineHits}</td></tr>
         <tr><td>Lifeboat Seats</td><td>${gs.lifeboats}</td></tr>
-        <tr><td>Outcome</td><td style="color:${survived?'#28a046':'#be2828'};font-weight:bold">${survived?'SAFE ARRIVAL':'SUNK'}</td></tr>
+        <tr><td>Titanic Outcome</td><td style="color:${survived?'#28a046':'#be2828'};font-weight:bold">${survived?'SAFE ARRIVAL':'SUNK'}</td></tr>
+        <tr><td>Britannic Outcome</td><td style="color:${!gs.britannicSank?'#28a046':'#be2828'};font-weight:bold">${!gs.britannicSank?'SAFE PASSAGE':'SUNK'}</td></tr>
       </table>
     </div>
 
     <div class="ending-hist">Historical note: On April 15, 1912, the real RMS Titanic sank after striking an iceberg at 11:40 PM the previous night. Of the 2,224 people aboard, 1,517 perished — largely due to a shortage of lifeboats. She carried only 20 lifeboats, enough for 1,178 people. Her wreck was discovered in 1985 at a depth of 12,500 feet.</div>
+    <div class="ending-hist">The Titanic's sister ship, HMHS Britannic, was converted into a hospital ship during World War I. On November 21, 1916, she struck a German naval mine in the Aegean Sea near the Greek island of Kea and sank in just 55 minutes — faster than the Titanic. Thanks to the daylight and calmer seas, most of her 1,066 crew and medical staff survived. She remains the largest ocean liner ever sunk.</div>
     <div class="ending-btns">
       <button id="play-again" class="btn-green btn-large">Play Again</button>
     </div>`;
@@ -1953,6 +2382,17 @@ scaleToViewport();
     if (e.key.length !== 1) return;
     buf = (buf + e.key).slice(-SEQ.length);
     if (buf === SEQ) { buf = ''; gs.init(); goTo(buildIceberg); }
+  });
+})();
+
+// ── Cheat code: type "gtmi" anywhere to jump to the mine-field mini-game ──
+(function() {
+  const SEQ = 'gtmi';
+  let buf = '';
+  window.addEventListener('keydown', e => {
+    if (e.key.length !== 1) return;
+    buf = (buf + e.key).slice(-SEQ.length);
+    if (buf === SEQ) { buf = ''; gs.init(); goTo(buildMineField); }
   });
 })();
 
