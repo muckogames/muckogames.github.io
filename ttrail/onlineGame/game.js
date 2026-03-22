@@ -2464,6 +2464,13 @@ scaleToViewport();
   });
 })();
 
+// ── URL param cheats: ?gtia or ?gtmi (mobile-friendly equivalents) ────────
+(function() {
+  const p = new URLSearchParams(window.location.search);
+  if (p.has('gtia')) { gs.init(); goTo(buildIceberg); }
+  else if (p.has('gtmi')) { gs.init(); goTo(buildMineField); }
+})();
+
 // ── Dev skip buttons (visible only when ?dev is in the URL) ───────────────
 // Useful on mobile where keyboard cheats aren't available.
 // Access via: index.html?dev
