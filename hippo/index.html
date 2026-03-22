@@ -1100,7 +1100,7 @@ function drawHighScores(){
       const ry=150+i*30;
       rnd(W/2-200,ry,400,28,4,'rgba(10,5,30,0.6)','rgba(60,40,100,0.4)',1);
       const medal=i===0?'🥇':i===1?'🥈':i===2?'🥉':String(i+1);
-      [medal,`${e.score}pts`,`${e.suspicion??'?'}%`,e.label||''].forEach((v,j)=>
+      [medal,`${e.score}pts`,`${e.suspicion!=null?e.suspicion:'?'}%`,e.label||''].forEach((v,j)=>
         txt(v,cols[j],ry+18,'#d4c090',11,'center',"'Courier New',monospace")
       );
     });
