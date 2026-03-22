@@ -1507,21 +1507,21 @@ function buildSteam(app) {
       // Gasket circle
       const col = g.state==='sealed' ? '#4a8030' : g.state==='leaking' ? '#c8901a' : '#c03030';
       ctx.fillStyle = col;
-      ctx.beginPath(); ctx.arc(g.x, g.y, 16, 0, Math.PI*2); ctx.fill();
-      ctx.strokeStyle = '#ffe8a0'; ctx.lineWidth = g.state==='leaking' ? 2 : 1;
-      ctx.beginPath(); ctx.arc(g.x, g.y, 16, 0, Math.PI*2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(g.x, g.y, 20, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = '#ffe8a0'; ctx.lineWidth = g.state==='leaking' ? 2.5 : 1.5;
+      ctx.beginPath(); ctx.arc(g.x, g.y, 20, 0, Math.PI*2); ctx.stroke();
 
       // Icon
-      ctx.font = '14px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.font = '18px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
       ctx.fillText(g.state==='sealed'?'🔩':g.state==='leaking'?'💨':'💥', g.x, g.y);
 
       // Leak timer bar
       if (g.state === 'leaking') {
         const pct = g.leakTimer / g.leakDuration;
         ctx.fillStyle='rgba(0,0,0,0.5)';
-        ctx.fillRect(g.x-16, g.y+20, 32, 5);
+        ctx.fillRect(g.x-20, g.y+25, 40, 6);
         ctx.fillStyle='#e05050';
-        ctx.fillRect(g.x-16, g.y+20, 32*pct, 5);
+        ctx.fillRect(g.x-20, g.y+25, 40*pct, 6);
       }
     });
 
@@ -1551,7 +1551,7 @@ function buildSteam(app) {
     gaskets.forEach(g => {
       if (g.state === 'leaking') {
         const dx = cx - g.x, dy = cy - g.y;
-        if (dx*dx+dy*dy < 28*28) {
+        if (dx*dx+dy*dy < 50*50) {
           g.state = 'sealed';
           g.leakTimer = 0;
           g.steamPuffs = [];
