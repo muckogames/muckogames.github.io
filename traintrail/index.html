@@ -1,0 +1,1671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Train Trail</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext x='50%25' y='50%25' dy='.35em' text-anchor='middle' font-size='82'%3E%F0%9F%9A%82%3C/text%3E%3C/svg%3E">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #0a0a18;
+  font-family: Georgia, 'Times New Roman', serif;
+  color: #e8d8b0;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+#app {
+  width: 820px; height: 620px;
+  position: absolute; top: 0; left: 0;
+  transform-origin: 0 0;
+  overflow: hidden;
+  background: #14100a;
+}
+button {
+  font-family: Georgia, serif;
+  cursor: pointer;
+  touch-action: manipulation;
+  border: 1px solid #c8901a;
+  color: #ffe8a0;
+  background: #2a1a04;
+  padding: 6px 16px;
+  font-size: 13px;
+  transition: background 0.15s;
+}
+button:hover:not(:disabled) { background: #3a2806; }
+button:disabled { opacity: 0.4; cursor: default; }
+button.btn-green  { background: #1a3a12; border-color: #4a9030; }
+button.btn-green:hover:not(:disabled) { background: #245018; }
+button.btn-red    { background: #3a1010; border-color: #c03030; }
+button.btn-red:hover:not(:disabled)  { background: #501818; }
+button.btn-large  { font-size: 16px; padding: 10px 26px; }
+button.btn-big    { font-size: 14px; padding: 8px 20px; }
+
+#modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.75);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 100;
+}
+#modal-overlay.hidden { display: none; }
+#modal-box {
+  background: #1a1004;
+  border: 2px solid #c8901a;
+  padding: 24px 30px;
+  max-width: 440px; width: 90%;
+  text-align: center;
+}
+#modal-title { font-size: 20px; font-weight: bold; color: #c8901a; margin-bottom: 12px; }
+#modal-body  { font-size: 13px; line-height: 1.65; color: #e8d8b0; margin-bottom: 18px; white-space: pre-wrap; }
+#modal-btns  { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+
+#back-btn {
+  position: fixed; top: 8px; left: 8px; z-index: 200;
+  font-family: Georgia, serif; font-size: 12px;
+  color: #c8901a; background: rgba(20,16,10,0.88);
+  border: 1px solid #c8901a; padding: 4px 10px;
+  text-decoration: none; opacity: 0.65;
+  transition: opacity 0.15s; white-space: nowrap;
+}
+#back-btn:hover { opacity: 1; }
+
+/* ── Title screen ── */
+#title-screen {
+  width: 820px; height: 620px;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  background: #0a0c18;
+  position: relative; overflow: hidden;
+}
+.title-canvas { position: absolute; top: 0; left: 0; }
+.title-content { position: relative; z-index: 2; text-align: center; }
+.title-main { font-size: 52px; font-weight: bold; color: #c8901a;
+  text-shadow: 0 0 30px rgba(200,144,26,0.7); letter-spacing: 3px; margin-bottom: 6px; }
+.title-sub  { font-size: 17px; color: #a07020; font-style: italic; margin-bottom: 40px; }
+.title-route{ font-size: 14px; color: #907050; margin-bottom: 44px; }
+
+/* ── Setup screen ── */
+#setup-screen {
+  width: 820px; height: 620px;
+  background: #14100a;
+  display: flex; flex-direction: column; padding: 22px 32px;
+}
+.setup-title { font-size: 28px; font-weight: bold; color: #c8901a; text-align: center; margin-bottom: 18px; }
+.setup-cols  { display: flex; gap: 24px; flex: 1; overflow: hidden; }
+.setup-col   { flex: 1; display: flex; flex-direction: column; }
+.sec-label   { font-size: 15px; font-weight: bold; color: #c8901a; margin-bottom: 10px; }
+.diff-card {
+  border: 1px solid #3a2806; background: #1a1004;
+  padding: 10px 12px; margin-bottom: 8px; cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.diff-card.selected { background: #2a1c08; border-color: #c8901a; }
+.diff-card label { cursor: pointer; display: block; }
+.diff-card .diff-name { font-weight: bold; font-size: 14px; color: #ffe8a0; }
+.diff-card .diff-detail { font-size: 11px; color: #907050; margin-top: 3px; padding-left: 20px; line-height: 1.4; }
+.diff-card input[type=radio] { margin-right: 6px; accent-color: #c8901a; }
+.name-row { display: flex; align-items: center; margin-bottom: 8px; gap: 8px; }
+.name-row label { font-size: 13px; width: 80px; color: #e8d8b0; flex-shrink: 0; }
+.name-row input {
+  background: #1a1004; border: 1px solid #c8901a;
+  color: #ffe8a0; font-family: Georgia, serif;
+  font-size: 13px; padding: 4px 8px; width: 180px;
+}
+.name-row input:focus { outline: none; border-color: #f0c040; }
+.setup-hint { font-size: 11px; font-style: italic; color: #5a4020; margin-bottom: 10px; }
+.setup-bottom { display: flex; justify-content: center; padding-top: 16px; }
+
+/* ── Trail screen ── */
+#trail-screen {
+  width: 820px; height: 620px;
+  background: #14100a;
+  display: flex; flex-direction: column;
+}
+#scene-canvas { height: 85px; width: 100%; flex-shrink: 0; border-bottom: 1px solid #3a2806; display: block; }
+#trail-main { display: flex; flex: 1; overflow: hidden; }
+#log-panel {
+  flex: 1; background: #0e0a04;
+  border-right: 1px solid #2a1c08;
+  overflow-y: auto; padding: 8px 12px;
+  font-size: 13px; line-height: 1.6; color: #c8b890;
+}
+#log-panel p { margin-bottom: 4px; }
+#log-panel p.alert { color: #e05050; }
+#log-panel p.good  { color: #50c070; }
+#log-panel p.gold  { color: #c8901a; }
+#status-panel {
+  width: 195px; flex-shrink: 0; background: #1a1004;
+  padding: 10px 12px; font-size: 12px;
+  overflow-y: auto; display: flex; flex-direction: column; gap: 1px;
+}
+.st-title { font-size: 13px; font-weight: bold; color: #c8901a; margin-bottom: 4px; }
+.st-loc   { font-size: 11px; font-style: italic; color: #e8d8b0; margin-bottom: 6px; }
+.st-sep   { font-size: 10px; color: #5a4020; text-align: center; margin: 4px 0 2px; letter-spacing: 1px; }
+.st-row   { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 2px; }
+.st-row .val { font-weight: bold; }
+.val.ok   { color: #50c070; }
+.val.warn { color: #c8901a; }
+.val.bad  { color: #e05050; }
+#trail-btns {
+  padding: 6px 8px; display: flex; flex-wrap: wrap; gap: 6px;
+  border-top: 1px solid #2a1c08; background: #0e0a04;
+  justify-content: center; min-height: 48px; align-items: center;
+}
+
+/* ── Mini game (track) ── */
+#mini-canvas { display: block; }
+#mini-ui {
+  position: absolute; top: 0; left: 0; width: 820px;
+  display: flex; justify-content: space-between;
+  padding: 8px 14px; pointer-events: none;
+}
+.mini-stat { font-size: 14px; font-weight: bold; color: #ffe8a0;
+  text-shadow: 1px 1px 3px #000; }
+.mini-lives { display: flex; gap: 4px; }
+.mini-life  { font-size: 18px; }
+
+/* ── Kraken screen ── */
+#kraken-screen {
+  width: 820px; height: 620px;
+  background: #020818; display: flex; flex-direction: column;
+  position: relative; overflow: hidden;
+}
+#kraken-canvas { position: absolute; top: 0; left: 0; }
+#kraken-content {
+  position: relative; z-index: 2;
+  display: flex; flex-direction: column; height: 100%; padding: 20px;
+}
+.kraken-title { font-size: 26px; font-weight: bold; color: #7040c0;
+  text-align: center; margin-bottom: 8px; text-shadow: 0 0 20px rgba(112,64,192,0.8); }
+.kraken-speaker { font-size: 13px; font-weight: bold; color: #c080ff; margin-bottom: 4px; }
+.kraken-box {
+  background: rgba(8,4,30,0.85); border: 1px solid #5030a0;
+  padding: 14px 18px; font-size: 13px; line-height: 1.65;
+  color: #d0c0f0; flex: 1; overflow-y: auto; margin-bottom: 10px;
+}
+.kraken-choices { display: flex; flex-direction: column; gap: 7px; }
+.kraken-choice {
+  background: rgba(30,15,70,0.88); border: 1px solid #5030a0;
+  color: #d0c0f0; font-family: Georgia, serif; font-size: 13px;
+  padding: 8px 14px; cursor: pointer; text-align: left;
+  touch-action: manipulation; transition: background 0.15s;
+}
+.kraken-choice:hover { background: rgba(60,30,120,0.9); }
+
+/* ── Steam / whack-a-mole ── */
+#steam-canvas { display: block; }
+#steam-overlay {
+  position: absolute; top: 0; left: 0; width: 820px;
+  pointer-events: none;
+}
+
+/* ── Ending screen ── */
+#ending-screen {
+  width: 820px; height: 620px;
+  background: #14100a;
+  overflow-y: auto; padding: 22px 46px;
+  display: flex; flex-direction: column; align-items: center;
+}
+.end-title { font-size: 32px; font-weight: bold; text-align: center; margin-bottom: 14px; }
+.end-title.arrived { color: #c8901a; }
+.end-title.failed  { color: #c03030; }
+.end-narrative { font-size: 14px; line-height: 1.7; text-align: center; max-width: 600px; margin-bottom: 18px; color: #e8d8b0; }
+.end-stats {
+  background: #1a1004; border: 1px solid #c8901a;
+  padding: 14px 24px; width: 100%; max-width: 480px; margin-bottom: 16px;
+}
+.end-stats table { width: 100%; border-collapse: collapse; }
+.end-stats td { padding: 3px 8px; font-size: 13px; }
+.end-stats td:first-child { color: #907050; }
+.end-stats td:last-child  { color: #ffe8a0; font-weight: bold; }
+.score-panel {
+  background: #0e0804; border: 2px solid #c8901a;
+  padding: 16px 26px; text-align: center;
+  width: 100%; max-width: 480px; margin-bottom: 14px;
+}
+.score-number { font-size: 56px; font-weight: bold; color: #c8901a; line-height: 1.05; letter-spacing: 2px; }
+.score-rating { font-size: 19px; color: #ffe8a0; margin: 4px 0 12px; font-style: italic; }
+.score-divider{ border: none; border-top: 1px solid #2a1c08; margin: 8px 0; }
+.score-breakdown { width: 100%; }
+.score-breakdown td { font-size: 12px; padding: 2px 4px; }
+.score-breakdown td:first-child { color: #907050; text-align: left; }
+.score-breakdown td:last-child  { text-align: right; font-weight: bold; min-width: 60px; }
+.score-breakdown td.pos  { color: #50c070; }
+.score-breakdown td.neg  { color: #e05050; }
+.score-breakdown tr.total-row td { border-top: 1px solid #2a1c08; padding-top: 5px; color: #c8901a; font-size: 13px; }
+.hs-panel { background: #0a0804; border: 1px solid #3a2808; padding: 14px 20px; width: 100%; max-width: 480px; margin-bottom: 16px; }
+.hs-title { color: #c8901a; font-weight: bold; font-size: 13px; text-align: center; margin-bottom: 10px; }
+.hs-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.hs-table th { color: #5a4020; padding: 3px 6px; text-align: left; border-bottom: 1px solid #2a1c08; }
+.hs-table td { color: #e8d8b0; padding: 4px 6px; border-bottom: 1px solid #1a1008; }
+.hs-table td:nth-child(2) { color: #50c070; }
+.hs-table tr.hs-new td { color: #ffd700; font-weight: bold; }
+.hs-new-msg { color: #ffd700; font-size: 12px; text-align: center; margin-top: 8px; }
+.end-btns { display: flex; gap: 16px; }
+</style>
+</head>
+<body>
+<a id="back-btn" href="../index.html">← Mucko's Games</a>
+<div id="app"></div>
+<div id="modal-overlay" class="hidden">
+  <div id="modal-box">
+    <div id="modal-title"></div>
+    <div id="modal-body"></div>
+    <div id="modal-btns"></div>
+  </div>
+</div>
+<script>
+'use strict';
+
+// ── Constants ──────────────────────────────────────────────────────────────
+const W = 820, H = 620;
+const LANE_CENTERS = [182, 410, 638];
+const VP_X = 410, VP_Y = 170, TRACK_Y = 575;
+function projX(x, d) { return VP_X + (x - VP_X) * d; }
+function projY(d)    { return VP_Y + (TRACK_Y - VP_Y) * d; }
+function lerpLaneX(laneFrac) {
+  const i = Math.min(Math.floor(laneFrac), 1);
+  const t = laneFrac - i;
+  return LANE_CENTERS[i] + (LANE_CENTERS[i+1] - LANE_CENTERS[i]) * t;
+}
+
+// ── High scores ────────────────────────────────────────────────────────────
+function getHS(key) {
+  try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; }
+}
+function saveHS(key, entry, limit = 10) {
+  const list = getHS(key);
+  list.push(entry);
+  list.sort((a,b) => b.score - a.score);
+  const trimmed = list.slice(0, limit);
+  try { localStorage.setItem(key, JSON.stringify(trimmed)); } catch {}
+  return trimmed.indexOf(entry) + 1;
+}
+
+// ── Viewport scaling ───────────────────────────────────────────────────────
+function scaleToViewport() {
+  const app = document.getElementById('app');
+  if (!app) return;
+  const s = Math.min(window.innerWidth / W, window.innerHeight / H);
+  app.style.transform = `scale(${s})`;
+  app.style.left = `${(window.innerWidth  - W*s)/2}px`;
+  app.style.top  = `${(window.innerHeight - H*s)/2}px`;
+}
+window.addEventListener('resize', scaleToViewport);
+
+// ── Screen manager ─────────────────────────────────────────────────────────
+let _cleanup = null;
+function goTo(fn, ...args) {
+  if (_cleanup) { try { _cleanup(); } catch {} _cleanup = null; }
+  const app = document.getElementById('app');
+  app.innerHTML = '';
+  fn(app, ...args);
+}
+
+// ── Modal ──────────────────────────────────────────────────────────────────
+function showModal(title, body, buttons) {
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-body').textContent  = body;
+  const btns = document.getElementById('modal-btns');
+  btns.innerHTML = '';
+  buttons.forEach(b => {
+    const el = document.createElement('button');
+    el.textContent = b.label;
+    if (b.cls) el.className = b.cls;
+    el.onclick = () => { hideModal(); b.fn(); };
+    btns.appendChild(el);
+  });
+  document.getElementById('modal-overlay').classList.remove('hidden');
+}
+function hideModal() {
+  document.getElementById('modal-overlay').classList.add('hidden');
+}
+
+// ── Game state ─────────────────────────────────────────────────────────────
+let gs = {};
+function newGame() {
+  gs = {
+    name: 'Engineer',
+    difficulty: 'normal',
+    stepIdx: 0,
+    coal: 80, water: 80, food: 80, hp: 100, morale: 75,
+    log: [],
+    miniLivesLeft: [3, 3, 3],   // lives remaining for each mini (3 minis)
+    miniPassed:    [false,false,false],
+    krakenScene: 0, krakenMorale: 0, krakenFed: false,
+    steamSealed: 0, steamTotal: 0,
+    arrived: false,
+    date: new Date().toLocaleDateString('en-US')
+  };
+}
+
+// ── Journey definition ─────────────────────────────────────────────────────
+const JOURNEY = [
+  {
+    type: 'event',
+    title: '🚉 Departure from Boston',
+    loc: 'Boston South Station',
+    desc: 'Your magnificent steam locomotive, the Iron Leviathan, rolls out of Boston\'s South Station at dawn. The Trans-Atlantic Bridge stretches ahead — a wonder of engineering spanning three thousand miles of open sea toward Germany.\n\nYour fireman, Otto, shovels coal with enthusiasm. The boiler glows with promise.',
+    choices: [
+      { text: '🔥 Full steam ahead!', result: 'The crowd cheers wildly as you blast your whistle! Magnificent, if a bit wasteful.', effect: gs => { gs.coal -= 8; gs.morale = cap(gs.morale + 10); } },
+      { text: '⚙️ Careful and steady', result: 'You ease onto the bridge at a measured pace, conserving fuel wisely.', effect: gs => { gs.coal += 5; } }
+    ]
+  },
+  {
+    type: 'mini',
+    miniIdx: 0,
+    title: '🐟 The Continental Shelf',
+    loc: 'Continental Shelf Crossing',
+    desc: 'The bridge descends into foggy waters above the shelf. Schools of enormous tuna have leapt onto the elevated tracks! Steer left and right to avoid them.',
+    cfg: { speed: 0.85, spawnInterval: 2.4, lives: 3, duration: 32, types: ['fish'], label: 'Continental Shelf' }
+  },
+  {
+    type: 'event',
+    title: '🌧️ Mid-Atlantic Squall',
+    loc: 'Mid-Atlantic, Mile 800',
+    desc: 'A fierce Atlantic storm sweeps over the bridge. Waves crash onto the tracks, and the wind howls through the girders.',
+    choices: [
+      { text: '⚡ Race through at full speed!', result: 'You blast through the squall! Exhilarating but hard on the machinery.', effect: gs => { gs.coal -= 10; gs.hp -= 8; gs.morale = cap(gs.morale + 5); } },
+      { text: '🐢 Slow down and endure', result: 'The storm batters you for an hour, but you emerge unscathed.', effect: gs => { gs.water -= 5; gs.morale -= 8; } },
+      { text: '🛡️ Batten the hatches and drift', result: 'A clever if passive approach. You lose time but save coal.', effect: gs => { gs.food -= 6; gs.morale -= 3; } }
+    ]
+  },
+  {
+    type: 'event',
+    title: '🦈 The Shark Toll Collector',
+    loc: 'Mid-Atlantic Toll Plaza',
+    desc: 'A massive great white shark in a yellow vest blocks the track. He holds a sign: "TOLL: 1 BUCKET FISH or Equivalent."\n\nHe speaks perfect English and drives a very small motorcycle.',
+    choices: [
+      { text: '🐟 Pay the fish toll', result: '"Pleasure doing business," says the shark, tipping his vest. The path is clear.', effect: gs => { gs.food -= 12; } },
+      { text: '💨 Honk and don\'t stop!', result: 'The shark dives aside. "I\'ll remember this!" he shouts after you.', effect: gs => { gs.morale -= 6; gs.hp -= 4; } },
+      { text: '🤝 Offer him a job as ticket inspector', result: 'The shark is delighted! He climbs aboard. Crew morale soars.', effect: gs => { gs.food -= 5; gs.morale = cap(gs.morale + 15); } }
+    ]
+  },
+  {
+    type: 'mini',
+    miniIdx: 1,
+    title: '🧊 Iceberg Alley',
+    loc: 'North Atlantic Iceberg Corridor',
+    desc: 'The bridge enters iceberg territory. Massive floating ice chunks and old naval mines litter the elevated tracks! Steer carefully.',
+    cfg: { speed: 1.15, spawnInterval: 2.0, lives: 3, duration: 40, types: ['ice', 'mine'], label: 'Iceberg Alley' }
+  },
+  {
+    type: 'event',
+    title: '🌊 Strange Rumbling Below',
+    loc: 'Deep Water Zone',
+    desc: 'The bridge begins to vibrate. Your compass spins wildly. A vast shadow appears beneath the surface — the size of a city block — and it is rising.\n\nThe track ahead begins sloping... downward.',
+    choices: [
+      { text: '🔔 Ring the dinner bell (works in movies)', result: 'The shadow pauses. It turns. It is heading directly toward you.', effect: gs => {} },
+      { text: '🏃 Try to outrun it!', result: 'The tracks have already descended below the surface. There is no escape.', effect: gs => { gs.coal -= 8; } }
+    ]
+  },
+  {
+    type: 'kraken',
+    title: '🦑 Dinner with Gerald',
+    loc: 'Underwater City of Krak\'ath',
+    desc: 'A colossal kraken named Gerald has pulled your entire train down to his glittering bioluminescent city for dinner. Your schedule is ruined. The pasta, however, smells incredible.'
+  },
+  {
+    type: 'event',
+    title: '🫧 Surfacing',
+    loc: 'Mid-Atlantic, Mile 1600',
+    desc: 'Gerald\'s staff has loaded your train into a magnificent pneumatic tube and launched it back to the surface. The Iron Leviathan bursts from the ocean in a geyser of foam.\n\nYou are halfway across. The other half awaits.',
+    choices: [
+      { text: '📓 Write in the ship\'s log', result: '"Day 3: Dinner with kraken. Gerald recommends his sea-urchin linguine."', effect: gs => { gs.morale = cap(gs.morale + 8); } },
+      { text: '🔧 Inspect the engine', result: 'Water in the cylinders from the dive. Minor damage, but you catch it early.', effect: gs => { gs.hp -= 8; gs.coal -= 4; } }
+    ]
+  },
+  {
+    type: 'steam',
+    title: '🐟 Johnny Mackerel to the Rescue',
+    loc: 'Mid-Atlantic Boiler Room',
+    desc: 'A small mackerel in a tool belt has appeared at your boiler room porthole. He knocks with a tiny wrench.\n\n"Johnny Mackerel, steam engineer! I noticed your boiler has several loose gaskets — if you don\'t seal them, she\'ll blow! Click the leaking gaskets to seal them!"'
+  },
+  {
+    type: 'event',
+    title: '⚓ The Azores Support Tower',
+    loc: 'Azores Tower, Mile 2100',
+    desc: 'The great Azores Tower looms ahead — a colossal structure rising from the sea floor, supporting the bridge\'s midspan. There is a supply depot on Level 4.',
+    choices: [
+      { text: '🛒 Stock up on coal and food', result: 'The depot is expensive, but the crew grumbles less when well-fed.', effect: gs => { gs.coal = cap(gs.coal + 22); gs.food = cap(gs.food + 18); gs.morale -= 6; } },
+      { text: '🎵 Give the crew one hour shore leave', result: 'Accordion music echoes up the tower stairwell. Morale soars.', effect: gs => { gs.morale = cap(gs.morale + 22); gs.water = cap(gs.water + 12); } },
+      { text: '🚀 Skip it — no time to lose!', result: 'You blast past the tower at full speed. Efficient!', effect: gs => { gs.coal -= 4; gs.morale = cap(gs.morale + 5); } }
+    ]
+  },
+  {
+    type: 'mini',
+    miniIdx: 2,
+    title: '💣 The Final Gauntlet',
+    loc: 'Eastern Atlantic, Mile 2800',
+    desc: 'Nearly home! But the eastern waters are treacherous — mines, icebergs, AND enormous seagulls have nested on the tracks. The coast of Europe is just visible on the horizon!',
+    cfg: { speed: 1.45, spawnInterval: 1.75, lives: 3, duration: 42, types: ['fish', 'ice', 'mine'], label: 'Final Gauntlet' }
+  },
+  {
+    type: 'event',
+    title: '🌍 Touching European Soil',
+    loc: 'Iberian Peninsula Gateway',
+    desc: 'The bridge connects to the European mainland near Lisbon! Your wheels touch solid ground for the first time in days. The crew cheers. The shark ticket inspector takes a selfie.\n\nLeipzig is still 1,500 miles northeast, but it\'s all overland from here.',
+    choices: [
+      { text: '🚂 Push on without stopping', result: 'Full speed through the Iberian Peninsula!', effect: gs => { gs.coal -= 8; gs.morale -= 4; } },
+      { text: '🍮 Brief stop in Portugal', result: '"These pastéis de nata are extraordinary," says Otto. Crew morale much improved.', effect: gs => { gs.food = cap(gs.food + 12); gs.coal -= 5; gs.morale = cap(gs.morale + 12); } }
+    ]
+  },
+  {
+    type: 'event',
+    title: '🎉 Arrival in Leipzig!',
+    loc: 'Leipzig Central Station',
+    desc: 'The Iron Leviathan pulls into Leipzig Hauptbahnhof to thunderous applause. Banners wave. Brass bands play. Someone has baked a tremendous pretzel in your honor.\n\nYou have crossed the Trans-Atlantic Bridge. You have done the impossible.',
+    last: true,
+    choices: [
+      { text: '🥨 Accept the pretzel graciously', result: 'You tip your conductor\'s hat to the roaring crowd. Journey complete!', effect: gs => { gs.arrived = true; gs.morale = cap(gs.morale + 15); } }
+    ]
+  }
+];
+
+function cap(v) { return Math.max(0, Math.min(100, v)); }
+
+// ── Title screen ───────────────────────────────────────────────────────────
+function buildTitle(app) {
+  app.innerHTML = `<div id="title-screen">
+    <canvas class="title-canvas" id="tc" width="820" height="620"></canvas>
+    <div class="title-content">
+      <div class="title-main">🚂 TRAIN TRAIL</div>
+      <div class="title-sub">A Trans-Atlantic Steam Adventure</div>
+      <div class="title-route">Boston, MA → Leipzig, Germany</div>
+      <button class="btn-large" id="start-btn" style="font-size:18px;padding:12px 36px">Board the Train</button>
+    </div>
+  </div>`;
+
+  const canvas = document.getElementById('tc');
+  const ctx = canvas.getContext('2d');
+  let rafId, t = 0;
+
+  function frame(ts) {
+    t = ts * 0.001;
+    ctx.clearRect(0, 0, W, H);
+    // Night sky
+    const sky = ctx.createLinearGradient(0,0,0,H);
+    sky.addColorStop(0, '#04050e');
+    sky.addColorStop(1, '#0a0c18');
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, W, H);
+    // Stars
+    const rng = mulberry32(42);
+    for (let i = 0; i < 80; i++) {
+      const sx = rng() * W, sy = rng() * H * 0.55;
+      const br = 0.5 + 0.5 * Math.sin(t * 1.3 + i * 2.1);
+      ctx.fillStyle = `rgba(255,240,200,${0.3 + br * 0.5})`;
+      ctx.beginPath(); ctx.arc(sx, sy, 1, 0, Math.PI*2); ctx.fill();
+    }
+    // Moon
+    ctx.fillStyle = '#fff8e8';
+    ctx.beginPath(); ctx.arc(680, 80, 28, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#04050e';
+    ctx.beginPath(); ctx.arc(694, 76, 26, 0, Math.PI*2); ctx.fill();
+    // Ocean
+    const sea = ctx.createLinearGradient(0, 360, 0, H);
+    sea.addColorStop(0, '#040e28');
+    sea.addColorStop(1, '#010610');
+    ctx.fillStyle = sea;
+    ctx.fillRect(0, 360, W, H-360);
+    // Bridge girders
+    ctx.strokeStyle = '#4a3820';
+    ctx.lineWidth = 4;
+    for (let bx = 0; bx < W; bx += 120) {
+      ctx.beginPath(); ctx.moveTo(bx, 320); ctx.lineTo(bx, 400); ctx.stroke();
+      if (bx + 120 < W) {
+        ctx.beginPath(); ctx.moveTo(bx, 330); ctx.lineTo(bx+120, 330); ctx.stroke();
+      }
+    }
+    // Track
+    ctx.strokeStyle = '#6a5030'; ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.moveTo(0, 340); ctx.lineTo(W, 340); ctx.stroke();
+    ctx.strokeStyle = '#8a7040'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(0, 348); ctx.lineTo(W, 348); ctx.stroke();
+    for (let tx = (t * 60 % 30); tx < W; tx += 30) {
+      ctx.fillStyle = '#5a3e18'; ctx.fillRect(tx, 336, 18, 16);
+    }
+    // Animated train
+    const tx2 = 340 + Math.sin(t * 0.4) * 8;
+    drawTitleTrain(ctx, tx2, 320);
+    rafId = requestAnimationFrame(frame);
+  }
+  rafId = requestAnimationFrame(frame);
+  _cleanup = () => cancelAnimationFrame(rafId);
+
+  document.getElementById('start-btn').onclick = () => { newGame(); goTo(buildSetup); };
+}
+
+function drawTitleTrain(ctx, x, y) {
+  // Engine body
+  ctx.fillStyle = '#3a2810';
+  ctx.fillRect(x-80, y-22, 100, 36);
+  ctx.fillStyle = '#c8901a';
+  ctx.fillRect(x-75, y-28, 18, 8);
+  // Cab
+  ctx.fillStyle = '#2a1c08';
+  ctx.fillRect(x-10, y-32, 50, 34);
+  // Smokestack
+  ctx.fillStyle = '#1a1008';
+  ctx.fillRect(x-60, y-36, 12, 16);
+  // Smoke puffs
+  const st = performance.now() * 0.001;
+  for (let i = 0; i < 3; i++) {
+    const ph = (st * 0.8 + i * 0.4) % 1;
+    const sr = 6 + ph * 10;
+    ctx.globalAlpha = 0.5 - ph * 0.4;
+    ctx.fillStyle = '#888';
+    ctx.beginPath();
+    ctx.arc(x-54, y - 36 - ph * 30, sr, 0, Math.PI*2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  // Wheels
+  [x-60, x-30, x+20].forEach(wx => {
+    ctx.fillStyle = '#1a1008';
+    ctx.beginPath(); ctx.arc(wx, y+14, 12, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#c8901a'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(wx, y+14, 12, 0, Math.PI*2); ctx.stroke();
+  });
+}
+
+// ── Setup screen ───────────────────────────────────────────────────────────
+function buildSetup(app) {
+  app.innerHTML = `<div id="setup-screen">
+    <div class="setup-title">🚂 Ready the Iron Leviathan</div>
+    <div class="setup-cols">
+      <div class="setup-col">
+        <div class="sec-label">Conductor's Name</div>
+        <div class="name-row">
+          <label for="pname">Name:</label>
+          <input id="pname" type="text" maxlength="20" value="${gs.name}" placeholder="Your name">
+        </div>
+        <div class="setup-hint">This name will appear in the high scores.</div>
+        <div class="sec-label" style="margin-top:16px">The Journey</div>
+        <p style="font-size:12px;color:#907050;line-height:1.6;margin-bottom:12px">
+          Boston → Trans-Atlantic Bridge → Atlantic Ocean →<br>
+          Kraken's City (briefly) → Azores Tower →<br>
+          Iberian Peninsula → Leipzig, Germany<br><br>
+          Manage coal, water, food, engine HP, and crew morale.
+          Survive three track minigames, one dinner, and one engine repair.
+        </p>
+      </div>
+      <div class="setup-col">
+        <div class="sec-label">Difficulty</div>
+        <div class="diff-card selected" id="dc-easy">
+          <label><input type="radio" name="diff" value="easy" checked> <span class="diff-name">🟢 Easy</span>
+          <div class="diff-detail">Start with full resources. Slower obstacles. 4 lives per minigame.</div></label>
+        </div>
+        <div class="diff-card" id="dc-normal">
+          <label><input type="radio" name="diff" value="normal"> <span class="diff-name">🟡 Normal</span>
+          <div class="diff-detail">Standard resources (80). Moderate obstacles. 3 lives per minigame.</div></label>
+        </div>
+        <div class="diff-card" id="dc-hard">
+          <label><input type="radio" name="diff" value="hard"> <span class="diff-name">🔴 Hard</span>
+          <div class="diff-detail">Fewer starting resources (60). Fast obstacles. 2 lives per minigame.</div></label>
+        </div>
+      </div>
+    </div>
+    <div class="setup-bottom">
+      <button class="btn-large btn-green" id="depart-btn">🚂 Depart!</button>
+    </div>
+  </div>`;
+
+  // Difficulty card clicks
+  ['easy','normal','hard'].forEach(d => {
+    const card = document.getElementById('dc-'+d);
+    card.addEventListener('click', () => {
+      document.querySelectorAll('.diff-card').forEach(c => c.classList.remove('selected'));
+      card.classList.add('selected');
+      card.querySelector('input').checked = true;
+      gs.difficulty = d;
+    });
+  });
+
+  document.getElementById('depart-btn').onclick = () => {
+    gs.name = document.getElementById('pname').value.trim() || 'Engineer';
+    const diff = document.querySelector('input[name=diff]:checked').value;
+    gs.difficulty = diff;
+    const startRes = diff === 'easy' ? 100 : diff === 'normal' ? 80 : 60;
+    const startLives = diff === 'easy' ? 4 : diff === 'normal' ? 3 : 2;
+    gs.coal = gs.water = gs.food = startRes;
+    gs.hp = 100; gs.morale = startRes;
+    gs.miniLivesLeft = [startLives, startLives, startLives];
+    gs.log.push('The Iron Leviathan departs Boston. The Trans-Atlantic Bridge awaits.');
+    goTo(buildTrail);
+  };
+}
+
+// ── Trail screen ───────────────────────────────────────────────────────────
+let sceneClock = 0, sceneLastTs = 0;
+
+function buildTrail(app) {
+  const step = JOURNEY[gs.stepIdx];
+
+  app.innerHTML = `<div id="trail-screen">
+    <canvas id="scene-canvas" width="820" height="85"></canvas>
+    <div id="trail-main">
+      <div id="log-panel"></div>
+      <div id="status-panel"></div>
+    </div>
+    <div id="trail-btns"></div>
+  </div>`;
+
+  refreshStatus();
+  refreshLog();
+
+  // Scene canvas animation
+  const sc = document.getElementById('scene-canvas');
+  const sctx = sc.getContext('2d');
+  let rafId;
+  function sceneFrame(ts) {
+    if (sceneLastTs) sceneClock += Math.min((ts - sceneLastTs)/1000, 0.1);
+    sceneLastTs = ts;
+    drawScene(sctx, sceneClock);
+    rafId = requestAnimationFrame(sceneFrame);
+  }
+  rafId = requestAnimationFrame(sceneFrame);
+  _cleanup = () => { cancelAnimationFrame(rafId); sceneLastTs = 0; };
+
+  // Show current step
+  showStep();
+}
+
+function showStep() {
+  const step = JOURNEY[gs.stepIdx];
+  const btns = document.getElementById('trail-btns');
+  const log  = document.getElementById('log-panel');
+  btns.innerHTML = '';
+
+  if (step.type === 'event' || step.type === 'kraken' || step.type === 'steam' || step.type === 'mini') {
+    // Add step header to log
+    const h = document.createElement('p');
+    h.className = 'gold'; h.style.fontWeight = 'bold'; h.style.marginTop = '8px';
+    h.textContent = `── ${step.title} ──`;
+    log.appendChild(h);
+
+    const d = document.createElement('p');
+    d.style.whiteSpace = 'pre-wrap'; d.textContent = step.desc || step.desc;
+    log.appendChild(d);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  refreshStatus();
+
+  if (step.type === 'event') {
+    // Show choices
+    (step.choices || []).forEach((ch, i) => {
+      const btn = document.createElement('button');
+      btn.className = 'btn-big';
+      btn.textContent = ch.text;
+      btn.onclick = () => handleChoice(ch);
+      btns.appendChild(btn);
+    });
+  } else if (step.type === 'mini') {
+    const btn = document.createElement('button');
+    btn.className = 'btn-big btn-green';
+    btn.textContent = `▶ Begin: ${step.title}`;
+    btn.onclick = () => {
+      const cfg = { ...step.cfg };
+      if (gs.difficulty === 'easy')   { cfg.speed *= 0.75; cfg.spawnInterval *= 1.3; }
+      if (gs.difficulty === 'hard')   { cfg.speed *= 1.25; cfg.spawnInterval *= 0.8; }
+      cfg.lives = gs.miniLivesLeft[step.miniIdx];
+      goTo(buildTrackMini, step.miniIdx, cfg);
+    };
+    btns.appendChild(btn);
+  } else if (step.type === 'kraken') {
+    const btn = document.createElement('button');
+    btn.className = 'btn-big';
+    btn.style.borderColor = '#7040c0'; btn.style.background = '#1a0840';
+    btn.textContent = '🦑 Descend to Gerald\'s Dinner';
+    btn.onclick = () => goTo(buildKraken);
+    btns.appendChild(btn);
+  } else if (step.type === 'steam') {
+    const btn = document.createElement('button');
+    btn.className = 'btn-big btn-green';
+    btn.textContent = '🔧 Let Johnny in!';
+    btn.onclick = () => goTo(buildSteam);
+    btns.appendChild(btn);
+  }
+}
+
+function handleChoice(ch) {
+  ch.effect(gs);
+  // Clamp all resources
+  ['coal','water','food','hp','morale'].forEach(k => { gs[k] = cap(gs[k]); });
+
+  // Log result
+  const log = document.getElementById('log-panel');
+  const p = document.createElement('p');
+  p.className = 'good'; p.textContent = ch.result;
+  log.appendChild(p);
+  log.scrollTop = log.scrollHeight;
+
+  refreshStatus();
+
+  // Check game over
+  if (gs.hp <= 0) {
+    gs.hp = 0;
+    logMsg('alert', '💥 The engine has failed completely! The Iron Leviathan grinds to a halt.');
+    setTimeout(() => goTo(buildEnding), 1600);
+    return;
+  }
+  if (gs.morale <= 0) {
+    gs.morale = 0;
+    logMsg('alert', '😤 The crew has mutinied! They abandon the train in the middle of the ocean.');
+    setTimeout(() => goTo(buildEnding), 1600);
+    return;
+  }
+  if (gs.coal <= 0) {
+    logMsg('alert', '⚫ You are out of coal! The boiler cools. Stranded...');
+    gs.hp -= 20; gs[`coal`] = 0;
+    if (gs.hp <= 0) { setTimeout(() => goTo(buildEnding), 1600); return; }
+  }
+
+  // Advance step
+  const step = JOURNEY[gs.stepIdx];
+  if (step.last) {
+    setTimeout(() => goTo(buildEnding), 1000);
+    return;
+  }
+
+  gs.stepIdx++;
+  const btns = document.getElementById('trail-btns');
+  btns.innerHTML = '';
+  setTimeout(() => showStep(), 300);
+}
+
+function refreshStatus() {
+  const step = JOURNEY[gs.stepIdx] || {};
+  const p = document.getElementById('status-panel');
+  if (!p) return;
+  function vc(v) { return v > 50 ? 'ok' : v > 25 ? 'warn' : 'bad'; }
+  p.innerHTML = `
+    <div class="st-title">🚂 Iron Leviathan</div>
+    <div class="st-loc">${step.loc || ''}</div>
+    <div class="st-sep">─ RESOURCES ─</div>
+    <div class="st-row"><span>🔥 Coal</span><span class="val ${vc(gs.coal)}">${gs.coal}</span></div>
+    <div class="st-row"><span>💧 Water</span><span class="val ${vc(gs.water)}">${gs.water}</span></div>
+    <div class="st-row"><span>🍖 Food</span><span class="val ${vc(gs.food)}">${gs.food}</span></div>
+    <div class="st-sep">─ CONDITION ─</div>
+    <div class="st-row"><span>⚙️ Engine HP</span><span class="val ${vc(gs.hp)}">${gs.hp}</span></div>
+    <div class="st-row"><span>😊 Morale</span><span class="val ${vc(gs.morale)}">${gs.morale}</span></div>
+    <div class="st-sep">─ JOURNEY ─</div>
+    <div class="st-row"><span>Step</span><span class="val">${gs.stepIdx+1} / ${JOURNEY.length}</span></div>
+    <div class="st-row"><span>Crew</span><span class="val ok">All aboard</span></div>
+  `;
+}
+
+function refreshLog() {
+  const log = document.getElementById('log-panel');
+  if (!log) return;
+  log.innerHTML = '';
+  gs.log.forEach(l => {
+    const p = document.createElement('p');
+    p.textContent = l;
+    log.appendChild(p);
+  });
+  log.scrollTop = log.scrollHeight;
+}
+
+function logMsg(cls, msg) {
+  gs.log.push(msg);
+  const log = document.getElementById('log-panel');
+  if (!log) return;
+  const p = document.createElement('p');
+  if (cls) p.className = cls;
+  p.textContent = msg;
+  log.appendChild(p);
+  log.scrollTop = log.scrollHeight;
+}
+
+function drawScene(ctx, t) {
+  ctx.clearRect(0, 0, W, 85);
+  // Sky
+  const sky = ctx.createLinearGradient(0,0,0,85);
+  sky.addColorStop(0, '#04060e');
+  sky.addColorStop(1, '#0a0e20');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0,0,W,85);
+  // Stars
+  const rng = mulberry32(7);
+  for (let i = 0; i < 30; i++) {
+    const sx = rng()*W, sy = rng()*50;
+    const br = 0.4 + 0.3*Math.sin(t*1.5+i*1.8);
+    ctx.fillStyle=`rgba(255,245,210,${br})`;
+    ctx.fillRect(sx,sy,1,1);
+  }
+  // Ocean strip
+  ctx.fillStyle = '#03091a';
+  ctx.fillRect(0, 55, W, 30);
+  // Bridge deck
+  ctx.fillStyle = '#2a1c08';
+  ctx.fillRect(0, 60, W, 12);
+  // Ties
+  for (let tx = (-t*48)%24; tx < W; tx += 24) {
+    ctx.fillStyle = '#1a1004';
+    ctx.fillRect(tx, 60, 14, 12);
+  }
+  // Rails
+  ctx.strokeStyle = '#8a6030'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(0,62); ctx.lineTo(W,62); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0,68); ctx.lineTo(W,68); ctx.stroke();
+  // Moving train
+  const tx2 = ((t * 55) % (W + 220)) - 220;
+  // Engine
+  ctx.fillStyle = '#2a1c08'; ctx.fillRect(tx2, 38, 90, 26);
+  ctx.fillStyle = '#c8901a'; ctx.fillRect(tx2+72, 32, 16, 8);
+  ctx.fillStyle = '#1a1004'; ctx.fillRect(tx2+10, 28, 10, 14);
+  // Smoke
+  for (let i=0;i<3;i++){const ph=(t*0.9+i*0.35)%1;const sr=3+ph*7;ctx.globalAlpha=0.5-ph*0.4;ctx.fillStyle='#777';ctx.beginPath();ctx.arc(tx2+15,28-ph*24,sr,0,Math.PI*2);ctx.fill();}
+  ctx.globalAlpha=1;
+  // Cars
+  [tx2+96, tx2+156, tx2+216].forEach((cx,i) => {
+    ctx.fillStyle = ['#1e1408','#221608','#1a1208'][i];
+    ctx.fillRect(cx, 44, 52, 18);
+    ctx.strokeStyle='#3a2810'; ctx.lineWidth=1;
+    ctx.strokeRect(cx,44,52,18);
+  });
+  // Wheels
+  [tx2+18,tx2+48,tx2+76,tx2+110,tx2+134,tx2+168,tx2+192,tx2+228,tx2+252].forEach(wx=>{
+    ctx.fillStyle='#0a0804'; ctx.beginPath(); ctx.arc(wx,62,7,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='#5a3e18'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(wx,62,7,0,Math.PI*2); ctx.stroke();
+  });
+}
+
+// ── Track switching minigame ───────────────────────────────────────────────
+const HAZARD_TYPES = {
+  fish: { emoji:'🐟', color:'#4080c0', size:0.9 },
+  ice:  { emoji:'🧊', color:'#a0d0ff', size:1.1 },
+  mine: { emoji:'💣', color:'#404040', size:1.0 }
+};
+
+function buildTrackMini(app, miniIdx, cfg) {
+  app.innerHTML = `<div style="position:relative;width:820px;height:620px">
+    <canvas id="mini-canvas" width="820" height="620"></canvas>
+    <div id="mini-ui">
+      <div class="mini-stat" id="mini-timer">TIME: ${cfg.duration}s</div>
+      <div class="mini-stat" id="mini-name">${cfg.label}</div>
+      <div class="mini-stat mini-lives" id="mini-lives"></div>
+    </div>
+    <div id="mini-msg" style="position:absolute;top:200px;left:0;width:820px;text-align:center;pointer-events:none"></div>
+  </div>`;
+
+  const canvas = document.getElementById('mini-canvas');
+  const ctx = canvas.getContext('2d');
+
+  // State
+  let playerLane = 1, playerLaneAnim = 1;
+  let lives = cfg.lives;
+  let hazards = [];
+  let timeLeft = cfg.duration;
+  let gameElapsed = 0;
+  let spawnAccum = 0;
+  let lastTs = 0;
+  let phase = 'play'; // 'play' | 'dead' | 'done' | 'levelup'
+  let invincible = 0; // invincibility frames after hit
+  let flashMsg = '', flashTimer = 0;
+  let bgCanvas = null;
+
+  // Build static bg
+  function buildBg() {
+    bgCanvas = document.createElement('canvas');
+    bgCanvas.width = W; bgCanvas.height = H;
+    const bx = bgCanvas.getContext('2d');
+    // Night sky
+    const sky = bx.createLinearGradient(0,0,0,VP_Y+60);
+    sky.addColorStop(0,'#020408');
+    sky.addColorStop(1,'#06091a');
+    bx.fillStyle = sky;
+    bx.fillRect(0,0,W,VP_Y+60);
+    // Ocean strip
+    const sea = bx.createLinearGradient(0,VP_Y+60,0,H);
+    sea.addColorStop(0,'#02051a');
+    sea.addColorStop(1,'#010308');
+    bx.fillStyle=sea;
+    bx.fillRect(0,VP_Y+60,W,H-(VP_Y+60));
+    // Moon
+    bx.fillStyle='#fffae8';
+    bx.beginPath();bx.arc(700,80,22,0,Math.PI*2);bx.fill();
+    bx.fillStyle='#020408';
+    bx.beginPath();bx.arc(714,76,20,0,Math.PI*2);bx.fill();
+    // Stars
+    const rng = mulberry32(19);
+    for(let i=0;i<60;i++){bx.fillStyle=`rgba(255,245,200,${0.4+rng()*0.5})`;bx.fillRect(rng()*W,rng()*(VP_Y+40),1.5,1.5);}
+    // Bridge side structures
+    bx.strokeStyle='#3a2810';bx.lineWidth=3;
+    for(let brid=0;brid<W;brid+=160){
+      bx.beginPath();bx.moveTo(brid,H);bx.lineTo(brid,VP_Y+80);bx.stroke();
+      if(brid+160<W){bx.beginPath();bx.moveTo(brid,VP_Y+120);bx.lineTo(brid+160,VP_Y+120);bx.stroke();}
+    }
+  }
+  buildBg();
+
+  // Update lives display
+  function updateLivesUI() {
+    const el = document.getElementById('mini-lives');
+    if (!el) return;
+    let s = '';
+    for(let i=0;i<cfg.lives;i++) s += `<span class="mini-life">${i < lives ? '❤️' : '🖤'}</span>`;
+    el.innerHTML = s;
+  }
+  updateLivesUI();
+
+  function spawnHazard() {
+    const type = cfg.types[Math.floor(Math.random()*cfg.types.length)];
+    const lane = Math.floor(Math.random()*3);
+    hazards.push({ type, lane, depth: 0.02, bobPhase: Math.random()*Math.PI*2 });
+  }
+
+  function flash(msg, color='#ffe8a0') {
+    flashMsg = msg; flashTimer = 1.5;
+    const el = document.getElementById('mini-msg');
+    if (el) { el.textContent=msg; el.style.color=color; el.style.fontSize='32px'; el.style.fontWeight='bold'; el.style.textShadow='2px 2px 6px #000'; }
+  }
+
+  function clearFlash() {
+    const el = document.getElementById('mini-msg');
+    if (el) el.textContent = '';
+    flashMsg = '';
+  }
+
+  function drawFrame(ts) {
+    if (!lastTs) lastTs = ts;
+    const dt = Math.min((ts - lastTs)/1000, 0.1);
+    lastTs = ts;
+
+    if (phase === 'play') {
+      gameElapsed += dt;
+      timeLeft -= dt;
+      invincible = Math.max(0, invincible - dt);
+      flashTimer = Math.max(0, flashTimer - dt);
+      if (flashTimer <= 0 && flashMsg) clearFlash();
+
+      // Update timer UI
+      const tel = document.getElementById('mini-timer');
+      if (tel) tel.textContent = `TIME: ${Math.ceil(Math.max(0,timeLeft))}s`;
+
+      // Spawn
+      spawnAccum += dt;
+      while (spawnAccum >= cfg.spawnInterval) {
+        spawnHazard();
+        spawnAccum -= cfg.spawnInterval;
+      }
+
+      // Move hazards
+      hazards.forEach(h => { h.depth += cfg.speed * dt; });
+
+      // Collision check
+      if (invincible <= 0) {
+        for (let h of hazards) {
+          if (h.depth > 0.82 && h.depth < 1.0) {
+            const pLane = Math.round(playerLaneAnim);
+            if (h.lane === pLane) {
+              lives--;
+              invincible = 2.0;
+              h.depth = 1.5; // remove
+              updateLivesUI();
+              flash('💥 HIT!', '#e05050');
+              if (lives <= 0) {
+                phase = 'dead';
+                flash('❌ Out of lives!', '#e05050');
+                setTimeout(() => finishMini(false), 2000);
+              }
+              break;
+            }
+          }
+        }
+      }
+
+      // Remove off-screen
+      hazards = hazards.filter(h => h.depth < 1.3);
+
+      // Smooth player lane animation
+      playerLaneAnim += (playerLane - playerLaneAnim) * Math.min(1, 10*dt);
+
+      // Time up?
+      if (timeLeft <= 0 && phase === 'play') {
+        phase = 'done';
+        flash('✅ CLEAR!', '#50c070');
+        setTimeout(() => finishMini(true), 1800);
+      }
+    }
+
+    // Draw
+    ctx.drawImage(bgCanvas, 0, 0);
+
+    // Draw lane surface (trapezoid road)
+    ctx.fillStyle = '#1e1608';
+    ctx.beginPath();
+    ctx.moveTo(projX(85, 0.02), projY(0.02));
+    ctx.lineTo(projX(735, 0.02), projY(0.02));
+    ctx.lineTo(projX(735, 1), projY(1));
+    ctx.lineTo(projX(85, 1), projY(1));
+    ctx.closePath(); ctx.fill();
+
+    // Rail lines
+    [85,280,410,540,735].forEach(rx => {
+      ctx.strokeStyle = rx===280||rx===540 ? '#4a3010' : '#8a6030';
+      ctx.lineWidth = rx===280||rx===540 ? 2 : 3;
+      ctx.beginPath();
+      ctx.moveTo(projX(rx,0.01), projY(0.01));
+      ctx.lineTo(projX(rx,1), projY(1));
+      ctx.stroke();
+    });
+
+    // Cross-ties
+    for (let d = 0.05; d <= 1.0; d += 0.06) {
+      const adjD = ((d + gameElapsed*cfg.speed*0.4) % 1.0);
+      if (adjD < 0.04) continue;
+      ctx.strokeStyle = '#3a2808';
+      ctx.lineWidth = Math.max(1, adjD * 4);
+      ctx.beginPath();
+      ctx.moveTo(projX(100, adjD), projY(adjD));
+      ctx.lineTo(projX(720, adjD), projY(adjD));
+      ctx.stroke();
+    }
+
+    // Lane highlight for player lane
+    const pLane = Math.round(playerLaneAnim);
+    const lEdge = [85,280,540][pLane];
+    const rEdge = [280,540,735][pLane];
+    ctx.fillStyle = invincible > 0 && Math.floor(ts/80)%2===0 ? 'rgba(224,80,80,0.15)' : 'rgba(200,144,26,0.07)';
+    ctx.beginPath();
+    ctx.moveTo(projX(lEdge,0.75),projY(0.75));
+    ctx.lineTo(projX(rEdge,0.75),projY(0.75));
+    ctx.lineTo(projX(rEdge,1),projY(1));
+    ctx.lineTo(projX(lEdge,1),projY(1));
+    ctx.closePath(); ctx.fill();
+
+    // Draw hazards
+    hazards.forEach(h => {
+      const hd = h.depth;
+      if (hd < 0.02 || hd > 1.15) return;
+      const hx = projX(LANE_CENTERS[h.lane], hd);
+      const hy = projY(hd) + Math.sin(ts*0.003+h.bobPhase)*3*hd;
+      const sz = Math.max(8, hd * 36);
+      const info = HAZARD_TYPES[h.type];
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, (hd - 0.02)/0.15);
+      ctx.font = `${sz*1.6}px serif`;
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText(info.emoji, hx, hy);
+      ctx.restore();
+    });
+
+    // Draw player train car
+    const pxBase = LANE_CENTERS[0] + (LANE_CENTERS[2]-LANE_CENTERS[0]) * (playerLaneAnim/2);
+    const pScreenX = projX(pxBase, 0.94);
+    const pScreenY = projY(0.94);
+    const carW = 90, carH = 44;
+    // Car body
+    ctx.fillStyle = invincible > 0 && Math.floor(ts/60)%2===0 ? '#502020' : '#2a1c08';
+    ctx.fillRect(pScreenX-carW/2, pScreenY-carH, carW, carH);
+    ctx.strokeStyle='#c8901a'; ctx.lineWidth=2;
+    ctx.strokeRect(pScreenX-carW/2, pScreenY-carH, carW, carH);
+    // Windows
+    ctx.fillStyle='#304060';
+    ctx.fillRect(pScreenX-28, pScreenY-carH+6, 16, 10);
+    ctx.fillRect(pScreenX+12, pScreenY-carH+6, 16, 10);
+    // Wheels
+    [-30,0,30].forEach(wx=>{
+      ctx.fillStyle='#0a0804'; ctx.beginPath(); ctx.arc(pScreenX+wx, pScreenY, 10, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle='#8a6030'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(pScreenX+wx, pScreenY, 10, 0, Math.PI*2); ctx.stroke();
+    });
+    // Arrow indicators
+    if (phase === 'play') {
+      ctx.font='bold 16px Georgia';
+      ctx.textAlign='center';
+      ctx.fillStyle='rgba(200,144,26,0.7)';
+      if (playerLane > 0) ctx.fillText('◀', pScreenX-50, pScreenY-carH/2-4);
+      if (playerLane < 2) ctx.fillText('▶', pScreenX+50, pScreenY-carH/2-4);
+    }
+
+    // HUD overlay - progress bar
+    const prog = 1 - Math.max(0,timeLeft)/cfg.duration;
+    ctx.fillStyle='rgba(0,0,0,0.5)';
+    ctx.fillRect(10,H-16,W-20,8);
+    ctx.fillStyle='#c8901a';
+    ctx.fillRect(10,H-16,(W-20)*prog,8);
+    ctx.strokeStyle='#5a3e18'; ctx.lineWidth=1;
+    ctx.strokeRect(10,H-16,W-20,8);
+  }
+
+  let rafId;
+  function loop(ts) {
+    drawFrame(ts);
+    rafId = requestAnimationFrame(loop);
+  }
+  rafId = requestAnimationFrame(loop);
+  _cleanup = () => cancelAnimationFrame(rafId);
+
+  // Controls
+  function tryLeft()  { if (phase==='play'&&playerLane>0) playerLane--; }
+  function tryRight() { if (phase==='play'&&playerLane<2) playerLane++; }
+
+  function handleKey(e) {
+    if (e.key==='ArrowLeft'||e.key==='a'||e.key==='A') { e.preventDefault(); tryLeft(); }
+    if (e.key==='ArrowRight'||e.key==='d'||e.key==='D') { e.preventDefault(); tryRight(); }
+  }
+  window.addEventListener('keydown', handleKey);
+
+  function handleTouch(e) {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = W / rect.width;
+    const cx = (e.changedTouches ? e.changedTouches[0].clientX : e.clientX) - rect.left;
+    const sx = cx * scaleX;
+    if (sx < W/2) tryLeft(); else tryRight();
+  }
+  canvas.addEventListener('touchstart', handleTouch, {passive:false});
+  canvas.addEventListener('click', handleTouch);
+
+  const origCleanup = _cleanup;
+  _cleanup = () => {
+    cancelAnimationFrame(rafId);
+    window.removeEventListener('keydown', handleKey);
+    canvas.removeEventListener('touchstart', handleTouch);
+    canvas.removeEventListener('click', handleTouch);
+  };
+
+  function finishMini(success) {
+    gs.miniPassed[miniIdx] = success;
+    gs.miniLivesLeft[miniIdx] = lives;
+    if (!success) {
+      gs.hp -= 18;
+      gs.morale -= 12;
+      gs.hp = cap(gs.hp); gs.morale = cap(gs.morale);
+      gs.log.push(`Track hazard: took damage in ${cfg.label}. Engine HP ${gs.hp}, Morale ${gs.morale}.`);
+    } else {
+      gs.log.push(`Navigated ${cfg.label} successfully with ${lives} ${lives===1?'life':'lives'} remaining!`);
+    }
+    gs.stepIdx++;
+    goTo(buildTrail);
+  }
+}
+
+// ── Kraken dinner ──────────────────────────────────────────────────────────
+const KRAKEN_SCENES = [
+  {
+    speaker: 'Gerald the Kraken',
+    text: 'Ah, welcome, welcome! I am Gerald! I so rarely have guests from the surface! Please, sit — the kelp-encrusted breadsticks are already on the table.\n\nI hope you don\'t mind that I pulled you down here. Your bridge makes the most dreadful noise at night — all that clanging!',
+    choices: [
+      { text: '😊 "What a delightful city you have!"', effect: gs=>{ gs.morale=cap(gs.morale+5); gs.krakenFed=true; }, reply:'Gerald beams. Eight tentacles clasp together in delight. "You are TOO kind!"' },
+      { text: '😤 "You could have just sent a letter!"', effect: gs=>{ gs.morale-=3; }, reply:'"Yes, yes, fair point. The postal service down here is dreadful."' }
+    ]
+  },
+  {
+    speaker: 'Gerald the Kraken',
+    text: 'The first course arrives: a steaming bowl of bioluminescent chowder. It glows softly blue and smells of the deep sea.\n\n"My grandmother\'s recipe," says Gerald proudly. "A thousand years old!"',
+    choices: [
+      { text: '🥣 Eat with gusto!', effect: gs=>{ gs.food=cap(gs.food+15); gs.morale=cap(gs.morale+8); }, reply:'"Marvelous! More?" Gerald refills your bowl three times.' },
+      { text: '😬 Poke it suspiciously with a fork', effect: gs=>{ gs.morale-=4; }, reply:'Gerald looks devastated. "It\'s supposed to glow. That\'s the good part."' }
+    ]
+  },
+  {
+    speaker: 'Gerald the Kraken',
+    text: 'Over the main course (Gerald has thoughtfully provided something resembling pot roast, though you suspect it is actually an elaborate arrangement of seaweed), he leans close.\n\n"Tell me — what is there to see, up above? I have always wondered about... the sky. Is it truly endless?"',
+    choices: [
+      { text: '🌅 Describe a sunset beautifully', effect: gs=>{ gs.morale=cap(gs.morale+10); gs.krakenMorale=15; }, reply:'Gerald is moved to tears. A single enormous tear rolls down his enormous face. "Magnificent," he whispers.' },
+      { text: '🌧️ "Honestly? Mostly clouds."', effect: gs=>{ gs.morale=cap(gs.morale+3); gs.krakenMorale=5; }, reply:'Gerald nods sagely. "That\'s what the dolphins said too. Disappointing."' }
+    ]
+  },
+  {
+    speaker: 'Gerald the Kraken',
+    text: 'After dessert (something gelatinous that tastes, remarkably, of caramel), Gerald rises from his throne.\n\n"It has been a genuine pleasure. My staff will have you back on the surface within the hour. Do come again — though perhaps call ahead next time."\n\nHe hands you a card: GERALD J. KRAKEN, Underwater Hospitality & Occasional Bridge Disruption.',
+    choices: [
+      { text: '🤝 "Thank you, Gerald. Truly."', effect: gs=>{ gs.morale=cap(gs.morale+gs.krakenMorale+5); gs.coal=cap(gs.coal+8); }, reply:'Gerald sees you off with surprising dignity. Your coal bunker has been topped up as a parting gift.' },
+      { text: '😅 "Next time send a postcard first."', effect: gs=>{ gs.morale=cap(gs.morale+gs.krakenMorale); }, reply:'"Fair enough," says Gerald. He looks slightly deflated. You feel a tiny bit guilty.' }
+    ]
+  }
+];
+
+function buildKraken(app) {
+  app.innerHTML = `<div id="kraken-screen">
+    <canvas id="kraken-canvas" width="820" height="620"></canvas>
+    <div id="kraken-content">
+      <div class="kraken-title">🦑 Dinner with Gerald</div>
+      <div class="kraken-speaker" id="ks-speaker"></div>
+      <div class="kraken-box" id="ks-box"></div>
+      <div class="kraken-choices" id="ks-choices"></div>
+    </div>
+  </div>`;
+
+  const canvas = document.getElementById('kraken-canvas');
+  const ctx = canvas.getContext('2d');
+  let rafId, t=0, lastTs=0;
+
+  function krakenFrame(ts) {
+    if(!lastTs) lastTs=ts;
+    t += Math.min((ts-lastTs)/1000, 0.1); lastTs=ts;
+    ctx.clearRect(0,0,W,H);
+    // Deep ocean background
+    const bg = ctx.createLinearGradient(0,0,0,H);
+    bg.addColorStop(0,'#010318');
+    bg.addColorStop(1,'#020510');
+    ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+    // Bioluminescent particles
+    const rng = mulberry32(77);
+    for(let i=0;i<40;i++){
+      const px=rng()*W, py=rng()*H;
+      const ph=rng()*Math.PI*2;
+      const br=0.3+0.4*Math.sin(t*1.2+ph);
+      const hue=rng()>0.5?'160,120,255':'120,200,255';
+      ctx.fillStyle=`rgba(${hue},${br})`;
+      ctx.beginPath(); ctx.arc(px,py,1.5,0,Math.PI*2); ctx.fill();
+    }
+    // City structures in background
+    ctx.fillStyle='rgba(30,15,80,0.6)';
+    [[60,380,80,200],[180,360,60,220],[340,370,70,210],[520,355,90,230],[680,365,75,215]].forEach(([x,y,w,h2])=>{
+      ctx.fillRect(x,y,w,H-y);
+      // windows
+      ctx.fillStyle='rgba(120,200,255,0.3)';
+      for(let wy=y+10;wy<H-20;wy+=20){for(let wx=x+8;wx<x+w-8;wx+=16){if(Math.sin(wx*wy*t*0.0001)>-0.3) ctx.fillRect(wx,wy,8,10);}}
+      ctx.fillStyle='rgba(30,15,80,0.6)';
+    });
+    // Gerald tentacle suggestion
+    ctx.strokeStyle='rgba(100,50,180,0.4)';
+    ctx.lineWidth=30;
+    for(let ti=0;ti<3;ti++){
+      const base=W*0.1+ti*W*0.35;
+      ctx.beginPath();
+      ctx.moveTo(base,H+20);
+      ctx.quadraticCurveTo(base+Math.sin(t*0.4+ti)*40, H-80, base+Math.cos(t*0.3+ti*1.2)*60, H-180);
+      ctx.stroke();
+    }
+    rafId = requestAnimationFrame(krakenFrame);
+  }
+  rafId = requestAnimationFrame(krakenFrame);
+  _cleanup = () => cancelAnimationFrame(rafId);
+
+  let sceneIdx = gs.krakenScene || 0;
+
+  function showScene() {
+    if (sceneIdx >= KRAKEN_SCENES.length) {
+      // Done
+      gs.krakenScene = sceneIdx;
+      gs.stepIdx++;
+      gs.log.push(`Survived dinner with Gerald. Morale: ${gs.morale}.`);
+      goTo(buildTrail);
+      return;
+    }
+    const scene = KRAKEN_SCENES[sceneIdx];
+    document.getElementById('ks-speaker').textContent = scene.speaker;
+    document.getElementById('ks-box').textContent = scene.text;
+    const choicesEl = document.getElementById('ks-choices');
+    choicesEl.innerHTML = '';
+    scene.choices.forEach(ch => {
+      const btn = document.createElement('button');
+      btn.className = 'kraken-choice';
+      btn.textContent = ch.text;
+      btn.onclick = () => {
+        ch.effect(gs);
+        document.getElementById('ks-box').textContent = ch.reply;
+        choicesEl.innerHTML = '';
+        const next = document.createElement('button');
+        next.className = 'kraken-choice';
+        next.textContent = sceneIdx < KRAKEN_SCENES.length-1 ? 'Continue...' : 'Return to the surface';
+        next.onclick = () => { sceneIdx++; showScene(); };
+        choicesEl.appendChild(next);
+      };
+      choicesEl.appendChild(btn);
+    });
+  }
+  showScene();
+}
+
+// ── Steam repair (Johnny Mackerel) ─────────────────────────────────────────
+function buildSteam(app) {
+  app.innerHTML = `<div style="position:relative;width:820px;height:620px">
+    <canvas id="steam-canvas" width="820" height="620"></canvas>
+    <div id="steam-overlay">
+      <div style="padding:8px 14px;display:flex;justify-content:space-between;align-items:center">
+        <div id="steam-timer" style="font-size:15px;font-weight:bold;color:#ffe8a0;text-shadow:1px 1px 3px #000">TIME: 30s</div>
+        <div style="font-size:13px;color:#ffe8a0;text-shadow:1px 1px 2px #000">Seal the leaking gaskets!</div>
+        <div id="steam-score" style="font-size:15px;font-weight:bold;color:#50c070;text-shadow:1px 1px 3px #000">Sealed: 0</div>
+      </div>
+      <div style="padding:0 14px">
+        <div style="font-size:11px;color:#ffe8a0;margin-bottom:3px;text-shadow:1px 1px 2px #000">PRESSURE</div>
+        <div style="background:rgba(0,0,0,0.5);height:14px;border:1px solid #c8901a;position:relative">
+          <div id="pressure-bar" style="height:14px;background:#e05050;width:0%;transition:width 0.1s"></div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+
+  const canvas = document.getElementById('steam-canvas');
+  const ctx = canvas.getContext('2d');
+
+  const BOILER_X = 330, BOILER_Y = 320;
+  const BOILER_RX = 150, BOILER_RY = 110;
+  const NUM_GASKETS = 8;
+
+  const gaskets = [];
+  for (let i=0; i<NUM_GASKETS; i++) {
+    const angle = (i/NUM_GASKETS)*Math.PI*2 - Math.PI/2;
+    gaskets.push({
+      x: BOILER_X + (BOILER_RX+28)*Math.cos(angle),
+      y: BOILER_Y + (BOILER_RY+22)*Math.sin(angle),
+      state: 'sealed', // 'sealed'|'leaking'|'burst'
+      leakTimer: 0,
+      leakDuration: 3.5 + Math.random(),
+      steamPuffs: [],
+      angle
+    });
+  }
+
+  let pressure = 0;
+  let timeLeft = 30;
+  let sealed = 0;
+  let total = 0;
+  let done = false;
+  let lastTs = 0;
+  let nextLeak = 2.0;
+  let leakClock = 0;
+  let particles = [];
+
+  function update(dt) {
+    if (done) return;
+    timeLeft -= dt;
+    leakClock += dt;
+
+    // Spawn leak
+    if (leakClock >= nextLeak) {
+      leakClock = 0;
+      nextLeak = 1.5 + Math.random()*2;
+      const sealed_g = gaskets.filter(g=>g.state==='sealed');
+      if (sealed_g.length > 0) {
+        const g = sealed_g[Math.floor(Math.random()*sealed_g.length)];
+        g.state = 'leaking';
+        g.leakTimer = 0;
+        total++;
+      }
+    }
+
+    // Update gaskets
+    let leaking = 0, burst = 0;
+    gaskets.forEach(g => {
+      if (g.state === 'leaking') {
+        g.leakTimer += dt;
+        leaking++;
+        // Add steam puff
+        if (Math.random() < dt * 8) {
+          g.steamPuffs.push({x:g.x, y:g.y, vx:(Math.random()-0.5)*20, vy:-30-Math.random()*20, life:1.0, r:4+Math.random()*6});
+        }
+        if (g.leakTimer >= g.leakDuration) {
+          g.state = 'burst';
+          g.leakTimer = 0;
+        }
+      } else if (g.state === 'burst') {
+        burst++;
+        if (Math.random() < dt * 4) {
+          g.steamPuffs.push({x:g.x, y:g.y, vx:(Math.random()-0.5)*40, vy:-50-Math.random()*30, life:0.8, r:8+Math.random()*10});
+        }
+      }
+      // Update puffs
+      g.steamPuffs = g.steamPuffs.filter(p => {
+        p.x += p.vx*dt; p.y += p.vy*dt; p.r += dt*5; p.life -= dt*1.2;
+        return p.life > 0;
+      });
+    });
+
+    // Pressure
+    const pressureTarget = leaking * 18 + burst * 30;
+    pressure += (pressureTarget - pressure) * Math.min(1, dt * 1.5);
+    pressure = Math.max(0, Math.min(100, pressure));
+
+    document.getElementById('pressure-bar').style.width = pressure + '%';
+    const pb = document.getElementById('pressure-bar');
+    pb.style.background = pressure > 70 ? '#e04020' : pressure > 40 ? '#c8901a' : '#50c070';
+
+    // Timer UI
+    const tel = document.getElementById('steam-timer');
+    if (tel) tel.textContent = `TIME: ${Math.ceil(Math.max(0,timeLeft))}s`;
+
+    if (timeLeft <= 0 || pressure >= 100) {
+      done = true;
+      const pct = total > 0 ? Math.round(sealed/total*100) : 100;
+      gs.steamSealed = sealed;
+      gs.steamTotal = total;
+      // Apply effects
+      if (pressure >= 100) { gs.hp -= 20; }
+      gs.hp = cap(gs.hp + Math.round(pct/10));
+      gs.hp = cap(gs.hp);
+      gs.log.push(`Johnny Mackerel: sealed ${sealed}/${total} gaskets (${pct}%). Engine HP: ${gs.hp}.`);
+      setTimeout(() => { gs.stepIdx++; goTo(buildTrail); }, 1800);
+    }
+  }
+
+  function draw(ts) {
+    ctx.clearRect(0,0,W,H);
+    // Boiler room bg
+    const bg = ctx.createLinearGradient(0,0,0,H);
+    bg.addColorStop(0,'#120808');
+    bg.addColorStop(1,'#080404');
+    ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+    // Brick walls
+    ctx.fillStyle='#1a0c08';
+    for(let ry=0;ry<H;ry+=24){for(let rx=(ry%48===0?0:12);rx<W;rx+=48){ctx.fillRect(rx,ry,44,20);}}
+    ctx.fillStyle='#0e0604';
+    for(let ry=0;ry<H;ry+=24){ctx.fillRect(0,ry,W,3);}
+
+    // Boiler body
+    ctx.fillStyle='#3a2010'; ctx.beginPath(); ctx.ellipse(BOILER_X,BOILER_Y,BOILER_RX,BOILER_RY,0,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='#6a4020'; ctx.lineWidth=4; ctx.beginPath(); ctx.ellipse(BOILER_X,BOILER_Y,BOILER_RX,BOILER_RY,0,0,Math.PI*2); ctx.stroke();
+    // Boiler sheen
+    const boilerGrad=ctx.createRadialGradient(BOILER_X-50,BOILER_Y-40,10,BOILER_X,BOILER_Y,BOILER_RX);
+    boilerGrad.addColorStop(0,'rgba(200,100,40,0.3)');
+    boilerGrad.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=boilerGrad; ctx.beginPath(); ctx.ellipse(BOILER_X,BOILER_Y,BOILER_RX,BOILER_RY,0,0,Math.PI*2); ctx.fill();
+    // Fire glow inside boiler
+    const fph=Math.sin(ts*0.005)*0.15;
+    ctx.fillStyle=`rgba(255,${80+Math.floor(fph*80)},0,0.25)`;
+    ctx.beginPath(); ctx.ellipse(BOILER_X,BOILER_Y,BOILER_RX*0.7,BOILER_RY*0.7,0,0,Math.PI*2); ctx.fill();
+
+    // Johnny Mackerel character (right side)
+    const jx=640, jy=380;
+    ctx.font='64px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('🐟', jx, jy);
+    // Speech bubble
+    ctx.fillStyle='rgba(30,20,10,0.9)'; ctx.strokeStyle='#c8901a'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.roundRect(jx-90, jy-120, 180, 60, 8); ctx.fill(); ctx.stroke();
+    ctx.font='11px Georgia'; ctx.fillStyle='#e8d8b0'; ctx.textAlign='center';
+    const sayings = done ? ['Done!','Pressure OK!'] : pressure > 70 ? ['TOO HOT!','SEAL THEM!'] : pressure > 30 ? ['Leaking!','Click gaskets!'] : ['Looking good!','Stay sharp!'];
+    ctx.fillText(sayings[Math.floor(ts/800)%sayings.length], jx, jy-95);
+    ctx.fillText('- Johnny Mackerel', jx, jy-80);
+
+    // Draw gaskets
+    gaskets.forEach((g,i) => {
+      // Steam puffs
+      g.steamPuffs.forEach(p => {
+        ctx.globalAlpha = p.life * 0.6;
+        ctx.fillStyle = '#c0c0c0';
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill();
+      });
+      ctx.globalAlpha = 1;
+
+      // Gasket circle
+      const col = g.state==='sealed' ? '#4a8030' : g.state==='leaking' ? '#c8901a' : '#c03030';
+      ctx.fillStyle = col;
+      ctx.beginPath(); ctx.arc(g.x, g.y, 16, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = '#ffe8a0'; ctx.lineWidth = g.state==='leaking' ? 2 : 1;
+      ctx.beginPath(); ctx.arc(g.x, g.y, 16, 0, Math.PI*2); ctx.stroke();
+
+      // Icon
+      ctx.font = '14px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText(g.state==='sealed'?'🔩':g.state==='leaking'?'💨':'💥', g.x, g.y);
+
+      // Leak timer bar
+      if (g.state === 'leaking') {
+        const pct = g.leakTimer / g.leakDuration;
+        ctx.fillStyle='rgba(0,0,0,0.5)';
+        ctx.fillRect(g.x-16, g.y+20, 32, 5);
+        ctx.fillStyle='#e05050';
+        ctx.fillRect(g.x-16, g.y+20, 32*pct, 5);
+      }
+    });
+
+    // Sealed count
+    const sc = document.getElementById('steam-score');
+    if (sc) sc.textContent = `Sealed: ${sealed}`;
+  }
+
+  let rafId;
+  function loop(ts) {
+    if (!lastTs) lastTs = ts;
+    const dt = Math.min((ts-lastTs)/1000, 0.1); lastTs=ts;
+    update(dt);
+    draw(ts);
+    rafId = requestAnimationFrame(loop);
+  }
+  rafId = requestAnimationFrame(loop);
+  _cleanup = () => cancelAnimationFrame(rafId);
+
+  // Click/touch handler
+  function handleClick(e) {
+    if (done) return;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = W / rect.width, scaleY = H / rect.height;
+    const cx = ((e.touches ? e.touches[0].clientX : e.clientX) - rect.left) * scaleX;
+    const cy = ((e.touches ? e.touches[0].clientY : e.clientY) - rect.top) * scaleY;
+    gaskets.forEach(g => {
+      if (g.state === 'leaking') {
+        const dx = cx - g.x, dy = cy - g.y;
+        if (dx*dx+dy*dy < 28*28) {
+          g.state = 'sealed';
+          g.leakTimer = 0;
+          g.steamPuffs = [];
+          sealed++;
+        }
+      }
+    });
+  }
+  canvas.addEventListener('click', handleClick);
+  canvas.addEventListener('touchstart', e => { e.preventDefault(); handleClick(e); }, {passive:false});
+
+  const prevCleanup = _cleanup;
+  _cleanup = () => { prevCleanup(); canvas.removeEventListener('click', handleClick); };
+}
+
+// ── Ending screen ──────────────────────────────────────────────────────────
+function buildEnding(app) {
+  // Score calculation
+  const arrived = gs.arrived;
+  let score = 0;
+  const breakdown = [];
+
+  if (arrived) {
+    score += 500; breakdown.push(['Safe arrival bonus', 500, 'pos']);
+  }
+  // Resources remaining
+  const resScore = Math.round((gs.coal + gs.water + gs.food) / 3);
+  if (resScore > 0) { score += resScore; breakdown.push([`Avg. resources (${resScore})`, resScore, 'pos']); }
+  // Engine HP
+  if (gs.hp > 0) { score += gs.hp; breakdown.push([`Engine HP (${gs.hp})`, gs.hp, 'pos']); }
+  // Morale
+  if (gs.morale > 0) { const m = Math.round(gs.morale*0.5); score += m; breakdown.push([`Crew morale (${Math.round(gs.morale/2)})`, m, 'pos']); }
+  // Mini games
+  const minisPassed = gs.miniPassed.filter(Boolean).length;
+  const miniBonus = minisPassed * 60 + gs.miniLivesLeft.reduce((a,b)=>a+b,0)*20;
+  if (miniBonus) { score += miniBonus; breakdown.push([`Track minigames (${minisPassed}/3 cleared)`, miniBonus, 'pos']); }
+  // Steam repair
+  if (gs.steamTotal > 0) {
+    const steamPct = Math.round(gs.steamSealed/gs.steamTotal*100);
+    const steamBonus = Math.round(steamPct * 0.8);
+    score += steamBonus; breakdown.push([`Steam repair (${steamPct}%)`, steamBonus, 'pos']);
+  }
+  // Difficulty
+  const diffMult = gs.difficulty==='easy'?1:gs.difficulty==='normal'?1.3:1.8;
+  const diffLabel = gs.difficulty==='easy'?'×1.0':gs.difficulty==='normal'?'×1.3':'×1.8';
+  if (gs.difficulty !== 'easy') {
+    const bonus = Math.round(score * (diffMult-1));
+    score += bonus; breakdown.push([`Difficulty bonus (${diffLabel})`, bonus, 'mult']);
+  }
+  score = Math.max(0, Math.round(score));
+
+  const ratings = [[900,'Legendary Engineer'],[700,'Expert Conductor'],[500,'Seasoned Traveler'],[300,'Adequate Passenger'],[0,'Bewildered Tourist']];
+  const rating = (ratings.find(r=>score>=r[0])||ratings[ratings.length-1])[1];
+
+  // Save score
+  let rank = -1, hsList = [];
+  if (arrived) {
+    const entry = { score, rating: rating[0], name: gs.name, diff: gs.difficulty[0].toUpperCase(), date: gs.date };
+    rank = saveHS('mucko_hs_traintrail', entry);
+    hsList = getHS('mucko_hs_traintrail');
+  }
+
+  // Build HS table
+  let hsHtml = '';
+  if (hsList.length > 0) {
+    const rows = hsList.slice(0,8).map((e,i) => {
+      const isCurrent = arrived && rank === i+1 && e.name === gs.name;
+      return `<tr class="${isCurrent?'hs-new':''}"><td>${i+1}</td><td>${e.score}</td><td>${e.name}</td><td>${e.diff}/${e.rating||'?'}</td><td>${e.date||''}</td></tr>`;
+    }).join('');
+    hsHtml = `<div class="hs-panel">
+      <div class="hs-title">🏆 High Scores — Train Trail</div>
+      <table class="hs-table">
+        <thead><tr><th>#</th><th>Score</th><th>Name</th><th>Diff/Rating</th><th>Date</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      ${rank>=1&&rank<=3?`<div class="hs-new-msg">★ New high score — rank #${rank}! ★</div>`:''}
+    </div>`;
+  }
+
+  const title = arrived ? '🎉 Leipzig Reached!' : '💥 Journey Ended';
+  const narrative = arrived
+    ? `The Iron Leviathan pulls into Leipzig Hauptbahnhof to the roar of the crowd. You've crossed the Trans-Atlantic Bridge — 3,200 miles, one kraken dinner, several track hazards, and a fish repairman — and arrived in Germany. Remarkable.`
+    : `The journey ends short of Leipzig. The Trans-Atlantic Bridge stretches on without you. Perhaps another day, another locomotive.`;
+
+  const breakdownRows = breakdown.map(([l,v,cls])=>`<tr><td>${l}</td><td class="${cls}">${v>0?'+':''}${v}</td></tr>`).join('');
+
+  app.innerHTML = `<div id="ending-screen">
+    <div class="end-title ${arrived?'arrived':'failed'}">${title}</div>
+    <div class="end-narrative">${narrative}</div>
+    <div class="score-panel">
+      <div class="score-number">${score}</div>
+      <div class="score-rating">${rating}</div>
+      <hr class="score-divider">
+      <table class="score-breakdown">
+        <tbody>${breakdownRows}</tbody>
+        <tr class="total-row"><td>Final Score</td><td class="mult">${score}</td></tr>
+      </table>
+    </div>
+    <div class="end-stats">
+      <table>
+        <tr><td>Conductor</td><td>${gs.name}</td></tr>
+        <tr><td>Difficulty</td><td>${gs.difficulty[0].toUpperCase()+gs.difficulty.slice(1)}</td></tr>
+        <tr><td>Engine HP</td><td>${gs.hp}</td></tr>
+        <tr><td>Crew Morale</td><td>${gs.morale}</td></tr>
+        <tr><td>Minigames Cleared</td><td>${gs.miniPassed.filter(Boolean).length} / 3</td></tr>
+        <tr><td>Gaskets Sealed</td><td>${gs.steamSealed} / ${Math.max(gs.steamTotal,1)}</td></tr>
+      </table>
+    </div>
+    ${hsHtml}
+    <div class="end-btns">
+      <button class="btn-large btn-green" id="play-again-btn">🚂 Play Again</button>
+      <button class="btn-large" onclick="window.location.href='../index.html'">🏠 Main Menu</button>
+    </div>
+  </div>`;
+
+  document.getElementById('play-again-btn').onclick = () => { newGame(); goTo(buildTitle); };
+}
+
+// ── Mulberry32 PRNG (deterministic, seeded) ────────────────────────────────
+function mulberry32(seed) {
+  return function() {
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────
+scaleToViewport();
+newGame();
+goTo(buildTitle);
+</script>
+</body>
+</html>
