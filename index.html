@@ -18,6 +18,67 @@ body {
   justify-content: center;
   padding: 40px 20px;
 }
+
+/* ── PIN gate ─────────────────────────────────────────────────────────────── */
+#pin-gate {
+  position: fixed; inset: 0;
+  background: #0a0d14;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 9999;
+}
+#pin-box {
+  background: #0d1520;
+  border: 2px solid #8b6914;
+  border-radius: 16px;
+  padding: 40px 48px;
+  text-align: center;
+  max-width: 340px; width: 90%;
+}
+#pin-icon { font-size: 3em; margin-bottom: 12px; }
+#pin-title-text {
+  color: #ffd700; font-size: 1.5em; font-weight: bold;
+  margin-bottom: 6px; letter-spacing: 2px;
+}
+#pin-mode-label {
+  color: #8b6914; font-size: 0.85em; margin-bottom: 28px;
+}
+#pin-dots {
+  display: flex; justify-content: center; gap: 14px;
+  margin-bottom: 24px; min-height: 20px;
+}
+.pin-dot {
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid #8b6914; background: transparent;
+  transition: background 0.1s, border-color 0.1s;
+}
+.pin-dot.filled { background: #ffd700; border-color: #ffd700; }
+#pin-input {
+  position: absolute; opacity: 0; pointer-events: none; width: 1px; height: 1px;
+}
+#pin-numpad {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 10px; margin-bottom: 20px;
+}
+.pin-key {
+  background: #0a0d14; border: 1px solid #3a3010;
+  border-radius: 10px; color: #ffd700;
+  font-family: 'Courier New', monospace; font-size: 1.4em;
+  padding: 14px 0; cursor: pointer; user-select: none;
+  transition: background 0.1s, border-color 0.1s;
+}
+.pin-key:active, .pin-key.pressed { background: #1a2030; border-color: #ffd700; }
+.pin-key.wide { grid-column: span 2; }
+#pin-error {
+  color: #c03030; font-size: 0.82em; min-height: 1.2em;
+  margin-top: 4px;
+}
+#pin-shake { animation: pinShake 0.35s ease; }
+@keyframes pinShake {
+  0%,100% { transform: translateX(0); }
+  20%      { transform: translateX(-8px); }
+  60%      { transform: translateX(8px); }
+  80%      { transform: translateX(-4px); }
+}
 h1 {
   text-align: center;
   color: #ffd700;
@@ -89,5 +150,171 @@ h1 {
       <div class="game-desc">A JRPG adventure based on the book. Help the Hippo escape from the zoo!</div>
     </a>
   </div>
+<!-- ── PIN gate overlay ──────────────────────────────────────────────────── -->
+<div id="pin-gate">
+  <div id="pin-box">
+    <div id="pin-icon">🎮</div>
+    <div id="pin-title-text">MUCKO'S GAMES</div>
+    <div id="pin-mode-label">Enter PIN to play</div>
+    <div id="pin-dots"></div>
+    <input id="pin-input" type="tel" inputmode="numeric" autocomplete="off" maxlength="12">
+    <div id="pin-numpad">
+      <button class="pin-key" data-digit="1">1</button>
+      <button class="pin-key" data-digit="2">2</button>
+      <button class="pin-key" data-digit="3">3</button>
+      <button class="pin-key" data-digit="4">4</button>
+      <button class="pin-key" data-digit="5">5</button>
+      <button class="pin-key" data-digit="6">6</button>
+      <button class="pin-key" data-digit="7">7</button>
+      <button class="pin-key" data-digit="8">8</button>
+      <button class="pin-key" data-digit="9">9</button>
+      <button class="pin-key" data-digit="back" style="font-size:1em">⌫</button>
+      <button class="pin-key" data-digit="0">0</button>
+      <button class="pin-key" data-digit="ok" style="font-size:0.85em;color:#28a046;border-color:#28a046">OK</button>
+    </div>
+    <div id="pin-error"></div>
+  </div>
+</div>
+
+<script>
+(async function() {
+  const HASH_KEY    = 'mgs_pin_hash';
+  const LEN_KEY     = 'mgs_pin_len';
+  const SESSION_KEY = 'mgs_unlocked';
+
+  // ── Bypass: /nopin sets the session flag, then redirected here ───────────
+  if (sessionStorage.getItem(SESSION_KEY) === '1') {
+    document.getElementById('pin-gate').remove();
+    return;
+  }
+
+  async function sha256hex(str) {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+  }
+
+  const storedHash = localStorage.getItem(HASH_KEY);
+  const storedLen  = parseInt(localStorage.getItem(LEN_KEY) || '0', 10);
+
+  const gate      = document.getElementById('pin-gate');
+  const modeLabel = document.getElementById('pin-mode-label');
+  const dotsEl    = document.getElementById('pin-dots');
+  const errorEl   = document.getElementById('pin-error');
+  const pinInput  = document.getElementById('pin-input');
+
+  let mode    = storedHash ? 'enter' : 'create';  // 'create' | 'confirm' | 'enter'
+  let buf     = '';   // current digit buffer
+  let pending = '';   // first entry during 'create', waiting for confirm
+
+  function renderDots(n) {
+    dotsEl.innerHTML = '';
+    for (let i = 0; i < Math.max(n, buf.length, 1); i++) {
+      const d = document.createElement('div');
+      d.className = 'pin-dot' + (i < buf.length ? ' filled' : '');
+      dotsEl.appendChild(d);
+    }
+  }
+
+  function setMode(m) {
+    mode = m;
+    buf = '';
+    errorEl.textContent = '';
+    if (m === 'create')  modeLabel.textContent = 'Choose a PIN';
+    if (m === 'confirm') modeLabel.textContent = 'Enter it again to confirm';
+    if (m === 'enter')   modeLabel.textContent = 'Enter PIN to play';
+    renderDots(storedLen || 1);
+    pinInput.value = '';
+    pinInput.focus();
+  }
+
+  async function submitPin() {
+    if (!buf) return;
+    errorEl.textContent = '';
+
+    if (mode === 'create') {
+      pending = buf;
+      setMode('confirm');
+      return;
+    }
+
+    if (mode === 'confirm') {
+      if (buf !== pending) {
+        shake("PINs didn't match — try again");
+        pending = '';
+        setMode('create');
+        return;
+      }
+      // Save hash + length
+      const h = await sha256hex(buf);
+      localStorage.setItem(HASH_KEY, h);
+      localStorage.setItem(LEN_KEY, String(buf.length));
+      unlock();
+      return;
+    }
+
+    // mode === 'enter'
+    const h = await sha256hex(buf);
+    if (h === storedHash) {
+      unlock();
+    } else {
+      shake('Wrong PIN');
+    }
+  }
+
+  function unlock() {
+    sessionStorage.setItem(SESSION_KEY, '1');
+    gate.style.transition = 'opacity 0.3s';
+    gate.style.opacity = '0';
+    setTimeout(() => gate.remove(), 320);
+  }
+
+  function shake(msg) {
+    buf = '';
+    pinInput.value = '';
+    renderDots(storedLen || 1);
+    errorEl.textContent = msg;
+    const box = document.getElementById('pin-box');
+    box.id = 'pin-shake';
+    setTimeout(() => { box.id = 'pin-box'; }, 380);
+  }
+
+  function pushDigit(d) {
+    const maxLen = (mode === 'enter' && storedLen) ? storedLen : 12;
+    if (buf.length >= maxLen) return;
+    buf += d;
+    pinInput.value = buf;
+    renderDots(storedLen || buf.length);
+    // Auto-submit once expected length reached in 'enter' mode
+    if (mode === 'enter' && buf.length === storedLen) submitPin();
+  }
+
+  function popDigit() {
+    buf = buf.slice(0, -1);
+    pinInput.value = buf;
+    renderDots(storedLen || Math.max(buf.length, 1));
+  }
+
+  // Numpad buttons
+  document.querySelectorAll('.pin-key').forEach(btn => {
+    btn.addEventListener('pointerdown', e => { e.preventDefault(); btn.classList.add('pressed'); });
+    btn.addEventListener('pointerup',   e => { e.preventDefault(); btn.classList.remove('pressed');
+      const d = btn.dataset.digit;
+      if (d === 'back') popDigit();
+      else if (d === 'ok') submitPin();
+      else pushDigit(d);
+    });
+    btn.addEventListener('pointerleave', () => btn.classList.remove('pressed'));
+  });
+
+  // Physical keyboard
+  window.addEventListener('keydown', e => {
+    if (/^[0-9]$/.test(e.key))           { pushDigit(e.key); }
+    else if (e.key === 'Backspace')       { popDigit(); }
+    else if (e.key === 'Enter')           { submitPin(); }
+  });
+
+  setMode(mode);
+})();
+</script>
 </body>
 </html>
