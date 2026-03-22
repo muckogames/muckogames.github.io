@@ -1063,7 +1063,55 @@ function drawTitle(){
   ctx.restore();
   txt('Pastel storybook adventure with JRPG minigames',W/2,220,'#f5ead6',14,'center','Georgia');
   rnd(10,10,W-20,H-20,22,null,'rgba(255,248,227,0.32)',3);
-  if(mclk||eat('Space')){mclk=false; phase='diff';}
+
+  // High Scores button
+  const hsbx=W-168,hsby=H-52,hsbw=154,hsbh=36;
+  const hshov=mx>=hsbx&&mx<=hsbx+hsbw&&my>=hsby&&my<=hsby+hsbh;
+  rnd(hsbx,hsby,hsbw,hsbh,6,hshov?'rgba(40,20,80,0.95)':'rgba(20,10,50,0.8)','rgba(212,175,55,0.6)',1.5);
+  txt('🏆 High Scores',hsbx+hsbw/2,hsby+22,C.gold,13,'center','Georgia');
+  if(hshov)canvas.style.cursor='pointer';
+
+  if(mclk){
+    mclk=false;
+    if(hshov){ phase='highscores'; }
+    else { phase='diff'; }
+  } else if(eat('Space')){ phase='diff'; }
+}
+
+/* ================================================================
+   HIGH SCORES SCREEN
+   ================================================================ */
+function drawHighScores(){
+  const g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#18243c'); g.addColorStop(0.55,'#4f4f78'); g.addColorStop(1,'#f2b68a');
+  fillRect(0,0,W,H,g);
+  rnd(10,10,W-20,H-20,22,null,'rgba(255,248,227,0.32)',3);
+  txt('🏆 High Scores',W/2,60,C.gold,36,'center','Georgia');
+  txt('Pflueger & the Hippo',W/2,94,'#f0e0a8',16,'center','Georgia');
+
+  const hsAll=getHS('mucko_hs_hippo');
+  if(hsAll.length===0){
+    txt('No scores yet — play a game!',W/2,230,'#b0a080',18,'center','Georgia');
+  } else {
+    const cols=[W/2-170, W/2-60, W/2+60, W/2+160];
+    rnd(W/2-200,118,400,28,4,'rgba(10,5,30,0.82)','rgba(80,50,120,0.5)',1);
+    ['#','Score','Suspicion','Rating'].forEach((h,i)=>txt(h,cols[i],136,C.gold,11,'center','Georgia'));
+    hsAll.slice(0,8).forEach((e,i)=>{
+      const ry=150+i*30;
+      rnd(W/2-200,ry,400,28,4,'rgba(10,5,30,0.6)','rgba(60,40,100,0.4)',1);
+      const medal=i===0?'🥇':i===1?'🥈':i===2?'🥉':String(i+1);
+      [medal,`${e.score}pts`,`${e.suspicion??'?'}%`,e.label||''].forEach((v,j)=>
+        txt(v,cols[j],ry+18,'#d4c090',11,'center',"'Courier New',monospace")
+      );
+    });
+  }
+
+  const bx=W/2-100,by=H-50,bw=200,bh=38;
+  const bhov=mx>=bx&&mx<=bx+bw&&my>=by&&my<=by+bh;
+  rnd(bx,by,bw,bh,6,bhov?'#3a2060':'#2a1040',C.dialogBdr,2);
+  txt('← Back',W/2,by+24,C.gold,16,'center','Georgia');
+  if(bhov)canvas.style.cursor='pointer';
+  if(bhov&&mclk){mclk=false; phase='title';}
 }
 
 /* ================================================================
@@ -3130,6 +3178,7 @@ function stepSimulation(dt){
 function renderPhase(){
   switch(phase){
     case 'title': drawTitle(); break;
+    case 'highscores': drawHighScores(); break;
     case 'diff': drawDiff(); break;
     case 'story': handleStory(); break;
     case 'dialog_harness': drawDialogHarness(); break;

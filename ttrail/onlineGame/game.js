@@ -122,11 +122,55 @@ function drawShip(ctx, cx, baseY, len) {
 // ═════════════════════════════════════════════════════════════════════════════
 // TITLE SCREEN
 // ═════════════════════════════════════════════════════════════════════════════
+function buildHighScores(app) {
+  const hsAll = getHS('mucko_hs_ttrail');
+  let tableHtml;
+  if (hsAll.length === 0) {
+    tableHtml = '<p style="color:#aaa;text-align:center;padding:20px">No crossings recorded yet.</p>';
+  } else {
+    tableHtml = `<table class="ending-hs-table">
+      <tr class="ending-hs-header"><th>#</th><th>Score</th><th>Rating</th><th>Outcome</th><th>Date</th></tr>
+      ${hsAll.slice(0,8).map((e,i) => `<tr>
+        <td>${i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1}</td>
+        <td>${e.score.toLocaleString()}</td>
+        <td>${e.rating}</td>
+        <td>${e.sank ? '💀 Sank' : '⚓ Safe'}</td>
+        <td>${e.date}</td>
+      </tr>`).join('')}
+    </table>`;
+  }
+  const div = document.createElement('div');
+  div.id = 'ending-screen';
+  div.innerHTML = `
+    <div class="ending-title safe">🏆 Best Crossings — This Device</div>
+    <div class="ending-hs">${tableHtml}</div>
+    <div class="ending-btns">
+      <button id="hs-back" class="btn-green btn-large">← Back to Title</button>
+    </div>`;
+  app.appendChild(div);
+  div.querySelector('#hs-back').addEventListener('click', () => goTo(buildTitle));
+}
+
 function buildTitle(app) {
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:relative;width:820px;height:620px;';
   const canvas = document.createElement('canvas');
   canvas.width = 820; canvas.height = 620;
   canvas.style.cssText = 'display:block;cursor:pointer;width:100%;height:100%;';
-  app.appendChild(canvas);
+  wrap.appendChild(canvas);
+
+  const hsBtn = document.createElement('button');
+  hsBtn.textContent = '🏆 High Scores';
+  hsBtn.style.cssText = [
+    'position:absolute', 'bottom:36px', 'right:20px',
+    'background:rgba(15,10,25,0.78)', 'color:#d4af37',
+    'border:1px solid #d4af37', 'border-radius:6px',
+    'padding:7px 16px', 'font:bold 13px Georgia,serif',
+    'cursor:pointer',
+  ].join(';');
+  hsBtn.addEventListener('click', e => { e.stopPropagation(); cancelAnimationFrame(raf); goTo(buildHighScores); });
+  wrap.appendChild(hsBtn);
+  app.appendChild(wrap);
   const ctx = canvas.getContext('2d');
 
   const rng = seededRng(777);

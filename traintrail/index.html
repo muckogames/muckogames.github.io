@@ -466,6 +466,31 @@ const JOURNEY = [
 
 function cap(v) { return Math.max(0, Math.min(100, v)); }
 
+// ── High scores screen ─────────────────────────────────────────────────────
+function buildHighScores(app) {
+  const hsList = getHS('mucko_hs_traintrail');
+  let hsHtml;
+  if (hsList.length > 0) {
+    const rows = hsList.slice(0,8).map((e,i) =>
+      `<tr><td>${i+1}</td><td>${e.score}</td><td>${e.name||'—'}</td><td>${e.diff||'?'}/${e.rating||'?'}</td><td>${e.date||''}</td></tr>`
+    ).join('');
+    hsHtml = `<table class="hs-table">
+      <thead><tr><th>#</th><th>Score</th><th>Name</th><th>Diff/Rating</th><th>Date</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  } else {
+    hsHtml = '<p style="color:#888;text-align:center;padding:20px">No scores yet — board the train!</p>';
+  }
+  app.innerHTML = `<div id="ending-screen">
+    <div class="end-title arrived">🏆 High Scores — Train Trail</div>
+    <div class="hs-panel">${hsHtml}</div>
+    <div class="end-btns">
+      <button class="btn-large" id="hs-back-btn">🚂 Back</button>
+    </div>
+  </div>`;
+  document.getElementById('hs-back-btn').onclick = () => goTo(buildTitle);
+}
+
 // ── Title screen ───────────────────────────────────────────────────────────
 function buildTitle(app) {
   app.innerHTML = `<div id="title-screen">
@@ -536,6 +561,13 @@ function buildTitle(app) {
   _cleanup = () => cancelAnimationFrame(rafId);
 
   document.getElementById('start-btn').onclick = () => { newGame(); goTo(buildSetup); };
+
+  const hsBtn = document.createElement('button');
+  hsBtn.className = 'btn-large';
+  hsBtn.style.cssText = 'font-size:14px;padding:8px 24px;margin-top:10px;display:block;opacity:0.85;background:rgba(20,15,5,0.75);border-color:#7a5520';
+  hsBtn.textContent = '🏆 High Scores';
+  hsBtn.onclick = () => goTo(buildHighScores);
+  document.querySelector('.title-content').appendChild(hsBtn);
 }
 
 function drawTitleTrain(ctx, x, y) {
