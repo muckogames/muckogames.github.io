@@ -891,6 +891,8 @@ function buildTrackMini(app, miniIdx, cfg) {
       <div class="mini-stat mini-lives" id="mini-lives"></div>
     </div>
     <div id="mini-msg" style="position:absolute;top:200px;left:0;width:820px;text-align:center;pointer-events:none"></div>
+    <button id="btn-left"  style="position:absolute;bottom:30px;left:20px;width:130px;height:70px;font-size:28px;background:rgba(0,0,0,0.45);border:2px solid rgba(200,144,26,0.6);color:#ffe8a0;border-radius:8px;touch-action:manipulation">◀</button>
+    <button id="btn-right" style="position:absolute;bottom:30px;right:20px;width:130px;height:70px;font-size:28px;background:rgba(0,0,0,0.45);border:2px solid rgba(200,144,26,0.6);color:#ffe8a0;border-radius:8px;touch-action:manipulation">▶</button>
   </div>`;
 
   const canvas = document.getElementById('mini-canvas');
@@ -1084,13 +1086,21 @@ function buildTrackMini(app, miniIdx, cfg) {
       const hd = h.depth;
       if (hd < 0.02 || hd > 1.15) return;
       const hx = projX(LANE_CENTERS[h.lane], hd);
-      const hy = projY(hd) + Math.sin(ts*0.003+h.bobPhase)*3*hd;
-      const sz = Math.max(8, hd * 36);
+      const hy = projY(hd) + Math.sin(ts * 0.003 + h.bobPhase) * 3 * hd;
+      const radius = Math.max(8, hd * 34);
       const info = HAZARD_TYPES[h.type];
       ctx.save();
-      ctx.globalAlpha = Math.min(1, (hd - 0.02)/0.15);
-      ctx.font = `${sz*1.6}px serif`;
-      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.globalAlpha = Math.min(1, (hd - 0.02) / 0.08);
+      // Solid colored circle — always visible regardless of emoji support
+      ctx.fillStyle = info.color;
+      ctx.beginPath(); ctx.arc(hx, hy, radius, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = Math.max(1.5, hd * 3);
+      ctx.beginPath(); ctx.arc(hx, hy, radius, 0, Math.PI * 2); ctx.stroke();
+      // Emoji overlay (color emoji ignores fillStyle, but set white for fallback text)
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `${Math.max(12, radius * 1.4)}px sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(info.emoji, hx, hy);
       ctx.restore();
     });
@@ -1161,6 +1171,14 @@ function buildTrackMini(app, miniIdx, cfg) {
   }
   canvas.addEventListener('touchstart', handleTouch, {passive:false});
   canvas.addEventListener('click', handleTouch);
+
+  // On-screen buttons (mobile)
+  const btnLeft  = document.getElementById('btn-left');
+  const btnRight = document.getElementById('btn-right');
+  btnLeft.addEventListener('touchstart',  e => { e.preventDefault(); tryLeft();  }, {passive:false});
+  btnLeft.addEventListener('click',       ()  => tryLeft());
+  btnRight.addEventListener('touchstart', e => { e.preventDefault(); tryRight(); }, {passive:false});
+  btnRight.addEventListener('click',      ()  => tryRight());
 
   const origCleanup = _cleanup;
   _cleanup = () => {
