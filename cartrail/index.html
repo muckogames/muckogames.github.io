@@ -146,6 +146,7 @@ const STOPS = [
     activities: [
       { id: 'ski',    emoji: '⛷️',  label: 'Ski the Slopes',       cost: {euros:20}, effect: gs => { gs.euros-=20; gs.score+=25; gs.snacks-=10; }, desc: '-20€, +25pts' },
       { id: 'cheese', emoji: '🧀', label: 'Swiss Cheese Tasting',  cost: {euros:6},  effect: gs => { gs.euros-=6;  gs.score+=10; gs.snacks+=15; }, desc: '-6€, +10pts, +snacks' },
+      { id: 'photo_matterhorn', emoji: '📸', label: 'Wildlife Photography', cost: {}, effect: gs => {}, desc: 'Snap alpine animals!', minigame: 'photo' },
     ]
   },
   {
@@ -170,6 +171,7 @@ const STOPS = [
     activities: [
       { id: 'loko',  emoji: '🍽️', label: 'Lokomotiv Étterem',  cost: {euros:15}, effect: gs => { gs.euros-=15; gs.score+=25; gs.snacks+=10; }, desc: '-15€, +25pts, +snacks' },
       { id: 'bath',  emoji: '🛁', label: 'Thermal Bath',        cost: {euros:12}, effect: gs => { gs.euros-=12; gs.score+=20; gs.bladder+=20; },desc: '-12€, +20pts' },
+      { id: 'photo_budapest', emoji: '📸', label: 'Wildlife Photography', cost: {}, effect: gs => {}, desc: 'Snap Danube wildlife!', minigame: 'photo' },
     ]
   },
   {
@@ -194,6 +196,7 @@ const STOPS = [
     activities: [
       { id: 'beer',    emoji: '🍺', label: 'Beer Garden',     cost: {euros:12}, effect: gs => { gs.euros-=12; gs.score+=15; gs.bladder+=25; }, desc: '-12€, +15pts' },
       { id: 'pretzel', emoji: '🥨', label: 'Giant Pretzel',   cost: {euros:5},  effect: gs => { gs.euros-=5;  gs.score+=8;  gs.snacks+=15; }, desc: '-5€, +8pts, +snacks' },
+      { id: 'photo_munich', emoji: '📸', label: 'Wildlife Photography', cost: {}, effect: gs => {}, desc: 'Snap garden animals!', minigame: 'photo' },
     ]
   },
   {
@@ -728,6 +731,10 @@ function buildStop(app, stopIdx) {
         addLog('❌ Not enough euros!', 'bad'); refreshLog(); return;
       }
       gs.done[act.id] = true;
+      if (act.minigame === 'photo') {
+        goTo(buildPhotoGame, stopIdx);
+        return;
+      }
       act.effect(gs);
       gs.gas    = clamp(gs.gas);
       gs.snacks = clamp(gs.snacks);
@@ -782,6 +789,252 @@ function gameOverPanel() {
 function refreshLog() {
   const el = document.getElementById('stop-log');
   if (el) el.innerHTML = renderLog();
+}
+
+// ── Photo Minigame ────────────────────────────────────────────────────────────
+const PHOTO_CONFIGS = {
+  1: { // Matterhorn
+    title: 'Alpine Wildlife',
+    animals: ['🦅','🐐','🦫','🌸','🦅','🐐'],
+    bgTop: '#0a1520', bgBot: '#1a3060',
+    hillColor: '#1a2a3a',
+    hint: 'Tap the animals before they vanish!',
+  },
+  3: { // Budapest
+    title: 'Danube Wildlife',
+    animals: ['🦢','🦆','🐟','🦢','🦆','🦆'],
+    bgTop: '#0a0a1a', bgBot: '#101830',
+    hillColor: '#0a1a2a',
+    hint: 'Watch for Duck Dieb on the Danube!',
+  },
+  5: { // Munich
+    title: 'English Garden Wildlife',
+    animals: ['🐿️','🦌','🦋','🐿️','🐦','🦌'],
+    bgTop: '#0a1a0a', bgBot: '#142010',
+    hillColor: '#1a2a10',
+    hint: 'Snap the garden critters!',
+  },
+};
+
+function buildPhotoGame(app, stopIdx) {
+  const cfg = PHOTO_CONFIGS[stopIdx] || PHOTO_CONFIGS[1];
+  const DURATION = 25;
+  const HIT_R = 52; // generous tap radius in canvas px
+
+  let targets   = []; // { emoji, x, y, scale, bobPhase, life, maxLife, shot, flashT }
+  let sparks    = []; // { x, y, vx, vy, life, color }
+  let timeLeft  = DURATION;
+  let photos    = 0;
+  let done      = false;
+  let lastTs    = 0;
+  let spawnT    = 0;
+  let nextSpawn = 1.2;
+
+  app.style.background = `linear-gradient(160deg,${cfg.bgTop},${cfg.bgBot})`;
+  app.innerHTML = `
+    <canvas id="pg" width="${W}" height="${H}" style="position:absolute;top:0;left:0;cursor:crosshair"></canvas>
+    <div style="position:absolute;top:0;left:0;width:${W}px;pointer-events:none">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 18px;
+                  background:rgba(0,0,0,0.55)">
+        <div id="pg-timer" style="font-size:16px;font-weight:bold;color:#ffe8a0;text-shadow:1px 1px 3px #000">
+          TIME: ${DURATION}s
+        </div>
+        <div style="font-size:13px;color:#c8d0b0">${cfg.hint}</div>
+        <div id="pg-photos" style="font-size:16px;font-weight:bold;color:#50c070;text-shadow:1px 1px 3px #000">
+          📸 0
+        </div>
+      </div>
+    </div>
+  `;
+
+  const canvas = document.getElementById('pg');
+  const ctx    = canvas.getContext('2d');
+
+  function spawnTarget() {
+    const margin = 80;
+    const x = margin + Math.random() * (W - margin * 2);
+    const y = H * 0.28 + Math.random() * (H * 0.45);
+    const emoji = cfg.animals[Math.floor(Math.random() * cfg.animals.length)];
+    targets.push({
+      emoji, x, y,
+      scale:    0,
+      bobPhase: Math.random() * Math.PI * 2,
+      life:     0,
+      maxLife:  2.0 + Math.random() * 1.5,
+      shot:     false,
+      flashT:   0,
+    });
+  }
+
+  function update(dt) {
+    if (done) return;
+    timeLeft -= dt;
+    spawnT   += dt;
+
+    if (spawnT >= nextSpawn) {
+      spawnT = 0;
+      nextSpawn = 1.0 + Math.random() * 1.4;
+      if (targets.filter(t => !t.shot).length < 3) spawnTarget();
+    }
+
+    targets.forEach(t => {
+      t.life += dt;
+      // Pop in
+      if (!t.shot) t.scale = Math.min(1, t.scale + dt * 4);
+      // Flash decay
+      if (t.shot) { t.flashT += dt; t.scale = Math.max(0, t.scale - dt * 5); }
+    });
+    targets = targets.filter(t => t.life < t.maxLife || (t.shot && t.scale > 0));
+
+    // Sparks
+    sparks.forEach(s => { s.x+=s.vx*dt; s.y+=s.vy*dt; s.vy+=120*dt; s.life-=dt; });
+    sparks = sparks.filter(s => s.life > 0);
+
+    // UI
+    const tel = document.getElementById('pg-timer');
+    if (tel) tel.textContent = `TIME: ${Math.ceil(Math.max(0,timeLeft))}s`;
+
+    if (timeLeft <= 0) finish();
+  }
+
+  function draw(ts) {
+    ctx.clearRect(0, 0, W, H);
+
+    // Sky
+    const sky = ctx.createLinearGradient(0,0,0,H*0.6);
+    sky.addColorStop(0, cfg.bgTop);
+    sky.addColorStop(1, cfg.bgBot);
+    ctx.fillStyle = sky; ctx.fillRect(0,0,W,H);
+
+    // Hills
+    ctx.fillStyle = cfg.hillColor;
+    ctx.beginPath(); ctx.moveTo(0, H*0.55);
+    for (let i=0; i<=14; i++) {
+      ctx.lineTo((i/14)*W, H*0.55 - 50 - Math.sin(i*1.1)*35 - Math.cos(i*1.9)*20);
+    }
+    ctx.lineTo(W,H*0.55); ctx.lineTo(0,H*0.55); ctx.closePath(); ctx.fill();
+
+    // Ground
+    ctx.fillStyle = cfg.hillColor;
+    ctx.fillRect(0, H*0.55, W, H-H*0.55);
+
+    // Vignette
+    const vig = ctx.createRadialGradient(W/2,H/2,H*0.25,W/2,H/2,H*0.75);
+    vig.addColorStop(0,'rgba(0,0,0,0)');
+    vig.addColorStop(1,'rgba(0,0,0,0.55)');
+    ctx.fillStyle = vig; ctx.fillRect(0,0,W,H);
+
+    // Viewfinder corners
+    const cLen = 30, cT = 3;
+    ctx.strokeStyle = 'rgba(255,232,160,0.8)'; ctx.lineWidth = cT;
+    [[20,44],[W-20,44],[20,H-20],[W-20,H-20]].forEach(([cx,cy]) => {
+      const sx = cx < W/2 ? 1 : -1, sy = cy < H/2 ? 1 : -1;
+      ctx.beginPath();
+      ctx.moveTo(cx,cy); ctx.lineTo(cx+sx*cLen,cy); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cx,cy); ctx.lineTo(cx,cy+sy*cLen); ctx.stroke();
+    });
+
+    // Targets
+    targets.forEach(t => {
+      if (t.scale <= 0) return;
+      ctx.save();
+      ctx.translate(t.x, t.y + Math.sin(ts*0.003 + t.bobPhase)*4);
+      ctx.scale(t.scale, t.scale);
+      if (t.shot) {
+        ctx.globalAlpha = Math.max(0, 1 - t.flashT * 3);
+        // White flash ring
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.globalAlpha *= 0.8;
+        ctx.beginPath(); ctx.arc(0,0,HIT_R*0.7,0,Math.PI*2); ctx.stroke();
+        ctx.globalAlpha = Math.max(0, 1 - t.flashT * 3);
+      }
+      // Emoji
+      ctx.font = '44px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(t.emoji, 0, 0);
+      // Subtle shadow ring on unshot targets
+      if (!t.shot) {
+        ctx.strokeStyle = 'rgba(255,232,160,0.5)'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(0,0,28,0,Math.PI*2); ctx.stroke();
+      }
+      ctx.restore();
+    });
+
+    // Sparks
+    sparks.forEach(s => {
+      ctx.globalAlpha = s.life;
+      ctx.fillStyle = s.color;
+      ctx.beginPath(); ctx.arc(s.x,s.y,3,0,Math.PI*2); ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+
+    // Center crosshair (subtle)
+    ctx.strokeStyle = 'rgba(255,232,160,0.25)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(W/2-10,H/2); ctx.lineTo(W/2+10,H/2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(W/2,H/2-10); ctx.lineTo(W/2,H/2+10); ctx.stroke();
+  }
+
+  let rafId;
+  function loop(ts) {
+    if (!lastTs) lastTs = ts;
+    const dt = Math.min((ts-lastTs)/1000, 0.1); lastTs = ts;
+    update(dt);
+    draw(ts);
+    rafId = requestAnimationFrame(loop);
+  }
+  rafId = requestAnimationFrame(loop);
+  _cleanup = () => cancelAnimationFrame(rafId);
+
+  function handleTap(e) {
+    if (done) return;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = W / rect.width, scaleY = H / rect.height;
+    const cx = ((e.touches ? e.touches[0].clientX : e.clientX) - rect.left) * scaleX;
+    const cy = ((e.touches ? e.touches[0].clientY : e.clientY) - rect.top)  * scaleY;
+
+    let hit = false;
+    targets.forEach(t => {
+      if (t.shot) return;
+      const dx = cx - t.x, dy = cy - (t.y + Math.sin(Date.now()*0.003 + t.bobPhase)*4);
+      if (dx*dx + dy*dy < HIT_R*HIT_R) {
+        t.shot = true; t.flashT = 0;
+        photos++;
+        hit = true;
+        // Sparks burst
+        for (let i=0; i<14; i++) {
+          const ang = (i/14)*Math.PI*2;
+          sparks.push({ x:t.x, y:t.y, vx:Math.cos(ang)*80, vy:Math.sin(ang)*80-40,
+                        life:0.7, color: i%2===0 ? '#ffd700' : '#fff' });
+        }
+        const el = document.getElementById('pg-photos');
+        if (el) el.textContent = `📸 ${photos}`;
+      }
+    });
+    // Miss flash — brief red tint on canvas border
+    if (!hit) {
+      canvas.style.outline = '3px solid rgba(200,50,50,0.6)';
+      setTimeout(() => { canvas.style.outline = ''; }, 150);
+    }
+  }
+
+  canvas.addEventListener('click', handleTap);
+  canvas.addEventListener('touchstart', e => { e.preventDefault(); handleTap(e); }, {passive:false});
+
+  function finish() {
+    if (done) return;
+    done = true;
+    cancelAnimationFrame(rafId);
+
+    const earned = photos * 12;
+    gs.score += earned;
+    addLog(`📸 Wildlife Photography: ${photos} photo${photos!==1?'s':''} — +${earned}pts!`, 'good');
+
+    showModal(
+      `📸 ${cfg.title}`,
+      `You snapped ${photos} photo${photos!==1?'s':''}!<br>` +
+      `<span style="color:#ffd700;font-size:20px;font-weight:bold">+${earned} points</span>`,
+      [{ label: '← Back to ' + STOPS[stopIdx].name, fn: () => goTo(buildStop, stopIdx) }]
+    );
+  }
 }
 
 // ── Driving Screen ────────────────────────────────────────────────────────────
