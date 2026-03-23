@@ -1,0 +1,977 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <title>Car Trail 🚗</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext x='50%25' y='50%25' dy='.35em' text-anchor='middle' font-size='82'%3E%F0%9F%9A%97%3C/text%3E%3C/svg%3E">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0d1b2a;
+      font-family: Georgia, 'Times New Roman', serif;
+      overflow: hidden;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    #app {
+      position: absolute;
+      width: 820px;
+      height: 620px;
+      overflow: hidden;
+      transform-origin: 0 0;
+    }
+    button {
+      cursor: pointer;
+      font-family: Georgia, serif;
+      touch-action: manipulation;
+    }
+    button:active { transform: scale(0.96); }
+
+    /* Modal */
+    #modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.75);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+    }
+    #modal.show { display: flex; }
+    #modal-box {
+      background: #1a1205;
+      border: 2px solid #c8901a;
+      border-radius: 12px;
+      padding: 24px 28px;
+      max-width: 500px;
+      width: 90%;
+      text-align: center;
+      box-shadow: 0 0 40px rgba(200,144,26,0.3);
+    }
+    #modal-title { font-size: 22px; color: #ffd700; margin-bottom: 10px; }
+    #modal-body { font-size: 15px; color: #e8d8b0; margin-bottom: 18px; line-height: 1.5; }
+    #modal-btns { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+    #modal-btns button {
+      background: #2a1a08;
+      border: 1px solid #c8901a;
+      color: #e8d8b0;
+      padding: 12px 18px;
+      border-radius: 6px;
+      font-size: 14px;
+      min-width: 130px;
+      line-height: 1.4;
+    }
+    #modal-btns button:hover { background: #3a2a10; }
+    #modal-btns button:disabled { opacity: 0.4; cursor: default; }
+
+    .game-btn {
+      background: #1a1205;
+      border: 2px solid #c8901a;
+      color: #e8d8b0;
+      padding: 12px 22px;
+      border-radius: 8px;
+      font-size: 15px;
+      font-family: Georgia, serif;
+      cursor: pointer;
+      touch-action: manipulation;
+      transition: background 0.15s;
+    }
+    .game-btn:hover { background: #2a2010; }
+    .game-btn.primary { border-color: #50c070; color: #50c070; }
+    .game-btn.danger  { border-color: #c05050; color: #c05050; }
+
+    .res-bar-outer {
+      background: rgba(0,0,0,0.4);
+      border-radius: 4px;
+      height: 10px;
+      border: 1px solid rgba(200,144,26,0.3);
+    }
+    .res-bar-inner { height: 100%; border-radius: 3px; transition: width 0.3s; }
+  </style>
+</head>
+<body>
+<div id="app" style="position:absolute;width:820px;height:620px;overflow:hidden;transform-origin:0 0"></div>
+<div id="modal">
+  <div id="modal-box">
+    <div id="modal-title"></div>
+    <div id="modal-body"></div>
+    <div id="modal-btns"></div>
+  </div>
+</div>
+<script>
+'use strict';
+
+const W = 820, H = 620;
+
+// ── Stops ────────────────────────────────────────────────────────────────────
+const STOPS = [
+  {
+    name: 'Basel',
+    country: '🇨🇭',
+    landmark: '🌉',
+    desc: "The starting point! Switzerland's cultural capital on the Rhine.",
+    bgTop: '#0d1b2a', bgBot: '#1a2a3a',
+    activities: [
+      { id: 'zoo',   emoji: '🦁', label: 'Visit the Zoo',       cost: {euros:8},  effect: gs => { gs.euros-=8;  gs.score+=15; gs.snacks-=5; },  desc: '-8€, +15pts' },
+      { id: 'art',   emoji: '🎨', label: 'Art Basel Museum',    cost: {euros:12}, effect: gs => { gs.euros-=12; gs.score+=20; },                 desc: '-12€, +20pts' },
+    ]
+  },
+  {
+    name: 'Matterhorn',
+    country: '🏔️',
+    landmark: '⛰️',
+    desc: 'The iconic Alpine peak on the Swiss-Italian border.',
+    bgTop: '#0a1520', bgBot: '#1a2a3a',
+    gasToHere: 12,
+    activities: [
+      { id: 'ski',    emoji: '⛷️',  label: 'Ski the Slopes',       cost: {euros:20}, effect: gs => { gs.euros-=20; gs.score+=25; gs.snacks-=10; }, desc: '-20€, +25pts' },
+      { id: 'cheese', emoji: '🧀', label: 'Swiss Cheese Tasting',  cost: {euros:6},  effect: gs => { gs.euros-=6;  gs.score+=10; gs.snacks+=15; }, desc: '-6€, +10pts, +snacks' },
+    ]
+  },
+  {
+    name: 'Milan',
+    country: '🇮🇹',
+    landmark: '🏛️',
+    desc: 'Fashion, football, and the most incredible pizza in Europe.',
+    bgTop: '#1a0e0a', bgBot: '#2a1a0a',
+    gasToHere: 15,
+    activities: [
+      { id: 'pizza',    emoji: '🍕', label: 'Eat Pizza',         cost: {euros:10}, effect: gs => { gs.euros-=10; gs.score+=15; gs.snacks+=20; }, desc: '-10€, +15pts, +snacks' },
+      { id: 'football', emoji: '⚽', label: 'Watch AC Milan',    cost: {euros:25}, effect: gs => { gs.euros-=25; gs.score+=30; },                desc: '-25€, +30pts' },
+    ]
+  },
+  {
+    name: 'Budapest',
+    country: '🇭🇺',
+    landmark: '🌉',
+    desc: 'The Pearl of the Danube — thermal baths and great food await.',
+    bgTop: '#100a1a', bgBot: '#1a1030',
+    gasToHere: 28,
+    activities: [
+      { id: 'loko',  emoji: '🍽️', label: 'Lokomotiv Étterem',  cost: {euros:15}, effect: gs => { gs.euros-=15; gs.score+=25; gs.snacks+=10; }, desc: '-15€, +25pts, +snacks' },
+      { id: 'bath',  emoji: '🛁', label: 'Thermal Bath',        cost: {euros:12}, effect: gs => { gs.euros-=12; gs.score+=20; gs.bladder+=20; },desc: '-12€, +20pts' },
+    ]
+  },
+  {
+    name: 'Vienna',
+    country: '🇦🇹',
+    landmark: '🎻',
+    desc: 'The City of Music on the Danube — Mozart and coffee houses.',
+    bgTop: '#0a180a', bgBot: '#1a2a1a',
+    gasToHere: 12,
+    activities: [
+      { id: 'mozart', emoji: '🎵', label: 'Mozart Concert',       cost: {euros:18}, effect: gs => { gs.euros-=18; gs.score+=25; },                desc: '-18€, +25pts' },
+      { id: 'cafe',   emoji: '☕', label: 'Viennese Coffee House', cost: {euros:8},  effect: gs => { gs.euros-=8;  gs.score+=12; gs.snacks+=10; }, desc: '-8€, +12pts, +snacks' },
+    ]
+  },
+  {
+    name: 'Munich',
+    country: '🇩🇪',
+    landmark: '⛪',
+    desc: "Bavaria's capital — beer gardens, pretzels, and fast autobahns.",
+    bgTop: '#1a0a0a', bgBot: '#2a1410',
+    gasToHere: 18,
+    activities: [
+      { id: 'beer',    emoji: '🍺', label: 'Beer Garden',     cost: {euros:12}, effect: gs => { gs.euros-=12; gs.score+=15; gs.bladder+=25; }, desc: '-12€, +15pts' },
+      { id: 'pretzel', emoji: '🥨', label: 'Giant Pretzel',   cost: {euros:5},  effect: gs => { gs.euros-=5;  gs.score+=8;  gs.snacks+=15; }, desc: '-5€, +8pts, +snacks' },
+    ]
+  },
+  {
+    name: 'Leipzig',
+    country: '🇩🇪',
+    landmark: '🏆',
+    desc: "You made it! East Germany's vibrant city of music and history.",
+    bgTop: '#0a1a1a', bgBot: '#0d2020',
+    gasToHere: 20,
+    activities: [
+      { id: 'bach', emoji: '🎵', label: 'Bach Museum',       cost: {euros:10}, effect: gs => { gs.euros-=10; gs.score+=20; }, desc: '-10€, +20pts' },
+      { id: 'rbl',  emoji: '⚽', label: 'RB Leipzig Match',  cost: {euros:20}, effect: gs => { gs.euros-=20; gs.score+=25; }, desc: '-20€, +25pts' },
+    ]
+  }
+];
+
+// ── Events ───────────────────────────────────────────────────────────────────
+const EVENTS = [
+  {
+    id: 'traffic',
+    emoji: '🚗',
+    title: 'Traffic Jam!',
+    text: () => 'Bumper to bumper on the highway. The family groans as you inch forward...',
+    choices: [
+      { label: '😤 Wait it out',     effect: gs => { gs.gas-=4; gs.bladder+=12; gs.score-=3; }, desc: '-4⛽, +bladder' },
+      { label: '🗺️ Take a detour',   effect: gs => { gs.gas-=8; },                              desc: '-8⛽' },
+    ]
+  },
+  {
+    id: 'toll',
+    emoji: '🛣️',
+    title: 'Toll Booth!',
+    text: () => 'You pull up to a highway toll booth. The sign reads: €6.',
+    choices: [
+      { label: '💶 Pay the toll',    effect: gs => { gs.euros-=6; },   desc: '-6€',    canAfford: gs => gs.euros >= 6 },
+      { label: '🔄 Find a back road', effect: gs => { gs.gas-=10; },   desc: '-10⛽' },
+    ]
+  },
+  {
+    id: 'breakdown',
+    emoji: '🔧',
+    title: 'Car Trouble!',
+    text: () => 'The Ford Escape makes a worrying clunking noise...',
+    choices: [
+      { label: '🔧 Fix it',         effect: gs => { gs.euros-=12; }, desc: '-12€',   canAfford: gs => gs.euros >= 12 },
+      { label: '🙏 Hope for best',  effect: gs => { gs.gas-=12; },   desc: '-12⛽' },
+    ]
+  },
+  {
+    id: 'duck_dieb',
+    emoji: '🦆',
+    title: 'Duck Dieb Attacks!',
+    text: gs => `A sneaky duck named Duck Dieb swoops through the window, eyeing ${gs.name}'s snacks!`,
+    choices: [
+      { label: '🍿 Defend the snacks!', effect: gs => { gs.snacks-=8;  }, desc: '-8🍿 (saved some!)' },
+      { label: '😱 Too shocked!',       effect: gs => { gs.snacks-=20; }, desc: '-20🍿!' },
+    ]
+  },
+  {
+    id: 'are_we_there',
+    emoji: '😩',
+    title: 'Are We There Yet?',
+    text: gs => `"Are we there yet?" asks ${gs.name} for the fifth time in a row...`,
+    choices: [
+      { label: '🍿 Give a snack',    effect: gs => { gs.snacks-=10; gs.score+=3; }, desc: '-10🍿' },
+      { label: '🎵 Put on a song',   effect: gs => { gs.score+=1; },               desc: 'Free!' },
+    ]
+  },
+  {
+    id: 'crashed',
+    emoji: '💥',
+    title: 'Crashed Car!',
+    text: () => 'A wrecked car blocks one lane! You creep carefully past the wreckage.',
+    choices: [
+      { label: '😬 Slow and careful', effect: gs => { gs.gas-=3; gs.bladder+=8; }, desc: '-3⛽' },
+    ]
+  },
+  {
+    id: 'scenic',
+    emoji: '🌄',
+    title: 'Scenic Overlook!',
+    text: () => 'A breathtaking view appears beside the road. The family gasps.',
+    choices: [
+      { label: '📸 Stop for photos!', effect: gs => { gs.gas-=3; gs.score+=15; }, desc: '+15pts, -3⛽' },
+      { label: '🚗 Keep driving',     effect: gs => {},                           desc: 'No stop' },
+    ]
+  },
+  {
+    id: 'bladder',
+    emoji: '🚽',
+    title: 'Bathroom Emergency!',
+    text: gs => `${gs.petName} the ${gs.petEmoji} is doing the wiggle dance. Someone needs a bathroom NOW.`,
+    choices: [
+      { label: '🛣️ Find a rest stop', effect: gs => { gs.euros-=5; gs.bladder=clamp(gs.bladder-55,0,100); }, desc: '-5€, relief!', canAfford: gs => gs.euros >= 5 },
+      { label: '🌳 Side of motorway', effect: gs => { gs.bladder=clamp(gs.bladder-35,0,100); gs.score-=5; }, desc: '-5pts, some relief' },
+    ]
+  },
+  {
+    id: 'gas_station',
+    emoji: '⛽',
+    title: 'Cheap Gas Station!',
+    text: () => 'A cheerful roadside gas station appears with a great deal on fuel.',
+    choices: [
+      { label: '⛽ Fill up',      effect: gs => { gs.euros-=10; gs.gas=clamp(gs.gas+30); }, desc: '-10€, +30⛽', canAfford: gs => gs.euros >= 10 },
+      { label: '🚗 Keep going',  effect: gs => {},                                          desc: 'Pass it by' },
+    ]
+  },
+  {
+    id: 'snack_vendor',
+    emoji: '🍬',
+    title: 'Roadside Snack Stand!',
+    text: () => 'A colorful snack vendor waves from the roadside.',
+    choices: [
+      { label: '🍬 Stock up',    effect: gs => { gs.euros-=7; gs.snacks=clamp(gs.snacks+25); }, desc: '-7€, +25🍿', canAfford: gs => gs.euros >= 7 },
+      { label: '🚗 Drive on',   effect: gs => {},                                               desc: 'Pass it by' },
+    ]
+  },
+];
+
+// ── Gamestate ─────────────────────────────────────────────────────────────────
+let gs = {};
+
+function resetGs(opts = {}) {
+  const diff = opts.difficulty || 'normal';
+  const m = diff === 'easy' ? 1.5 : diff === 'hard' ? 0.65 : 1.0;
+  gs = {
+    name:        opts.name     || 'Kid',
+    petName:     opts.petName  || 'Buddy',
+    petEmoji:    opts.petEmoji || '🐶',
+    difficulty:  diff,
+    gas:         clamp(Math.round(80  * m)),
+    euros:       Math.round(120 * m),
+    snacks:      clamp(Math.round(70  * m)),
+    bladder:     0,
+    stepIdx:     0,
+    score:       0,
+    log:         [],
+    arrived:     false,
+    date:        new Date().toLocaleDateString(),
+    done:        {},   // activities completed
+    continueUsed: false,
+  };
+}
+
+// ── Utilities ─────────────────────────────────────────────────────────────────
+function clamp(v, lo = 0, hi = 100) { return Math.max(lo, Math.min(hi, v)); }
+function resColor(v) { return v > 50 ? '#50c070' : v > 25 ? '#c8901a' : '#c05050'; }
+function eurosColor(v) { return v > 60 ? '#50c070' : v > 30 ? '#c8901a' : '#c05050'; }
+
+function addLog(msg, type = 'normal') {
+  gs.log.push({ msg, type });
+  if (gs.log.length > 60) gs.log.shift();
+}
+
+function renderLog(maxItems = 5) {
+  const cols = { normal:'#e8d8b0', good:'#50c070', bad:'#c05050', event:'#ffd700', info:'#a0c0f0' };
+  return gs.log.slice(-maxItems).map(e =>
+    `<div style="font-size:12px;color:${cols[e.type]||'#e8d8b0'};margin-bottom:3px;line-height:1.4">${e.msg}</div>`
+  ).join('');
+}
+
+// ── High Scores ───────────────────────────────────────────────────────────────
+const HS_KEY = 'mucko_hs_cartrail';
+function getHS() { try { return JSON.parse(localStorage.getItem(HS_KEY)||'[]'); } catch { return []; } }
+function saveHS(entry) {
+  const list = [...getHS(), entry].sort((a,b) => b.score - a.score).slice(0,10);
+  try { localStorage.setItem(HS_KEY, JSON.stringify(list)); } catch {}
+  return list.findIndex(e => e.score === entry.score && e.name === entry.name && e.date === entry.date) + 1;
+}
+
+// ── Viewport scaling ──────────────────────────────────────────────────────────
+function scaleToViewport() {
+  const app = document.getElementById('app');
+  if (!app) return;
+  const s = Math.min(window.innerWidth / W, window.innerHeight / H);
+  app.style.transform = `scale(${s})`;
+  app.style.left = `${(window.innerWidth  - W*s)/2}px`;
+  app.style.top  = `${(window.innerHeight - H*s)/2}px`;
+}
+window.addEventListener('resize', scaleToViewport);
+
+// ── Screen manager ────────────────────────────────────────────────────────────
+let _cleanup = null;
+function goTo(fn, ...args) {
+  if (_cleanup) { try { _cleanup(); } catch {} _cleanup = null; }
+  const app = document.getElementById('app');
+  app.innerHTML = '';
+  fn(app, ...args);
+  scaleToViewport();
+}
+
+// ── Modal ─────────────────────────────────────────────────────────────────────
+function showModal(title, body, buttons) {
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-body').innerHTML = body;
+  const btns = document.getElementById('modal-btns');
+  btns.innerHTML = '';
+  buttons.forEach(b => {
+    const el = document.createElement('button');
+    el.innerHTML = b.label;
+    if (b.disabled) { el.disabled = true; }
+    el.addEventListener('click', () => { hideModal(); b.fn(); });
+    btns.appendChild(el);
+  });
+  document.getElementById('modal').classList.add('show');
+}
+function hideModal() { document.getElementById('modal').classList.remove('show'); }
+
+// ── Car drawing ───────────────────────────────────────────────────────────────
+function drawCar(ctx, x, y) {
+  ctx.save();
+  ctx.translate(x, y);
+  // Body
+  ctx.fillStyle = '#2a6abf';
+  ctx.beginPath(); ctx.roundRect(0, 10, 80, 28, 4); ctx.fill();
+  // Cabin
+  ctx.fillStyle = '#3a7acf';
+  ctx.beginPath(); ctx.roundRect(14, 0, 50, 18, 5); ctx.fill();
+  // Windows
+  ctx.fillStyle = 'rgba(180,220,255,0.75)';
+  ctx.beginPath(); ctx.roundRect(17,3,20,12,3); ctx.fill();
+  ctx.beginPath(); ctx.roundRect(40,3,20,12,3); ctx.fill();
+  // Wheels
+  [18, 62].forEach(wx => {
+    ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(wx,38,10,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#555'; ctx.beginPath(); ctx.arc(wx,38, 5,0,Math.PI*2); ctx.fill();
+  });
+  // Headlight
+  ctx.fillStyle = '#ffe870';
+  ctx.beginPath(); ctx.arc(80, 20, 4, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+// ── Title Screen ──────────────────────────────────────────────────────────────
+function buildTitle(app) {
+  app.style.background = '#0d1b2a';
+  app.innerHTML = `
+    <canvas id="tc" width="${W}" height="${H}" style="position:absolute;top:0;left:0"></canvas>
+    <div style="position:absolute;top:0;left:0;width:${W}px;pointer-events:none;text-align:center;padding-top:72px">
+      <div style="font-size:58px;font-weight:bold;color:#ffd700;text-shadow:0 0 30px rgba(255,215,0,0.5),2px 2px 0 #7a5a00;letter-spacing:5px">CAR TRAIL</div>
+      <div style="font-size:17px;color:#c8901a;margin-top:8px;text-shadow:1px 1px 3px #000">Basel to Leipzig &mdash; The Family Road Trip</div>
+      <div style="font-size:28px;margin-top:10px">🇨🇭 ➡️ 🇩🇪</div>
+    </div>
+    <div style="position:absolute;bottom:72px;left:0;width:${W}px;display:flex;flex-direction:column;align-items:center;gap:14px">
+      <button id="btn-play" class="game-btn primary" style="font-size:20px;padding:16px 50px;min-width:210px">🚗 Start Road Trip</button>
+      <button id="btn-scores" class="game-btn" style="font-size:15px;padding:10px 32px">🏆 High Scores</button>
+      <a href="/index.html" style="color:#666;font-size:13px;text-decoration:none;margin-top:4px">← Mucko's Games</a>
+    </div>
+  `;
+
+  const canvas = document.getElementById('tc');
+  const ctx = canvas.getContext('2d');
+  let rafId;
+
+  function frame(ts) {
+    const t = ts / 1000;
+    ctx.clearRect(0, 0, W, H);
+
+    // Sky gradient
+    const sky = ctx.createLinearGradient(0, 0, 0, H * 0.65);
+    sky.addColorStop(0, '#0d1b2a');
+    sky.addColorStop(0.45, '#1a3a5c');
+    sky.addColorStop(1, '#b05818');
+    ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
+
+    // Sun
+    const sunGrad = ctx.createRadialGradient(650, H*0.38, 0, 650, H*0.38, 90);
+    sunGrad.addColorStop(0, 'rgba(255,220,100,0.9)');
+    sunGrad.addColorStop(0.35, 'rgba(255,160,50,0.55)');
+    sunGrad.addColorStop(1, 'rgba(255,100,20,0)');
+    ctx.fillStyle = sunGrad;
+    ctx.beginPath(); ctx.arc(650, H*0.38, 90, 0, Math.PI*2); ctx.fill();
+
+    // Mountain silhouette (Alps)
+    ctx.fillStyle = '#152030';
+    ctx.beginPath(); ctx.moveTo(0, H*0.58);
+    [[0,0.58],[70,0.36],[140,0.46],[230,0.28],[320,0.38],[400,0.24],[490,0.33],[570,0.43],[650,0.30],[730,0.40],[820,0.53],[820,1],[0,1]]
+      .forEach(([x,y]) => ctx.lineTo(x, H*y));
+    ctx.fill();
+
+    // Road
+    const ry = H * 0.63;
+    ctx.fillStyle = '#2a2a2a'; ctx.fillRect(0, ry, W, H-ry);
+    ctx.fillStyle = '#1a1a1a'; ctx.fillRect(0, ry, W, 3);
+    // Dashes
+    ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 2;
+    ctx.setLineDash([40,40]); ctx.lineDashOffset = -(t*180%80);
+    ctx.beginPath(); ctx.moveTo(0, ry+(H-ry)*0.45); ctx.lineTo(W, ry+(H-ry)*0.45); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Car
+    const carX = ((t * 90) % (W + 180)) - 90;
+    drawCar(ctx, carX, ry + 8);
+
+    rafId = requestAnimationFrame(frame);
+  }
+  rafId = requestAnimationFrame(frame);
+  _cleanup = () => cancelAnimationFrame(rafId);
+
+  document.getElementById('btn-play').addEventListener('click', () => goTo(buildSetup));
+  document.getElementById('btn-scores').addEventListener('click', showHighScoresModal);
+}
+
+// ── Setup Screen ──────────────────────────────────────────────────────────────
+const PET_OPTIONS = ['🐶','🐱','🐰','🐹','🦜','🐢','🐟','🦖','🐦','🐸'];
+
+function buildSetup(app) {
+  app.style.background = 'linear-gradient(160deg,#0d1b2a,#1a2a1a)';
+  let selPet = '🐶', selDiff = 'normal';
+
+  app.innerHTML = `
+    <div style="width:${W}px;height:${H}px;overflow-y:auto;color:#e8d8b0;padding:28px 60px">
+      <div style="text-align:center;margin-bottom:22px">
+        <div style="font-size:34px;color:#ffd700;font-weight:bold">🚗 Car Trail</div>
+        <div style="font-size:13px;color:#888;margin-top:4px">Set up your road trip</div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px">
+        <div>
+          <label style="font-size:12px;color:#c8901a;display:block;margin-bottom:5px;letter-spacing:1px">KID'S NAME</label>
+          <input id="inp-name" type="text" maxlength="16" placeholder="Your name"
+            style="width:100%;padding:10px 12px;background:#1a1205;border:1px solid #c8901a;color:#e8d8b0;font-size:16px;font-family:Georgia,serif;border-radius:6px;outline:none">
+        </div>
+        <div>
+          <label style="font-size:12px;color:#c8901a;display:block;margin-bottom:5px;letter-spacing:1px">PET'S NAME</label>
+          <input id="inp-pet" type="text" maxlength="16" placeholder="Pet's name"
+            style="width:100%;padding:10px 12px;background:#1a1205;border:1px solid #c8901a;color:#e8d8b0;font-size:16px;font-family:Georgia,serif;border-radius:6px;outline:none">
+        </div>
+      </div>
+
+      <div style="margin-bottom:18px">
+        <label style="font-size:12px;color:#c8901a;display:block;margin-bottom:8px;letter-spacing:1px">CHOOSE YOUR PET</label>
+        <div id="pet-grid" style="display:flex;gap:8px;flex-wrap:wrap">
+          ${PET_OPTIONS.map(p => `
+            <button class="pet-btn" data-pet="${p}"
+              style="font-size:28px;width:52px;height:52px;
+                     background:${p==='🐶'?'#2a2010':'#1a1205'};
+                     border:2px solid ${p==='🐶'?'#ffd700':'#c8901a'};
+                     border-radius:8px;touch-action:manipulation">${p}</button>
+          `).join('')}
+        </div>
+      </div>
+
+      <div style="margin-bottom:22px">
+        <label style="font-size:12px;color:#c8901a;display:block;margin-bottom:8px;letter-spacing:1px">DIFFICULTY</label>
+        <div style="display:flex;gap:10px">
+          ${[
+            {id:'easy',   label:'🌟 Easy',   desc:'Lots of resources. Very hard to lose.',  color:'#50c070'},
+            {id:'normal', label:'🚗 Normal', desc:'A real road trip challenge.',             color:'#c8901a'},
+            {id:'hard',   label:'💀 Hard',   desc:'One wrong turn and you\'re stranded.',   color:'#c05050'},
+          ].map(d => `
+            <button class="diff-btn" data-diff="${d.id}" data-color="${d.color}"
+              style="flex:1;padding:12px 6px;
+                     background:${d.id==='normal'?'#2a1a08':'#1a1205'};
+                     border:2px solid ${d.id==='normal'?d.color:'#444'};
+                     border-radius:8px;color:${d.color};
+                     font-family:Georgia,serif;cursor:pointer;touch-action:manipulation;line-height:1.4">
+              <div style="font-size:14px;font-weight:bold">${d.label}</div>
+              <div style="font-size:11px;color:#888;margin-top:3px">${d.desc}</div>
+            </button>
+          `).join('')}
+        </div>
+      </div>
+
+      <div style="text-align:center">
+        <button id="btn-start" class="game-btn primary" style="font-size:18px;padding:14px 44px">🚗 Hit the Road!</button>
+      </div>
+    </div>
+  `;
+
+  app.querySelectorAll('.pet-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      selPet = btn.dataset.pet;
+      app.querySelectorAll('.pet-btn').forEach(b => {
+        b.style.background   = b.dataset.pet === selPet ? '#2a2010' : '#1a1205';
+        b.style.borderColor  = b.dataset.pet === selPet ? '#ffd700' : '#c8901a';
+      });
+    });
+  });
+
+  app.querySelectorAll('.diff-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      selDiff = btn.dataset.diff;
+      app.querySelectorAll('.diff-btn').forEach(b => {
+        const active = b.dataset.diff === selDiff;
+        b.style.background  = active ? '#2a1a08' : '#1a1205';
+        b.style.borderColor = active ? b.dataset.color : '#444';
+      });
+    });
+  });
+
+  document.getElementById('btn-start').addEventListener('click', () => {
+    const name    = (document.getElementById('inp-name').value.trim()  || 'Kid');
+    const petName = (document.getElementById('inp-pet').value.trim()   || 'Buddy');
+    resetGs({ name, petName, petEmoji: selPet, difficulty: selDiff });
+    goTo(buildStop, 0);
+  });
+}
+
+// ── Resource Panel (right sidebar) ───────────────────────────────────────────
+function buildResourcePanel() {
+  function bar(pct, color) {
+    return `<div class="res-bar-outer"><div class="res-bar-inner" style="width:${clamp(pct,0,100)}%;background:${color}"></div></div>`;
+  }
+  function row(icon, label, val, max, color, displayFn) {
+    const pct = (val/max)*100;
+    return `<div style="margin-bottom:7px">
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px">
+        <span>${icon} ${label}</span><span style="color:${color}">${displayFn ? displayFn(val) : Math.round(val)}</span>
+      </div>${bar(pct, color)}</div>`;
+  }
+  const bv = gs.bladder;
+  const bColor = bv > 75 ? '#c05050' : bv > 50 ? '#c8901a' : '#50c070';
+  const bLabel = bv > 80 ? '🚨 URGENT' : bv > 50 ? '😬 Full' : '😊 OK';
+
+  return `
+    <div style="position:absolute;right:0;top:0;width:200px;height:${H}px;
+                background:rgba(8,12,8,0.97);border-left:1px solid #c8901a;
+                padding:14px 12px;font-family:Georgia,serif;overflow-y:auto">
+      <div style="font-size:11px;color:#c8901a;margin-bottom:6px;letter-spacing:1px">FORD ESCAPE 🚗</div>
+      <div style="font-size:13px;color:#ffd700;font-weight:bold;margin-bottom:12px">
+        ${STOPS[gs.stepIdx].country} ${STOPS[gs.stepIdx].name}
+      </div>
+
+      <div style="font-size:10px;color:#666;margin-bottom:5px;letter-spacing:1px">RESOURCES</div>
+      ${row('⛽','Gas',   gs.gas,   100, resColor(gs.gas))}
+      ${row('💶','Euros', gs.euros, 150, eurosColor(gs.euros), v => v+'€')}
+      ${row('🍿','Snacks',gs.snacks,100, resColor(gs.snacks))}
+      <div style="margin-bottom:7px">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px">
+          <span>🚽 Bladder</span><span style="color:${bColor}">${bLabel}</span>
+        </div>
+        ${bar(bv, bColor)}
+      </div>
+
+      <div style="font-size:10px;color:#666;margin-top:12px;margin-bottom:5px;letter-spacing:1px">CREW</div>
+      <div style="font-size:14px;margin-bottom:2px">${gs.petEmoji} ${gs.petName}</div>
+      <div style="font-size:12px;color:#e8d8b0">👨 Dad &nbsp; 👩 Mom</div>
+      <div style="font-size:12px;color:#ffd700;margin-top:2px">⭐ ${gs.name}</div>
+
+      <div style="font-size:10px;color:#666;margin-top:12px;margin-bottom:5px;letter-spacing:1px">ROUTE</div>
+      ${STOPS.map((s,i) => `
+        <div style="font-size:11px;color:${i<gs.stepIdx?'#50c070':i===gs.stepIdx?'#ffd700':'#444'};margin:2px 0">
+          ${i<gs.stepIdx?'✓':i===gs.stepIdx?'▶':'○'} ${s.name}
+        </div>`).join('')}
+
+      <div style="font-size:10px;color:#666;margin-top:12px;margin-bottom:3px;letter-spacing:1px">SCORE</div>
+      <div style="font-size:20px;color:#ffd700;font-weight:bold">${gs.score}</div>
+      <div style="font-size:10px;color:#666">${gs.difficulty.toUpperCase()}</div>
+    </div>
+  `;
+}
+
+// ── Universal stop activities ─────────────────────────────────────────────────
+function universalActs(stop) {
+  const n = stop.name;
+  return [
+    { id:`gas_${n}`,    emoji:'⛽', label:'Buy Gas',        cost:{euros:15}, effect:gs=>{gs.euros-=15; gs.gas=clamp(gs.gas+35);},       desc:'-15€, +35⛽' },
+    { id:`snacks_${n}`, emoji:'🍿', label:'Buy Snacks',     cost:{euros:8},  effect:gs=>{gs.euros-=8;  gs.snacks=clamp(gs.snacks+30);},  desc:'-8€, +30🍿' },
+    { id:`toilet_${n}`, emoji:'🚽', label:'Find Restroom',  cost:{},         effect:gs=>{gs.bladder=clamp(gs.bladder-60,0,100); gs.score+=2;}, desc:'Bladder relief!' },
+    { id:`rest_${n}`,   emoji:'😴', label:'Rest & Relax',   cost:{},         effect:gs=>{gs.snacks=clamp(gs.snacks+5); gs.score+=5;},    desc:'+5pts, +snacks' },
+  ];
+}
+
+// ── Stop Screen ───────────────────────────────────────────────────────────────
+function buildStop(app, stopIdx) {
+  gs.stepIdx = stopIdx;
+  const stop = STOPS[stopIdx];
+  const isLast = stopIdx === STOPS.length - 1;
+  const gameOver = !isLast && (gs.gas <= 0 || gs.euros <= 3);
+
+  app.style.background = `linear-gradient(160deg,${stop.bgTop},${stop.bgBot})`;
+
+  const allActs = [...stop.activities, ...universalActs(stop)];
+
+  function actBtn(act) {
+    const done      = !!gs.done[act.id];
+    const noEuros   = act.cost.euros && gs.euros < act.cost.euros;
+    const disabled  = done || noEuros;
+    return `
+      <button class="act-btn" data-act="${act.id}" ${disabled?'disabled':''}
+        style="display:flex;align-items:center;gap:10px;width:100%;padding:11px 14px;margin-bottom:8px;
+               background:${done?'rgba(80,192,112,0.08)':'rgba(15,12,5,0.85)'};
+               border:1px solid ${done?'#50c070':noEuros?'#333':'#c8901a'};border-radius:8px;
+               color:${done?'#50c070':noEuros?'#444':'#e8d8b0'};
+               font-family:Georgia,serif;font-size:14px;cursor:${disabled?'default':'pointer'};
+               text-align:left;touch-action:manipulation">
+        <span style="font-size:26px">${act.emoji}</span>
+        <span>
+          <strong>${act.label}</strong>${done?' ✓':''}<br>
+          <span style="font-size:11px;color:#777">${act.desc}</span>
+        </span>
+      </button>`;
+  }
+
+  const driveLabel = isLast
+    ? `🏁 We've arrived in Leipzig!`
+    : `🚗 Drive to ${STOPS[stopIdx+1].name} ${STOPS[stopIdx+1].country}`;
+
+  app.innerHTML = `
+    <div style="position:absolute;top:0;left:0;width:620px;height:${H}px;padding:18px 20px;overflow-y:auto">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+        <div style="font-size:44px">${stop.landmark}</div>
+        <div>
+          <div style="font-size:26px;font-weight:bold;color:#ffd700;text-shadow:1px 1px 3px #000">${stop.country} ${stop.name}</div>
+          <div style="font-size:12px;color:#c8d0b0;margin-top:2px">${stop.desc}</div>
+        </div>
+      </div>
+
+      <div id="stop-log" style="background:rgba(0,0,0,0.4);border:1px solid rgba(200,144,26,0.25);
+           border-radius:6px;padding:8px 10px;min-height:56px;margin-bottom:12px">
+        ${renderLog()}
+      </div>
+
+      ${gameOver ? gameOverPanel() : `
+        <div style="font-size:10px;color:#c8901a;margin-bottom:7px;letter-spacing:1px">ACTIVITIES</div>
+        ${allActs.map(actBtn).join('')}
+        <div style="margin-top:8px">
+          <button id="btn-drive" class="game-btn primary" style="width:100%;font-size:16px;padding:14px">${driveLabel}</button>
+        </div>
+      `}
+    </div>
+    ${buildResourcePanel()}
+  `;
+
+  // Wire activity buttons
+  app.querySelectorAll('.act-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const act = allActs.find(a => a.id === btn.dataset.act);
+      if (!act || gs.done[act.id]) return;
+      if (act.cost.euros && gs.euros < act.cost.euros) {
+        addLog('❌ Not enough euros!', 'bad'); refreshLog(); return;
+      }
+      gs.done[act.id] = true;
+      act.effect(gs);
+      gs.gas    = clamp(gs.gas);
+      gs.snacks = clamp(gs.snacks);
+      gs.bladder= clamp(gs.bladder,0,100);
+      gs.euros  = Math.max(0, gs.euros);
+      addLog(`✓ ${act.label} — ${act.desc}`, 'good');
+      goTo(buildStop, stopIdx);
+    });
+  });
+
+  const driveBtn = document.getElementById('btn-drive');
+  if (driveBtn) {
+    driveBtn.addEventListener('click', () => {
+      if (isLast) { gs.arrived = true; goTo(buildEnding); }
+      else goTo(buildDriving, stopIdx + 1);
+    });
+  }
+
+  const contBtn = document.getElementById('btn-continue');
+  if (contBtn) {
+    contBtn.addEventListener('click', () => {
+      gs.gas    = Math.max(gs.gas, 30);
+      gs.euros  = Math.max(gs.euros, 20);
+      gs.score  = 0;
+      gs.continueUsed = true;
+      addLog('🔄 Continue used — score reset to zero.', 'event');
+      goTo(buildStop, stopIdx);
+    });
+  }
+  document.getElementById('btn-giveup')?.addEventListener('click', () => goTo(buildEnding));
+}
+
+function gameOverPanel() {
+  const msg = gs.gas <= 0
+    ? "💀 You've run out of gas! The Ford Escape is stranded."
+    : "💶 You're nearly out of money and fuel. The trip is over...";
+  const canCont = !gs.continueUsed;
+  return `
+    <div style="text-align:center;padding:18px 10px">
+      <div style="font-size:36px;margin-bottom:10px">💀</div>
+      <div style="font-size:15px;color:#c05050;margin-bottom:16px">${msg}</div>
+      ${canCont ? `<button id="btn-continue" class="game-btn" style="width:100%;font-size:15px;padding:13px;margin-bottom:10px;border-color:#c8901a">
+        🔄 Continue (Score resets to 0)
+      </button>` : ''}
+      <button id="btn-giveup" class="game-btn danger" style="width:100%;font-size:15px;padding:13px">
+        🏳️ Give Up &amp; See Score
+      </button>
+    </div>`;
+}
+
+function refreshLog() {
+  const el = document.getElementById('stop-log');
+  if (el) el.innerHTML = renderLog();
+}
+
+// ── Driving Screen ────────────────────────────────────────────────────────────
+function buildDriving(app, nextIdx) {
+  const from = STOPS[nextIdx - 1];
+  const to   = STOPS[nextIdx];
+  const diff = gs.difficulty;
+  const costMult = diff === 'easy' ? 0.6 : diff === 'hard' ? 1.45 : 1.0;
+
+  const gasUsed    = Math.round((to.gasToHere || 15) * costMult);
+  const snackUsed  = Math.round(8 * costMult);
+  const bladderAdd = Math.round(15 + Math.random() * 12);
+
+  gs.gas     = clamp(gs.gas    - gasUsed);
+  gs.snacks  = clamp(gs.snacks - snackUsed);
+  gs.bladder = clamp(gs.bladder + bladderAdd, 0, 100);
+  addLog(`🚗 Driving ${from.name} → ${to.name}...`, 'info');
+  addLog(`⛽ Used ${gasUsed} gas · 🍿 Ate ${snackUsed} snacks en route.`, 'normal');
+
+  // Pick events
+  const maxEvt = diff === 'easy' ? 1 : diff === 'hard' ? 3 : 2;
+  const numEvt = Math.floor(Math.random() * (maxEvt + 1));
+  const queue  = [];
+  // Force bladder event if urgent
+  if (gs.bladder > 72) {
+    const bev = EVENTS.find(e => e.id === 'bladder');
+    if (bev) queue.push(bev);
+  }
+  const shuffled = [...EVENTS].sort(() => Math.random() - 0.5);
+  for (const ev of shuffled) {
+    if (queue.length >= numEvt) break;
+    if (queue.find(e => e.id === ev.id)) continue;
+    queue.push(ev);
+  }
+
+  app.style.background = '#0d1b2a';
+  app.innerHTML = `
+    <canvas id="dc" width="${W}" height="${H}" style="position:absolute;top:0;left:0"></canvas>
+    <div style="position:absolute;top:22px;left:0;width:${W}px;text-align:center;pointer-events:none">
+      <div style="font-size:22px;color:#ffd700;text-shadow:1px 1px 4px #000">🚗 On the road...</div>
+      <div style="font-size:14px;color:#e8d8b0;margin-top:5px">${from.name} ${from.country} → ${to.name} ${to.country}</div>
+    </div>
+  `;
+
+  const canvas = document.getElementById('dc');
+  const ctx = canvas.getContext('2d');
+  let rafId;
+
+  // Pick scenery color for this leg
+  const sceneColors = ['#1a3a2a','#2a4a1a','#1a3040','#2a1a3a','#1a3020','#2a1a10','#1a3a3a'];
+  const sceneColor = sceneColors[nextIdx % sceneColors.length];
+
+  function frame(ts) {
+    const t = ts / 1000;
+    ctx.clearRect(0, 0, W, H);
+    // Sky
+    const sky = ctx.createLinearGradient(0,0,0,H*0.6);
+    sky.addColorStop(0,'#0d1b2a'); sky.addColorStop(1,'#1a2a20');
+    ctx.fillStyle = sky; ctx.fillRect(0,0,W,H);
+    // Hills
+    ctx.fillStyle = sceneColor;
+    ctx.beginPath(); ctx.moveTo(0, H*0.55);
+    for (let i=0; i<=14; i++) {
+      const x = (i/14)*W;
+      const y = H*0.55 - (55 + Math.sin(i*0.9+1)*35 + Math.cos(i*1.6+2)*20);
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(W,H*0.55); ctx.lineTo(0,H*0.55); ctx.closePath(); ctx.fill();
+    // Road
+    const ry = H*0.55;
+    ctx.fillStyle='#252525'; ctx.fillRect(0,ry,W,H-ry);
+    ctx.strokeStyle='#ffd700'; ctx.lineWidth=2;
+    ctx.setLineDash([40,40]); ctx.lineDashOffset=-(t*200%80);
+    ctx.beginPath(); ctx.moveTo(0,ry+(H-ry)*0.45); ctx.lineTo(W,ry+(H-ry)*0.45); ctx.stroke();
+    ctx.setLineDash([]);
+    // Car (centered, slight wobble)
+    drawCar(ctx, W/2 - 40 + Math.sin(t*2.8)*1.5, ry + 8);
+    rafId = requestAnimationFrame(frame);
+  }
+  rafId = requestAnimationFrame(frame);
+  _cleanup = () => cancelAnimationFrame(rafId);
+
+  // Process events then go to next stop
+  let evIdx = 0;
+  function nextEvent() {
+    if (evIdx >= queue.length) {
+      cancelAnimationFrame(rafId);
+      goTo(buildStop, nextIdx);
+      return;
+    }
+    const ev = queue[evIdx++];
+    const textStr = typeof ev.text === 'function' ? ev.text(gs) : ev.text;
+    const buttons = ev.choices.map(ch => {
+      const unavailable = ch.canAfford ? !ch.canAfford(gs) : false;
+      return {
+        label: `${ch.label}<br><small style="color:#888;font-size:11px">${ch.desc}</small>`,
+        disabled: unavailable,
+        fn: () => {
+          ch.effect(gs);
+          gs.gas    = clamp(gs.gas);
+          gs.snacks = clamp(gs.snacks);
+          gs.euros  = Math.max(0, gs.euros);
+          gs.bladder= clamp(gs.bladder,0,100);
+          addLog(`${ev.emoji} ${ev.title}`, 'event');
+          nextEvent();
+        }
+      };
+    });
+    showModal(`${ev.emoji} ${ev.title}`, textStr, buttons);
+  }
+
+  setTimeout(nextEvent, 900);
+}
+
+// ── Ending Screen ─────────────────────────────────────────────────────────────
+function buildEnding(app) {
+  const arrived = gs.arrived;
+  let score = gs.score;
+  const breakdown = [];
+
+  if (arrived) { score += 500; breakdown.push(['Safe arrival bonus 🏁', 500, 'pos']); }
+  const gasB = Math.round(gs.gas * 0.5);       if (gasB  > 0) { score += gasB;  breakdown.push([`Gas remaining`,     gasB,  'pos']); }
+  const eurB = Math.round(gs.euros * 0.8);      if (eurB  > 0) { score += eurB;  breakdown.push([`Euros remaining`,   eurB,  'pos']); }
+  const snkB = Math.round(gs.snacks * 0.3);     if (snkB  > 0) { score += snkB;  breakdown.push([`Snacks remaining`,  snkB,  'pos']); }
+  if (gs.continueUsed) breakdown.push(['Continue used', 0, 'neg']);
+
+  const diffMult = gs.difficulty === 'hard' ? 1.5 : gs.difficulty === 'easy' ? 0.7 : 1.0;
+  const finalScore = Math.round(score * diffMult);
+
+  const rating = finalScore >= 900 ? 'Legendary Road Warrior 🏆'
+               : finalScore >= 650 ? 'Expert Traveler ⭐'
+               : finalScore >= 400 ? 'Good Journey 🚗'
+               : finalScore >= 200 ? 'Rough Ride 😅'
+               : 'Stranded... 💀';
+
+  const entry = { score: finalScore, name: gs.name, diff: gs.difficulty, rating, date: gs.date };
+  const rank  = saveHS(entry);
+  const hsList = getHS();
+
+  app.style.background = 'linear-gradient(160deg,#0d1b2a,#0d1a0d)';
+  app.innerHTML = `
+    <div style="width:${W}px;height:${H}px;overflow-y:auto;color:#e8d8b0;font-family:Georgia,serif;padding:26px 44px">
+      <div style="text-align:center;margin-bottom:18px">
+        <div style="font-size:46px">${arrived?'🏆':'💀'}</div>
+        <div style="font-size:28px;font-weight:bold;color:#ffd700">${arrived?'You made it to Leipzig!':'Road Trip Cut Short'}</div>
+        <div style="font-size:15px;color:#c8901a;margin-top:5px">${rating}</div>
+        ${rank<=3?`<div style="font-size:14px;color:#ffd700;margin-top:5px">★ New high score — rank #${rank}! ★</div>`:''}
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:20px">
+        <div style="background:rgba(0,0,0,0.4);border:1px solid #c8901a;border-radius:8px;padding:15px">
+          <div style="font-size:10px;color:#c8901a;margin-bottom:10px;letter-spacing:1px">SCORE BREAKDOWN</div>
+          ${breakdown.map(([lbl,val,dir])=>`
+            <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">
+              <span>${lbl}</span>
+              <span style="color:${dir==='pos'?'#50c070':'#888'}">${dir==='pos'?'+':''}${val}</span>
+            </div>`).join('')}
+          ${diffMult!==1?`<div style="display:flex;justify-content:space-between;font-size:13px;margin-top:6px;border-top:1px solid #444;padding-top:6px">
+            <span>Difficulty (${gs.difficulty})</span><span style="color:#c8901a">×${diffMult}</span>
+          </div>`:''}
+          <div style="display:flex;justify-content:space-between;font-size:17px;font-weight:bold;
+                      margin-top:8px;border-top:1px solid #c8901a;padding-top:8px">
+            <span>FINAL SCORE</span><span style="color:#ffd700">${finalScore}</span>
+          </div>
+        </div>
+
+        <div style="background:rgba(0,0,0,0.4);border:1px solid #c8901a;border-radius:8px;padding:15px">
+          <div style="font-size:10px;color:#c8901a;margin-bottom:10px;letter-spacing:1px">HIGH SCORES</div>
+          ${hsList.slice(0,8).map((e,i)=>`
+            <div style="display:flex;gap:6px;font-size:12px;margin-bottom:3px;
+                        ${e.score===finalScore&&e.name===gs.name?'color:#ffd700;font-weight:bold':''}">
+              <span style="width:18px;color:#666">${i+1}.</span>
+              <span style="flex:1">${e.name}</span>
+              <span style="color:#50c070">${e.score}</span>
+              <span style="color:#555;font-size:10px">${e.diff}</span>
+            </div>`).join('')}
+        </div>
+      </div>
+
+      <div style="display:flex;gap:12px;justify-content:center">
+        <button id="btn-again" class="game-btn primary" style="font-size:16px;padding:13px 32px">🚗 Play Again</button>
+        <a href="/index.html"><button class="game-btn" style="font-size:16px;padding:13px 32px">🏠 Main Menu</button></a>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('btn-again').addEventListener('click', () => goTo(buildTitle));
+}
+
+// ── High Scores Modal ─────────────────────────────────────────────────────────
+function showHighScoresModal() {
+  const list = getHS();
+  if (!list.length) {
+    showModal('🏆 High Scores', 'No scores yet — hit the road!', [{label:'OK', fn:()=>{}}]);
+    return;
+  }
+  const rows = list.slice(0,10).map((e,i)=>`
+    <div style="display:flex;gap:8px;font-size:13px;margin-bottom:4px">
+      <span style="width:22px;color:#666">${i+1}.</span>
+      <span style="flex:1">${e.name}</span>
+      <span style="color:#50c070">${e.score}</span>
+      <span style="color:#666;font-size:11px">${e.diff}</span>
+    </div>`).join('');
+  showModal('🏆 High Scores', `<div style="text-align:left">${rows}</div>`, [{label:'Close', fn:()=>{}}]);
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+scaleToViewport();
+goTo(buildTitle);
+</script>
+</body>
+</html>
