@@ -219,7 +219,7 @@ var ENERGY_DRAIN   = 0.35;  // per second
 var SEED_BONUS     = 25;
 var JAIL_PENALTY   = 45;
 var CHASE_DURATION = 10;
-var POLICE_SPEED   = 82;
+var POLICE_SPEED   = 105;
 var INTERACT_DIST  = 44;
 
 var HOUSE_NUMBERS = [12, 15, 18, 21, 24, 27];
@@ -375,8 +375,10 @@ function advanceRoom() {
   if (currentRoom >= numRooms) {
     player.x = 120; player.y = H / 2;
     phase = 'jackpot';
+  } else {
+    // Reset to left side of new room
+    player.x = 90; player.y = H / 2; player.facing = 'right';
   }
-  // else stay in house, currentRoom already incremented
 }
 
 // Physical keyboard for numpad
@@ -990,10 +992,14 @@ function renderJackpot() {
 function updateChase(dt) {
   chaseTimer -= dt;
   if (chaseTimer <= 0) {
-    jailCount++;
-    energy = Math.max(0, energy - JAIL_PENALTY);
-    initJail();
-    phase = 'jail';
+    // Survived! Return to where we came from.
+    if (returnPhase === 'alley') {
+      player.x = 60; player.y = 390; player.facing = 'right';
+      phase = 'alley';
+    } else {
+      player.x = 90; player.y = H / 2; player.facing = 'right';
+      phase = 'house';
+    }
     return;
   }
   if (stunTimer > 0) { stunTimer -= dt; return; }
