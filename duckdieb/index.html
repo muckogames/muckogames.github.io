@@ -8,20 +8,23 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{
-  background:#0a120a;display:flex;align-items:center;justify-content:center;
-  min-height:100vh;overflow:hidden;touch-action:none;
+  background:#0a120a;overflow:hidden;touch-action:none;
   user-select:none;-webkit-user-select:none;
 }
 #stage{
-  position:relative;display:block;
-  border:3px solid #3a5a2a;border-radius:12px;overflow:hidden;
+  position:absolute;
+  width:800px;height:560px;
+  overflow:hidden;
+  transform-origin:0 0;
+  border:3px solid #3a5a2a;border-radius:12px;
   box-shadow:0 20px 60px rgba(0,0,0,0.7);
 }
-#gc{display:block;}
+#gc{display:block;width:800px;height:560px;}
 
 /* ── Numpad overlay (fixed, outside scaled stage) ── */
 #numpad-overlay{
-  display:none;position:fixed;inset:0;
+  display:none;position:fixed;
+  top:0;right:0;bottom:0;left:0;
   background:rgba(0,0,0,0.75);z-index:200;
   align-items:center;justify-content:center;
 }
@@ -38,10 +41,11 @@ body{
   padding:10px 16px;margin-bottom:12px;min-height:56px;
   border:2px solid #3a3a5a;
 }
-#numpad-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px;}
+#numpad-grid{display:grid;grid-template-columns:repeat(3,1fr);margin-bottom:8px;}
 .nk{
   background:#1e1e30;border:2px solid #3a3a5a;border-radius:10px;
   color:#fff;font:bold 22px monospace;padding:14px 0;cursor:pointer;
+  margin:4px;
   touch-action:manipulation;-webkit-tap-highlight-color:transparent;
   transition:background .1s,border-color .1s;
 }
@@ -88,6 +92,19 @@ body{
    DUCK DIEB  —  a top-down heist game
    ════════════════════════════════════════════════════════ */
 
+// Polyfill ctx.roundRect for Safari < 15.4 / older iPads
+if (!CanvasRenderingContext2D.prototype.roundRect) {
+  CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
+    r = Math.min(r || 0, Math.abs(w) / 2, Math.abs(h) / 2);
+    this.moveTo(x + r, y);
+    this.lineTo(x + w - r, y);    this.quadraticCurveTo(x + w, y,     x + w, y + r);
+    this.lineTo(x + w, y + h - r); this.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    this.lineTo(x + r, y + h);    this.quadraticCurveTo(x,     y + h, x,     y + h - r);
+    this.lineTo(x, y + r);        this.quadraticCurveTo(x,     y,     x + r, y);
+    this.closePath();
+  };
+}
+
 var W = 800, H = 560, TAU = Math.PI * 2;
 
 // ── Canvas / stage setup ───────────────────────────────────────────────────
@@ -95,16 +112,14 @@ var stage  = document.getElementById('stage');
 var canvas = document.getElementById('gc');
 var ctx    = canvas.getContext('2d');
 
-function renderDpr() { return Math.min(2, Math.max(1, window.devicePixelRatio || 1)); }
+canvas.width = W; canvas.height = H;
+ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+
 function resize() {
-  var dpr = renderDpr();
-  var s = Math.min(window.innerWidth / (W + 6), window.innerHeight / (H + 6));
-  stage.style.width  = Math.max(1, Math.round(W * s)) + 'px';
-  stage.style.height = Math.max(1, Math.round(H * s)) + 'px';
-  canvas.width  = Math.max(1, Math.round(W * dpr));
-  canvas.height = Math.max(1, Math.round(H * dpr));
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  var s = Math.min(window.innerWidth / W, window.innerHeight / H);
+  stage.style.transform = 'scale(' + s + ')';
+  stage.style.left = Math.round((window.innerWidth  - W * s) / 2) + 'px';
+  stage.style.top  = Math.round((window.innerHeight - H * s) / 2) + 'px';
 }
 window.addEventListener('resize', resize); resize();
 
@@ -515,18 +530,7 @@ function txt(s, x, y, c, sz, align, font) {
 }
 function rndRect(x, y, w, h, r, fill, stroke, sw) {
   ctx.beginPath();
-  if (ctx.roundRect) {
-    ctx.roundRect(x, y, w, h, r || 0);
-  } else {
-    // Fallback for old browsers
-    var rr = Math.min(r || 0, w / 2, h / 2);
-    ctx.moveTo(x + rr, y);
-    ctx.lineTo(x + w - rr, y); ctx.arcTo(x+w,y,x+w,y+rr,rr);
-    ctx.lineTo(x + w, y + h - rr); ctx.arcTo(x+w,y+h,x+w-rr,y+h,rr);
-    ctx.lineTo(x + rr, y + h); ctx.arcTo(x,y+h,x,y+h-rr,rr);
-    ctx.lineTo(x, y + rr); ctx.arcTo(x,y,x+rr,y,rr);
-    ctx.closePath();
-  }
+  ctx.roundRect(x, y, w, h, r || 0);
   if (fill) { ctx.fillStyle = fill; ctx.fill(); }
   if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = sw || 2; ctx.stroke(); }
 }
