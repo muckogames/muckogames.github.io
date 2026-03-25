@@ -1,0 +1,1266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Duck Dieb 🦆</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext x='50%25' y='50%25' dy='.35em' text-anchor='middle' font-size='82'%3E%F0%9F%A6%86%3C/text%3E%3C/svg%3E">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  background:#0a120a;display:flex;align-items:center;justify-content:center;
+  min-height:100vh;overflow:hidden;touch-action:none;
+  user-select:none;-webkit-user-select:none;
+}
+#stage{
+  position:relative;display:block;
+  border:3px solid #3a5a2a;border-radius:12px;overflow:hidden;
+  box-shadow:0 20px 60px rgba(0,0,0,0.7);
+}
+#gc{display:block;}
+
+/* ── Numpad overlay (fixed, outside scaled stage) ── */
+#numpad-overlay{
+  display:none;position:fixed;inset:0;
+  background:rgba(0,0,0,0.75);z-index:200;
+  align-items:center;justify-content:center;
+}
+#numpad-overlay.open{display:flex;}
+#numpad-box{
+  background:#12121e;border:3px solid #ffd700;border-radius:16px;
+  padding:22px 26px;text-align:center;min-width:230px;
+  box-shadow:0 0 40px rgba(255,215,0,0.25);
+}
+#numpad-hint{color:#ffd700;font:bold 14px monospace;margin-bottom:8px;}
+#numpad-display{
+  font:bold 34px monospace;letter-spacing:10px;
+  color:#fff;background:#0a0a14;border-radius:8px;
+  padding:10px 16px;margin-bottom:12px;min-height:56px;
+  border:2px solid #3a3a5a;
+}
+#numpad-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px;}
+.nk{
+  background:#1e1e30;border:2px solid #3a3a5a;border-radius:10px;
+  color:#fff;font:bold 22px monospace;padding:14px 0;cursor:pointer;
+  touch-action:manipulation;-webkit-tap-highlight-color:transparent;
+  transition:background .1s,border-color .1s;
+}
+.nk:active,.nk.pressed{background:#2a2a44;border-color:#ffd700;}
+.nk.ok{border-color:#44cc44;color:#44cc44;}
+.nk.cancel-key{
+  border-color:#cc4444;color:#cc4444;font-size:13px;
+  width:100%;padding:10px;margin-top:4px;
+}
+#numpad-error{color:#ff5555;font:13px monospace;min-height:20px;margin-top:6px;}
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="gc"></canvas></div>
+
+<!-- Numpad (outside stage so it's not affected by stage scaling) -->
+<div id="numpad-overlay">
+  <div id="numpad-box">
+    <div id="numpad-hint">Enter code:</div>
+    <div id="numpad-display" id="numpad-disp"></div>
+    <div id="numpad-grid">
+      <button class="nk" data-v="1">1</button>
+      <button class="nk" data-v="2">2</button>
+      <button class="nk" data-v="3">3</button>
+      <button class="nk" data-v="4">4</button>
+      <button class="nk" data-v="5">5</button>
+      <button class="nk" data-v="6">6</button>
+      <button class="nk" data-v="7">7</button>
+      <button class="nk" data-v="8">8</button>
+      <button class="nk" data-v="9">9</button>
+      <button class="nk" data-v="back">⌫</button>
+      <button class="nk" data-v="0">0</button>
+      <button class="nk ok" data-v="ok">OK</button>
+    </div>
+    <button class="nk cancel-key" data-v="cancel">Cancel</button>
+    <div id="numpad-error"></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+/* ════════════════════════════════════════════════════════
+   DUCK DIEB  —  a top-down heist game
+   ════════════════════════════════════════════════════════ */
+
+var W = 800, H = 560, TAU = Math.PI * 2;
+
+// ── Canvas / stage setup ───────────────────────────────────────────────────
+var stage  = document.getElementById('stage');
+var canvas = document.getElementById('gc');
+var ctx    = canvas.getContext('2d');
+
+function renderDpr() { return Math.min(2, Math.max(1, window.devicePixelRatio || 1)); }
+function resize() {
+  var dpr = renderDpr();
+  var s = Math.min(window.innerWidth / (W + 6), window.innerHeight / (H + 6));
+  stage.style.width  = Math.max(1, Math.round(W * s)) + 'px';
+  stage.style.height = Math.max(1, Math.round(H * s)) + 'px';
+  canvas.width  = Math.max(1, Math.round(W * dpr));
+  canvas.height = Math.max(1, Math.round(H * dpr));
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+}
+window.addEventListener('resize', resize); resize();
+
+// ── Touch detection ─────────────────────────────────────────────────────────
+var TOUCH_UI = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+
+// ── Input ───────────────────────────────────────────────────────────────────
+var K = {}, JP = {};
+document.addEventListener('keydown', function(e) {
+  if (!K[e.code]) JP[e.code] = true;
+  K[e.code] = true;
+});
+document.addEventListener('keyup', function(e) { K[e.code] = false; });
+function eat(c) { if (JP[c]) { JP[c] = false; return true; } return false; }
+function eatAction() {
+  return eat('KeyE') || eat('Space') || eat('Enter');
+}
+function isUp()    { return K.ArrowUp    || K.KeyW || touchDirs.up; }
+function isDown()  { return K.ArrowDown  || K.KeyS || touchDirs.down; }
+function isLeft()  { return K.ArrowLeft  || K.KeyA || touchDirs.left; }
+function isRight() { return K.ArrowRight || K.KeyD || touchDirs.right; }
+
+var touchDirs = { up:false, down:false, left:false, right:false };
+var touchActionFired = false;
+
+// Mobile controls layout (canvas coords)
+var DPAD_CX = 88, DPAD_CY = H - 88, DPAD_R = 58;
+var ACT_CX  = W - 68, ACT_CY = H - 88, ACT_R = 38;
+
+function inMovablePhase() {
+  return phase === 'alley' || phase === 'house' ||
+         phase === 'jackpot' || phase === 'chase' || phase === 'jail';
+}
+
+function mapToCanvas(clientX, clientY) {
+  var r = canvas.getBoundingClientRect();
+  return { x: (clientX - r.left) * (W / r.width),
+           y: (clientY - r.top)  * (H / r.height) };
+}
+
+function getDpadDir(px, py) {
+  var dx = px - DPAD_CX, dy = py - DPAD_CY;
+  var dist = Math.sqrt(dx*dx + dy*dy);
+  if (dist < 10 || dist > DPAD_R * 2.3) return null;
+  if (Math.abs(dx) >= Math.abs(dy)) return dx < 0 ? 'left' : 'right';
+  return dy < 0 ? 'up' : 'down';
+}
+
+function syncTouch(e) {
+  if (!inMovablePhase()) return;
+  var r = canvas.getBoundingClientRect();
+  var sx = W / r.width, sy = H / r.height;
+  var dirs = { up:false, down:false, left:false, right:false };
+  var actHit = false;
+  for (var i = 0; i < e.touches.length; i++) {
+    var t = e.touches[i];
+    var px = (t.clientX - r.left) * sx;
+    var py = (t.clientY - r.top)  * sy;
+    var dir = getDpadDir(px, py);
+    if (dir) dirs[dir] = true;
+    var adx = px - ACT_CX, ady = py - ACT_CY;
+    if (Math.sqrt(adx*adx + ady*ady) < ACT_R * 1.3) actHit = true;
+  }
+  touchDirs = dirs;
+  if (actHit && !touchActionFired) { JP.KeyE = true; touchActionFired = true; }
+  if (!actHit) touchActionFired = false;
+}
+
+canvas.addEventListener('touchstart',  function(e){ syncTouch(e); e.preventDefault(); }, {passive:false});
+canvas.addEventListener('touchmove',   function(e){ syncTouch(e); e.preventDefault(); }, {passive:false});
+canvas.addEventListener('touchend',    function(e){ syncTouch(e); e.preventDefault(); }, {passive:false});
+canvas.addEventListener('touchcancel', function(e){ syncTouch(e); e.preventDefault(); }, {passive:false});
+window.addEventListener('blur', function() { touchDirs = {up:false,down:false,left:false,right:false}; });
+
+// Canvas click for title/victory
+canvas.addEventListener('click', function() {
+  if (phase === 'title' || phase === 'victory') startGame();
+});
+
+// ── Constants ────────────────────────────────────────────────────────────────
+var PLAYER_SPEED   = 130;
+var ENERGY_MAX     = 300;
+var ENERGY_DRAIN   = 0.35;  // per second
+var SEED_BONUS     = 25;
+var JAIL_PENALTY   = 45;
+var CHASE_DURATION = 30;
+var POLICE_SPEED   = 82;
+var INTERACT_DIST  = 44;
+
+var HOUSE_NUMBERS = [12, 15, 18, 21, 24, 27];
+var HOUSE_COLORS  = ['#c8b090','#d0b8a0','#b8a888','#ccb898','#d4bc9c','#bfaa88'];
+var ROOF_COLORS   = ['#8b5c3a','#7a4c2a','#9a6c4a','#6b4c2a','#8a5c3a','#7b4e2e'];
+
+var LOREM = [
+  'Lorem ipsum dolor sit amet.',
+  'Consectetur adipiscing elit.',
+  'Sed do eiusmod tempor.',
+  'Ut labore et dolore magna.',
+  'Aliqua ut enim ad minim.',
+  'Quis nostrud exercitation.',
+  'Ullamco laboris nisi ut.',
+  'Duis aute irure dolor in.',
+  'Voluptate velit esse cillum.',
+  'Excepteur sint occaecat.',
+];
+
+var COLORS = ['red','blue','green','yellow','purple','orange'];
+var COLOR_FILLS = {
+  red:'#c03030', blue:'#3050c8', green:'#30a040',
+  yellow:'#d4c030', purple:'#8030c0', orange:'#d06020'
+};
+
+// ── Game state ────────────────────────────────────────────────────────────────
+var phase = 'title';
+var energy = ENERGY_MAX;
+var jailCount = 0;
+var powerOff = false;
+var raccoonsHelped = false;
+
+// Alley
+var targetHouse = 0;
+var houseData = [];
+var dumpster = { x:480, y:295, w:58, h:38 };
+var raccoonPos = { x:548, y:308 };
+var alleySeeds = [];
+
+// House
+var numRooms = 2, currentRoom = 0;
+var rooms = [];          // [{papers:[{x,y,text,read}], seeds:[{x,y,collected}], code}]
+var returnPhase = 'alley'; // where to return after jail
+
+// Chase
+var chaseTimer = 0;
+var police = [];
+var stunTimer = 0;
+
+// Jail
+var signColor = 'red';
+var jailRugs = [];
+var jailFlash = 0; // wrong-rug flash timer
+
+// Popup (paper text)
+var popup = { open:false, text:'', timer:0 };
+
+// Player
+var player = { x:100, y:380, facing:'right' };
+
+// ── Numpad ────────────────────────────────────────────────────────────────────
+var numpadOpen = false;
+var numpadCode = '';
+var numpadInput = '';
+var numpadLocked = false; // briefly locked after wrong code
+
+var numOverlay = document.getElementById('numpad-overlay');
+var numDisplay = document.getElementById('numpad-display');
+var numHint    = document.getElementById('numpad-hint');
+var numError   = document.getElementById('numpad-error');
+
+document.querySelectorAll('.nk').forEach(function(btn) {
+  btn.addEventListener('click', function() { numpadKey(btn.dataset.v); });
+  // Touch: fire on touchend to avoid ghost clicks
+  btn.addEventListener('touchend', function(e) {
+    e.preventDefault();
+    numpadKey(btn.dataset.v);
+  });
+});
+
+function openNumpad(code) {
+  numpadCode  = code;
+  numpadInput = '';
+  numpadLocked = false;
+  var digits = powerOff ? 2 : 4;
+  numHint.textContent = 'Enter ' + digits + '-digit code:';
+  numDisplay.textContent = blankDisplay(digits);
+  numError.textContent = '';
+  numOverlay.className = 'open';
+  numpadOpen = true;
+}
+
+function blankDisplay(digits) {
+  var s = '';
+  for (var i = 0; i < digits; i++) s += '_ ';
+  return s.trim();
+}
+
+function updateDisplay() {
+  var digits = powerOff ? 2 : 4;
+  var s = '';
+  for (var i = 0; i < digits; i++) {
+    s += (i < numpadInput.length ? numpadInput[i] : '_') + ' ';
+  }
+  numDisplay.textContent = s.trim();
+}
+
+function numpadKey(v) {
+  if (numpadLocked) return;
+  if (v === 'cancel') { closeNumpad(); return; }
+  if (v === 'back') {
+    numpadInput = numpadInput.slice(0, -1);
+    updateDisplay(); numError.textContent = ''; return;
+  }
+  if (v === 'ok') { numpadSubmit(); return; }
+  var maxLen = powerOff ? 2 : 4;
+  if (numpadInput.length < maxLen) {
+    numpadInput += v;
+    updateDisplay();
+    if (numpadInput.length === maxLen) numpadSubmit();
+  }
+}
+
+function numpadSubmit() {
+  if (numpadInput === numpadCode) {
+    closeNumpad();
+    advanceRoom();
+  } else {
+    numError.textContent = 'WRONG CODE!';
+    numpadInput = '';
+    numpadLocked = true;
+    setTimeout(function() {
+      closeNumpad();
+      energy = Math.max(0, energy - JAIL_PENALTY / 2);
+      jailCount++;
+      returnPhase = 'house';
+      initChase();
+      phase = 'chase';
+    }, 700);
+  }
+}
+
+function closeNumpad() {
+  numpadOpen = false;
+  numOverlay.className = '';
+}
+
+function advanceRoom() {
+  currentRoom++;
+  if (currentRoom >= numRooms) {
+    player.x = 120; player.y = H / 2;
+    phase = 'jackpot';
+  }
+  // else stay in house, currentRoom already incremented
+}
+
+// Physical keyboard for numpad
+document.addEventListener('keydown', function(e) {
+  if (!numpadOpen || numpadLocked) return;
+  if (/^[0-9]$/.test(e.key)) { numpadKey(e.key); e.preventDefault(); }
+  else if (e.code === 'Backspace') { numpadKey('back'); e.preventDefault(); }
+  else if (e.code === 'Enter') { numpadKey('ok'); e.preventDefault(); }
+  else if (e.code === 'Escape') { numpadKey('cancel'); e.preventDefault(); }
+});
+
+// ── Init functions ─────────────────────────────────────────────────────────
+function rng() { return Math.random(); }
+function rngRange(a, b) { return a + rng() * (b - a); }
+function rngInt(n) { return Math.floor(rng() * n); }
+
+function generateCode() {
+  var len = powerOff ? 2 : 4;
+  var code = '';
+  for (var i = 0; i < len; i++) code += rngInt(10);
+  return code;
+}
+
+function initAlley() {
+  houseData = [];
+  for (var i = 0; i < 6; i++) {
+    var hx = 36 + i * 124;
+    houseData.push({
+      x: hx, y: 45, w: 108, h: 90,
+      number: HOUSE_NUMBERS[i],
+      col: HOUSE_COLORS[i], roofCol: ROOF_COLORS[i],
+      doorCx: hx + 54, doorCy: 148
+    });
+  }
+  targetHouse = HOUSE_NUMBERS[rngInt(6)];
+  alleySeeds = [];
+  for (var j = 0; j < 7; j++) {
+    alleySeeds.push({ x: rngRange(60, 760), y: rngRange(200, 510), collected: false });
+  }
+  player.x = 60; player.y = 390; player.facing = 'right';
+  popup.open = false;
+}
+
+function initHouse() {
+  numRooms = 2 + rngInt(2); // 2 or 3
+  currentRoom = 0;
+  rooms = [];
+  for (var r = 0; r < numRooms; r++) {
+    var code = generateCode();
+    var numPapers = 4 + rngInt(3); // 4-6
+    var codeIdx = rngInt(numPapers);
+    var papers = [];
+    for (var p = 0; p < numPapers; p++) {
+      var lorem = LOREM[rngInt(LOREM.length)];
+      papers.push({
+        x: rngRange(100, 680),
+        y: rngRange(100, 440),
+        text: p === codeIdx ? ('CODE: ' + code) : lorem,
+        isCode: p === codeIdx,
+        read: false
+      });
+    }
+    var numSeeds = rngInt(3); // 0-2
+    var seeds = [];
+    for (var s = 0; s < numSeeds; s++) {
+      seeds.push({ x: rngRange(120, 680), y: rngRange(110, 430), collected: false });
+    }
+    rooms.push({ papers: papers, seeds: seeds, code: code });
+  }
+  player.x = 90; player.y = H / 2; player.facing = 'right';
+  popup.open = false;
+}
+
+function initChase() {
+  chaseTimer = CHASE_DURATION;
+  stunTimer = 0;
+  police = [
+    { x: 720, y: 180 },
+    { x: 720, y: 380 }
+  ];
+  player.x = 80; player.y = H / 2; player.facing = 'right';
+}
+
+function initJail() {
+  signColor = COLORS[rngInt(COLORS.length)];
+  var rugColors = COLORS.slice().sort(function() { return rng() - 0.5; }).slice(0, 4);
+  // Ensure correct color is present
+  if (rugColors.indexOf(signColor) < 0) {
+    rugColors[rngInt(4)] = signColor;
+  }
+  // Shuffle again
+  rugColors.sort(function() { return rng() - 0.5; });
+  var positions = [
+    { x: 290, y: 90  }, { x: 500, y: 90  },
+    { x: 290, y: 310 }, { x: 500, y: 310 }
+  ];
+  jailRugs = [];
+  for (var i = 0; i < 4; i++) {
+    jailRugs.push({
+      x: positions[i].x, y: positions[i].y,
+      w: 170, h: 110, color: rugColors[i]
+    });
+  }
+  jailFlash = 0;
+  player.x = 420; player.y = 440; player.facing = 'up';
+}
+
+function startGame() {
+  energy = ENERGY_MAX;
+  jailCount = 0;
+  powerOff = false;
+  raccoonsHelped = false;
+  popup.open = false;
+  initAlley();
+  phase = 'alley';
+}
+
+// ── Draw helpers ───────────────────────────────────────────────────────────
+function circ(x, y, r, c) {
+  ctx.fillStyle = c; ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+}
+function ell(x, y, rx, ry, c) {
+  ctx.fillStyle = c; ctx.beginPath();
+  ctx.ellipse(x, y, rx, ry, 0, 0, TAU); ctx.fill();
+}
+function rect(x, y, w, h, c) { ctx.fillStyle = c; ctx.fillRect(x, y, w, h); }
+function txt(s, x, y, c, sz, align, font) {
+  ctx.fillStyle = c;
+  ctx.font = (sz || 14) + 'px ' + (font || 'monospace');
+  ctx.textAlign = align || 'left';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText(s, x, y);
+}
+function rndRect(x, y, w, h, r, fill, stroke, sw) {
+  ctx.beginPath();
+  if (ctx.roundRect) {
+    ctx.roundRect(x, y, w, h, r || 0);
+  } else {
+    // Fallback for old browsers
+    var rr = Math.min(r || 0, w / 2, h / 2);
+    ctx.moveTo(x + rr, y);
+    ctx.lineTo(x + w - rr, y); ctx.arcTo(x+w,y,x+w,y+rr,rr);
+    ctx.lineTo(x + w, y + h - rr); ctx.arcTo(x+w,y+h,x+w-rr,y+h,rr);
+    ctx.lineTo(x + rr, y + h); ctx.arcTo(x,y+h,x,y+h-rr,rr);
+    ctx.lineTo(x, y + rr); ctx.arcTo(x,y,x+rr,y,rr);
+    ctx.closePath();
+  }
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = sw || 2; ctx.stroke(); }
+}
+
+// ── Duck Dieb sprite ───────────────────────────────────────────────────────
+function drawDuck(x, y, facing) {
+  ctx.save();
+  ctx.translate(x, y);
+
+  // Shadow
+  ctx.globalAlpha = 0.18;
+  ell(3, 6, 14, 8, '#000');
+  ctx.globalAlpha = 1;
+
+  // Body (brown mallard)
+  ell(0, 2, 13, 9, '#8b6030');
+  ell(0, 3, 10, 6, '#7a5020'); // wing shading
+
+  // Head offset
+  var hx = 0, hy = 0;
+  if (facing === 'up')    hy = -14;
+  else if (facing === 'down')  hy = 14;
+  else if (facing === 'left')  hx = -14;
+  else                         hx = 14;
+
+  // Green mallard head
+  circ(hx, hy, 8, '#2a7a38');
+  // Iridescence
+  ctx.fillStyle = 'rgba(0,200,160,0.28)';
+  ctx.beginPath(); ctx.arc(hx - 2, hy - 2, 4, 0, TAU); ctx.fill();
+
+  // Mask (black bar)
+  ctx.fillStyle = '#111';
+  ctx.fillRect(hx - 7, hy - 5, 14, 5);
+  // Eye whites
+  circ(hx - 3, hy - 2, 1.5, '#fff');
+  circ(hx + 3, hy - 2, 1.5, '#fff');
+
+  // Bill
+  ctx.fillStyle = '#e8b800';
+  if (facing === 'up') {
+    ctx.beginPath(); ctx.ellipse(hx, hy - 10, 3, 4, 0, 0, TAU); ctx.fill();
+  } else if (facing === 'down') {
+    ctx.beginPath(); ctx.ellipse(hx, hy + 10, 3, 4, 0, 0, TAU); ctx.fill();
+  } else if (facing === 'left') {
+    ctx.beginPath(); ctx.ellipse(hx - 10, hy, 4, 3, 0, 0, TAU); ctx.fill();
+  } else {
+    ctx.beginPath(); ctx.ellipse(hx + 10, hy, 4, 3, 0, 0, TAU); ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+// ── House sprite (top-down) ────────────────────────────────────────────────
+function drawHouse(h) {
+  // Roof (isometric-ish)
+  ctx.fillStyle = h.roofCol;
+  ctx.beginPath();
+  ctx.moveTo(h.x - 6, h.y + 10);
+  ctx.lineTo(h.x + h.w / 2, h.y - 22);
+  ctx.lineTo(h.x + h.w + 6, h.y + 10);
+  ctx.closePath(); ctx.fill();
+
+  // Walls
+  rect(h.x, h.y + 10, h.w, h.h - 10, h.col);
+
+  // Window left
+  rndRect(h.x + 10, h.y + 22, 22, 18, 3, '#aaddff');
+  ctx.strokeStyle = '#888'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(h.x + 21, h.y + 22); ctx.lineTo(h.x + 21, h.y + 40); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(h.x + 10, h.y + 31); ctx.lineTo(h.x + 32, h.y + 31); ctx.stroke();
+
+  // Window right
+  rndRect(h.x + h.w - 32, h.y + 22, 22, 18, 3, '#aaddff');
+  ctx.strokeStyle = '#888'; ctx.lineWidth = 1.5;
+  var wx = h.x + h.w - 32;
+  ctx.beginPath(); ctx.moveTo(wx + 11, h.y + 22); ctx.lineTo(wx + 11, h.y + 40); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(wx, h.y + 31); ctx.lineTo(wx + 22, h.y + 31); ctx.stroke();
+
+  // Door
+  rndRect(h.x + 38, h.y + 52, 30, h.h - 52, 4, '#6b3a1a');
+  circ(h.x + 62, h.y + 80, 2.5, '#ffd700'); // knob
+
+  // House number
+  txt(h.number, h.x + h.w / 2, h.y + 4, '#fff', 12, 'center', 'bold monospace');
+}
+
+// ── Seed sprite ────────────────────────────────────────────────────────────
+function drawSeed(s) {
+  if (s.collected) return;
+  ctx.save();
+  ctx.translate(s.x, s.y);
+  ctx.rotate(Math.PI / 4);
+  ell(0, 0, 5, 3, '#d4a840');
+  ctx.restore();
+}
+
+// ── Dumpster + raccoons ────────────────────────────────────────────────────
+function drawDumpster() {
+  var d = dumpster;
+  rect(d.x, d.y + 6, d.w, d.h - 6, '#3a5a3a');
+  rect(d.x, d.y, d.w, 10, '#2a4a2a');
+  ctx.strokeStyle = '#2a3a2a'; ctx.lineWidth = 1;
+  for (var i = 0; i < 3; i++) {
+    ctx.beginPath();
+    ctx.moveTo(d.x + 12 + i * 14, d.y + 10);
+    ctx.lineTo(d.x + 12 + i * 14, d.y + d.h);
+    ctx.stroke();
+  }
+}
+
+function drawRaccoons() {
+  ctx.font = '20px serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText('\uD83E\uDD9D', raccoonPos.x,     raccoonPos.y);
+  ctx.fillText('\uD83E\uDD9D', raccoonPos.x + 22, raccoonPos.y);
+  ctx.textBaseline = 'alphabetic';
+}
+
+// ── Paper icon ─────────────────────────────────────────────────────────────
+function drawPaper(p) {
+  rndRect(p.x - 10, p.y - 13, 20, 26, 2, p.read ? '#d0d0d0' : '#fffde7', '#aaa', 1);
+  ctx.fillStyle = '#888'; ctx.font = '7px monospace'; ctx.textAlign = 'center';
+  ctx.fillText('---', p.x, p.y - 2);
+  ctx.fillText('---', p.x, p.y + 7);
+}
+
+// ── Police officer ─────────────────────────────────────────────────────────
+function drawPolice(p) {
+  ell(p.x, p.y + 3, 12, 8, '#2a2a3a'); // shadow
+  circ(p.x, p.y, 13, '#3050c8');
+  circ(p.x, p.y - 7, 7, '#ffd8a0');   // face
+  // Badge
+  ctx.fillStyle = '#ffd700'; ctx.font = '8px serif'; ctx.textAlign = 'center';
+  ctx.fillText('\u2605', p.x, p.y + 5);
+  // Hat
+  rect(p.x - 7, p.y - 16, 14, 4, '#1a1a3a');
+  rect(p.x - 5, p.y - 22, 10, 8, '#1a1a3a');
+}
+
+// ── HUD ────────────────────────────────────────────────────────────────────
+function drawHUD() {
+  var bw = 150, bh = 14, bx = W - bw - 10, by = 10;
+  rect(bx - 2, by - 2, bw + 4, bh + 4, 'rgba(0,0,0,0.55)');
+  var pct = Math.max(0, energy / ENERGY_MAX);
+  var col = pct > 0.5 ? '#44cc44' : pct > 0.25 ? '#cccc44' : '#cc4444';
+  rect(bx, by, bw * pct, bh, col);
+  ctx.strokeStyle = '#666'; ctx.lineWidth = 1;
+  ctx.strokeRect(bx, by, bw, bh);
+  txt('\u26A1 ENERGY  ' + Math.ceil(energy), bx + bw - 2, by + 26, '#ccc', 10, 'right');
+
+  if (powerOff) {
+    rndRect(bx - 2, by + 28, bw + 4, 16, 3, 'rgba(200,200,0,0.18)');
+    txt('\u26A1 POWER OFF — 2-digit codes', bx + bw - 2, by + 40, '#ffff44', 10, 'right');
+  }
+}
+
+// ── Popup (paper reading) ──────────────────────────────────────────────────
+function showPopup(text, dur) {
+  popup.open = true; popup.text = text; popup.timer = dur || 3;
+}
+
+function drawPopup() {
+  if (!popup.open) return;
+  var pw = 420, ph = 150, px = (W - pw) / 2, py = (H - ph) / 2;
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(0, 0, W, H);
+  rndRect(px, py, pw, ph, 10, '#fffde7', '#aaa', 2);
+
+  // Word wrap
+  ctx.font = '14px monospace'; ctx.textBaseline = 'alphabetic';
+  var words = popup.text.split(' '), lines = [], line = '';
+  for (var i = 0; i < words.length; i++) {
+    var test = line ? line + ' ' + words[i] : words[i];
+    if (ctx.measureText(test).width > pw - 48 && line) {
+      lines.push(line); line = words[i];
+    } else line = test;
+  }
+  if (line) lines.push(line);
+
+  var sy = py + 52 - (lines.length - 1) * 8;
+  for (var l = 0; l < lines.length; l++) {
+    txt(lines[l], W / 2, sy + l * 26, '#333', 14, 'center');
+  }
+  txt('(tap/press any key to close)', W / 2, py + ph - 14, '#aaa', 10, 'center');
+}
+
+// Dismiss popup on tap/key
+canvas.addEventListener('click', function() { if (popup.open) { popup.open = false; JP = {}; } });
+document.addEventListener('keydown', function() { if (popup.open) popup.open = false; });
+
+// ── Mobile controls drawing ────────────────────────────────────────────────
+function drawMobileControls() {
+  if (!TOUCH_UI || !inMovablePhase()) return;
+
+  ctx.save();
+  ctx.globalAlpha = 0.55;
+
+  // D-pad background
+  circ(DPAD_CX, DPAD_CY, DPAD_R + 8, '#111');
+
+  // D-pad arms
+  var arm = DPAD_R - 10;
+  var dirs2 = [
+    { lbl:'\u25B2', dx:0,    dy:-arm },
+    { lbl:'\u25BC', dx:0,    dy: arm },
+    { lbl:'\u25C4', dx:-arm, dy:0    },
+    { lbl:'\u25BA', dx: arm, dy:0    },
+  ];
+  for (var i = 0; i < dirs2.length; i++) {
+    var d = dirs2[i];
+    var active = (d.lbl === '\u25B2' && touchDirs.up)   ||
+                 (d.lbl === '\u25BC' && touchDirs.down)  ||
+                 (d.lbl === '\u25C4' && touchDirs.left)  ||
+                 (d.lbl === '\u25BA' && touchDirs.right);
+    rndRect(DPAD_CX + d.dx - 17, DPAD_CY + d.dy - 17, 34, 34, 6,
+            active ? '#5a8a5a' : '#2a2a2a', '#555', 1);
+    txt(d.lbl, DPAD_CX + d.dx, DPAD_CY + d.dy + 6, active ? '#fff' : '#aaa', 16, 'center');
+  }
+
+  // Action button
+  circ(ACT_CX, ACT_CY, ACT_R + 4, '#111');
+  circ(ACT_CX, ACT_CY, ACT_R, touchActionFired ? '#6a9a3a' : '#2a4a2a');
+  ctx.strokeStyle = '#5a8a4a'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(ACT_CX, ACT_CY, ACT_R, 0, TAU); ctx.stroke();
+  txt('E', ACT_CX, ACT_CY + 7, '#fff', 20, 'center', 'bold monospace');
+
+  ctx.restore();
+}
+
+// ── Prompt helper ──────────────────────────────────────────────────────────
+function drawPrompt(msg, x, y) {
+  var pw = ctx.measureText(msg).width + 20;
+  rndRect(x - pw/2, y - 18, pw, 22, 5, 'rgba(0,0,0,0.65)');
+  txt(msg, x, y - 1, '#ffd700', 12, 'center', 'bold monospace');
+}
+
+// ── ALLEY phase ────────────────────────────────────────────────────────────
+function updateAlley(dt) {
+  if (popup.open) { JP = {}; return; }
+  movePlayer(dt, 15, W - 15, 158, H - 20);
+
+  // Collect alley seeds
+  for (var i = 0; i < alleySeeds.length; i++) {
+    var s = alleySeeds[i];
+    if (!s.collected && dist(player, s) < 22) {
+      s.collected = true;
+      energy = Math.min(ENERGY_MAX, energy + SEED_BONUS);
+      showPopup('Yum! Seeds +' + SEED_BONUS + ' energy \uD83C\uDF3E', 1.5);
+    }
+  }
+
+  if (eatAction()) {
+    // Raccoons?
+    if (!raccoonsHelped && dist(player, raccoonPos) < 52) {
+      raccoonsHelped = true;
+      powerOff = true;
+      showPopup('The raccoons cut the power! \uD83E\uDD9D  Codes are now 2 digits.', 3.5);
+      return;
+    }
+    // House doors
+    for (var h = 0; h < houseData.length; h++) {
+      var hd = houseData[h];
+      if (Math.abs(player.x - hd.doorCx) < INTERACT_DIST &&
+          Math.abs(player.y - hd.doorCy) < INTERACT_DIST) {
+        if (hd.number === targetHouse) {
+          initHouse(); phase = 'house';
+        } else {
+          energy = Math.max(0, energy - JAIL_PENALTY / 2);
+          jailCount++;
+          returnPhase = 'alley';
+          initChase(); phase = 'chase';
+        }
+        return;
+      }
+    }
+  }
+}
+
+function renderAlley() {
+  // Sky / ground
+  rect(0, 0, W, H, '#9a9a9a');
+  // Sidewalk top
+  rect(0, 0, W, 158, '#c8c8c8');
+  // Curb line
+  rect(0, 155, W, 5, '#888');
+  // Bottom sidewalk
+  rect(0, 510, W, H - 510, '#c0c0c0');
+  rect(0, 507, W, 5, '#888');
+  // Road center dashes
+  ctx.save();
+  ctx.strokeStyle = '#bbb'; ctx.lineWidth = 2;
+  ctx.setLineDash([30, 22]);
+  ctx.beginPath(); ctx.moveTo(0, 333); ctx.lineTo(W, 333); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+
+  // Street name
+  txt('BURGLAR ALLEY', 10, H - 6, '#777', 11, 'left', 'italic monospace');
+
+  // Houses
+  for (var i = 0; i < houseData.length; i++) drawHouse(houseData[i]);
+
+  // Dumpster
+  drawDumpster();
+
+  // Raccoons (behind dumpster)
+  if (!raccoonsHelped) {
+    drawRaccoons();
+    if (dist(player, raccoonPos) < 52) drawPrompt('[E] Talk to raccoons', raccoonPos.x + 11, raccoonPos.y - 18);
+  }
+
+  // Seeds
+  for (var j = 0; j < alleySeeds.length; j++) drawSeed(alleySeeds[j]);
+
+  // House door prompts
+  for (var h = 0; h < houseData.length; h++) {
+    var hd = houseData[h];
+    if (Math.abs(player.x - hd.doorCx) < INTERACT_DIST &&
+        Math.abs(player.y - hd.doorCy) < INTERACT_DIST) {
+      drawPrompt('[E] DIEB!', hd.doorCx, hd.doorCy - 20);
+    }
+  }
+
+  // Target house paper (bottom-left)
+  rndRect(10, H - 105, 118, 88, 6, '#fffde7', '#bbb', 1.5);
+  txt('TARGET HOUSE:', 69, H - 84, '#666', 10, 'center');
+  txt(String(targetHouse), 69, H - 42, '#c00', 36, 'center', 'bold monospace');
+  txt('Burglar Alley', 69, H - 22, '#888', 9, 'center');
+
+  drawDuck(player.x, player.y, player.facing);
+  drawMobileControls();
+  drawHUD();
+  drawPopup();
+}
+
+// ── HOUSE phase ────────────────────────────────────────────────────────────
+var DOOR_X = W - 52, DOOR_Y = H / 2;
+
+function updateHouse(dt) {
+  if (popup.open || numpadOpen) { if (!numpadOpen) JP = {}; return; }
+  movePlayer(dt, 68, W - 68, 68, H - 68);
+
+  // Collect seeds
+  var rm = rooms[currentRoom];
+  for (var i = 0; i < rm.seeds.length; i++) {
+    var s = rm.seeds[i];
+    if (!s.collected && dist(player, s) < 22) {
+      s.collected = true;
+      energy = Math.min(ENERGY_MAX, energy + SEED_BONUS);
+      showPopup('Seeds! +' + SEED_BONUS + ' energy \uD83C\uDF3E', 1.5);
+    }
+  }
+
+  if (eatAction()) {
+    // Read nearby paper
+    var near = nearbyPaper();
+    if (near) { near.read = true; showPopup(near.text, 4); return; }
+    // Door
+    if (dist(player, {x: DOOR_X, y: DOOR_Y}) < 55) {
+      openNumpad(rooms[currentRoom].code);
+    }
+  }
+}
+
+function nearbyPaper() {
+  var rm = rooms[currentRoom];
+  for (var i = 0; i < rm.papers.length; i++) {
+    if (dist(player, rm.papers[i]) < INTERACT_DIST) return rm.papers[i];
+  }
+  return null;
+}
+
+function renderHouse() {
+  // Floor
+  rect(0, 0, W, H, '#e8e0d0');
+  // Grid lines
+  ctx.strokeStyle = '#d8d0c0'; ctx.lineWidth = 1;
+  for (var gx = 68; gx < W - 68; gx += 64) {
+    ctx.beginPath(); ctx.moveTo(gx, 68); ctx.lineTo(gx, H - 68); ctx.stroke();
+  }
+  for (var gy = 68; gy < H - 68; gy += 64) {
+    ctx.beginPath(); ctx.moveTo(68, gy); ctx.lineTo(W - 68, gy); ctx.stroke();
+  }
+  // Walls
+  rect(0, 0, W, 62, '#b09070');
+  rect(0, H - 62, W, 62, '#b09070');
+  rect(0, 0, 62, H, '#b09070');
+  rect(W - 62, 0, 62, H, '#b09070');
+
+  // Room label
+  txt('Room ' + (currentRoom + 1) + ' of ' + numRooms, 72, 44, '#7a5030', 13, 'left', 'bold monospace');
+  // Instruction
+  txt('Find the code on a paper, then enter it at the door \u25B6', W / 2, 44, '#7a5030', 11, 'center');
+
+  // Door
+  rndRect(W - 62, DOOR_Y - 42, 62, 84, 6, '#8b5c3a');
+  rndRect(W - 56, DOOR_Y - 36, 50, 72, 4, '#6b3a1a');
+  circ(W - 16, DOOR_Y, 4, '#ffd700');
+  // Door prompt
+  if (dist(player, {x: DOOR_X, y: DOOR_Y}) < 55) {
+    drawPrompt('[E] Enter code', DOOR_X - 20, DOOR_Y - 50);
+  }
+
+  // Papers
+  var rm = rooms[currentRoom];
+  for (var i = 0; i < rm.papers.length; i++) drawPaper(rm.papers[i]);
+  var near = nearbyPaper();
+  if (near) drawPrompt('[E] Read', near.x, near.y - 22);
+
+  // Seeds
+  for (var j = 0; j < rm.seeds.length; j++) drawSeed(rm.seeds[j]);
+
+  drawDuck(player.x, player.y, player.facing);
+  drawMobileControls();
+  drawHUD();
+  drawPopup();
+}
+
+// ── JACKPOT phase ──────────────────────────────────────────────────────────
+function updateJackpot(dt) {
+  movePlayer(dt, 68, W - 68, 68, H - 68);
+  if (eatAction() && dist(player, {x: W/2, y: H/2}) < 80) {
+    phase = 'victory';
+  }
+}
+
+function renderJackpot() {
+  rect(0, 0, W, H, '#0a1a0a');
+  // Gold border
+  ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 8;
+  ctx.strokeRect(4, 4, W - 8, H - 8);
+  // Glow
+  ctx.fillStyle = 'rgba(255,215,0,0.06)';
+  ctx.fillRect(4, 4, W - 8, H - 8);
+
+  txt('JACKPOT ROOM', W / 2, 56, '#ffd700', 28, 'center', 'bold Georgia');
+
+  // Contraband glow
+  var glow = 40 + Math.sin(Date.now() / 400) * 10;
+  ctx.fillStyle = 'rgba(255,215,0,0.12)';
+  ctx.beginPath(); ctx.arc(W/2, H/2, glow + 30, 0, TAU); ctx.fill();
+
+  ctx.font = '72px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('\uD83C\uDFC6', W / 2, H / 2);
+  ctx.textBaseline = 'alphabetic';
+
+  txt('THE CONTRABAND', W / 2, H/2 + 62, '#ffd700', 16, 'center', 'bold monospace');
+
+  if (dist(player, {x: W/2, y: H/2}) < 80) {
+    drawPrompt('[E] Grab the Contraband!', W / 2, H / 2 - 55);
+  }
+
+  drawDuck(player.x, player.y, player.facing);
+  drawMobileControls();
+  drawHUD();
+}
+
+// ── CHASE phase ────────────────────────────────────────────────────────────
+function updateChase(dt) {
+  chaseTimer -= dt;
+  if (chaseTimer <= 0) {
+    jailCount++;
+    energy = Math.max(0, energy - JAIL_PENALTY);
+    initJail();
+    phase = 'jail';
+    return;
+  }
+  if (stunTimer > 0) { stunTimer -= dt; return; }
+
+  movePlayer(dt, 15, W - 15, 15, H - 15);
+
+  // Police AI
+  for (var i = 0; i < police.length; i++) {
+    var p = police[i];
+    var d = dist(p, player);
+    if (d > 0) {
+      p.x += ((player.x - p.x) / d) * POLICE_SPEED * dt;
+      p.y += ((player.y - p.y) / d) * POLICE_SPEED * dt;
+    }
+    if (d < 18) {
+      energy = Math.max(0, energy - 12);
+      stunTimer = 1.2;
+      p.x = (i === 0) ? 720 : 80;
+      p.y = rngRange(80, H - 80);
+    }
+  }
+}
+
+function renderChase() {
+  rect(0, 0, W, H, '#10101e');
+  // Street
+  rect(0, 200, W, H - 200, '#1a1a2a');
+  rect(0, 440, W, 80, '#222234');
+  // Streetlights
+  for (var i = 0; i < 4; i++) {
+    ctx.fillStyle = 'rgba(255,255,180,0.07)';
+    ctx.beginPath(); ctx.arc(100 + i * 200, 220, 90, 0, TAU); ctx.fill();
+    rect(92 + i * 200, 120, 4, 100, '#444');
+    rndRect(70 + i * 200, 118, 48, 10, 3, '#555');
+  }
+
+  var timeLeft = Math.ceil(chaseTimer);
+  var timerColor = timeLeft <= 10 ? '#ff4444' : '#ffee44';
+  txt('POLICE CHASE!  Run for ' + timeLeft + 's', W / 2, 38, timerColor, 22, 'center', 'bold monospace');
+
+  for (var j = 0; j < police.length; j++) drawPolice(police[j]);
+
+  if (stunTimer > 0) {
+    ctx.fillStyle = 'rgba(255,30,30,0.3)';
+    ctx.fillRect(0, 0, W, H);
+    txt('CAUGHT!  \u2212 energy', W / 2, H / 2, '#fff', 22, 'center', 'bold monospace');
+  }
+
+  drawDuck(player.x, player.y, player.facing);
+  drawMobileControls();
+  drawHUD();
+}
+
+// ── JAIL phase ─────────────────────────────────────────────────────────────
+function updateJail(dt) {
+  if (jailFlash > 0) { jailFlash -= dt; return; }
+  // Cell interior: x > 235
+  movePlayer(dt, 300, W - 15, 15, H - 15);
+
+  if (eatAction()) {
+    for (var i = 0; i < jailRugs.length; i++) {
+      var rug = jailRugs[i];
+      var cx = rug.x + rug.w / 2, cy = rug.y + rug.h / 2;
+      if (Math.abs(player.x - cx) < rug.w / 2 + 10 &&
+          Math.abs(player.y - cy) < rug.h / 2 + 10) {
+        if (rug.color === signColor) {
+          // Escape!
+          if (returnPhase === 'alley') {
+            player.x = 60; player.y = 390; player.facing = 'right';
+            popup.open = false;
+            phase = 'alley';
+          } else {
+            player.x = 90; player.y = H / 2; player.facing = 'right';
+            popup.open = false;
+            phase = 'house';
+          }
+        } else {
+          // Wrong rug — flash and penalise
+          jailFlash = 1.0;
+          energy = Math.max(0, energy - 8);
+        }
+        return;
+      }
+    }
+  }
+}
+
+function renderJail() {
+  // Outer area (outside bars)
+  rect(0, 0, W, H, '#c8c0b0');
+  // Cell floor
+  rect(235, 0, W - 235, H, '#d8d0c0');
+  for (var gx = 235; gx < W; gx += 60) {
+    ctx.strokeStyle = '#c8c0b0'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, H); ctx.stroke();
+  }
+
+  // Sign outside bars
+  rndRect(18, 70, 170, 140, 8, '#fff', '#555', 2);
+  txt('JAIL', 103, 100, '#333', 16, 'center', 'bold monospace');
+  txt('Pick the', 103, 128, '#555', 13, 'center');
+  txt(signColor.toUpperCase(), 103, 153, COLOR_FILLS[signColor], 18, 'center', 'bold monospace');
+  txt('rug!', 103, 174, '#555', 13, 'center');
+  // Color swatch
+  rndRect(48, 180, 110, 22, 4, COLOR_FILLS[signColor], '#333', 1.5);
+
+  // Bars
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.4)'; ctx.shadowBlur = 4;
+  ctx.strokeStyle = '#666'; ctx.lineWidth = 7;
+  for (var b = 0; b < 8; b++) {
+    var bx = 210 + b * 11;
+    ctx.beginPath(); ctx.moveTo(bx, 0); ctx.lineTo(bx, H); ctx.stroke();
+  }
+  ctx.restore();
+  // Horizontal rails
+  rect(210, 0,   H, 10, '#555');
+  rect(210, H/3, H, 8,  '#555');
+  rect(210, H*2/3, H, 8, '#555');
+  rect(210, H-10, H, 10,'#555');
+
+  // Rugs
+  for (var r = 0; r < jailRugs.length; r++) {
+    var rug = jailRugs[r];
+    var cx = rug.x + rug.w / 2, cy = rug.y + rug.h / 2;
+    rndRect(rug.x, rug.y, rug.w, rug.h, 8, COLOR_FILLS[rug.color], '#333', 2);
+    // Inner decorative border
+    ctx.strokeStyle = 'rgba(0,0,0,0.2)'; ctx.lineWidth = 1.5;
+    ctx.strokeRect(rug.x + 8, rug.y + 8, rug.w - 16, rug.h - 16);
+    // Label
+    txt(rug.color.toUpperCase(), cx, cy + 5, 'rgba(0,0,0,0.45)', 13, 'center', 'bold monospace');
+    // Prompt if near
+    var near = Math.abs(player.x - cx) < rug.w / 2 + 10 &&
+               Math.abs(player.y - cy) < rug.h / 2 + 10;
+    if (near) drawPrompt('[E] Try this rug', cx, rug.y - 12);
+  }
+
+  drawDuck(player.x, player.y, player.facing);
+
+  // Wrong-rug flash
+  if (jailFlash > 0) {
+    ctx.fillStyle = 'rgba(255,40,40,' + (jailFlash * 0.5) + ')';
+    ctx.fillRect(0, 0, W, H);
+    txt('WRONG RUG!', W / 2, H / 2, '#fff', 28, 'center', 'bold monospace');
+  }
+
+  txt('JAIL — Escape through the correct tunnel!', W / 2, 28, '#555', 12, 'center', 'bold monospace');
+
+  drawMobileControls();
+  drawHUD();
+}
+
+// ── VICTORY phase ──────────────────────────────────────────────────────────
+function renderVictory() {
+  rect(0, 0, W, H, '#081408');
+  ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 6;
+  ctx.strokeRect(3, 3, W - 6, H - 6);
+
+  ctx.font = '70px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('\uD83C\uDFC6', W / 2, 100);
+  ctx.textBaseline = 'alphabetic';
+
+  txt('CONTRABAND SECURED!', W / 2, 160, '#ffd700', 30, 'center', 'bold Georgia');
+
+  var score = Math.max(0, Math.floor(energy));
+  txt('Duck Dieb Energy: ' + score + ' / ' + ENERGY_MAX, W / 2, 210, '#88ff88', 18, 'center', 'bold monospace');
+
+  // Energy bar
+  var bw = 300, bh = 22, bx = (W - bw) / 2, by = 224;
+  rect(bx, by, bw, bh, '#1a1a1a');
+  var pct = Math.max(0, energy / ENERGY_MAX);
+  rect(bx, by, bw * pct, bh, pct > 0.5 ? '#44cc44' : pct > 0.25 ? '#cccc44' : '#cc4444');
+  ctx.strokeStyle = '#555'; ctx.lineWidth = 2; ctx.strokeRect(bx, by, bw, bh);
+
+  // Stars
+  var stars = pct > 0.72 ? 3 : pct > 0.38 ? 2 : pct > 0.1 ? 1 : 0;
+  ctx.font = '38px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText((stars >= 1 ? '\u2B50' : '\u2606') +
+               (stars >= 2 ? '\u2B50' : '\u2606') +
+               (stars >= 3 ? '\u2B50' : '\u2606'), W / 2, 300);
+  ctx.textBaseline = 'alphabetic';
+
+  if (jailCount > 0) {
+    txt('Trips to jail: ' + jailCount, W / 2, 350, '#ff8888', 14, 'center');
+  }
+
+  // Bounce "play again" text
+  var bounce = Math.sin(Date.now() / 500) * 3;
+  txt('Tap or press ENTER to play again', W / 2, H - 38 + bounce, '#aaffaa', 17, 'center', 'bold monospace');
+
+}
+
+// ── TITLE phase ────────────────────────────────────────────────────────────
+function renderTitle() {
+  rect(0, 0, W, H, '#0a160a');
+  // Decorative bricks on left
+  ctx.fillStyle = '#0e1a0e';
+  for (var row = 0; row < 10; row++) {
+    for (var col = 0; col < 3; col++) {
+      var offset = (row % 2) * 40;
+      rndRect(col * 80 + offset - 80, row * 56, 70, 46, 3, '#0f1a0f');
+    }
+  }
+
+  txt('DUCK DIEB', W / 2, 115, '#ffd700', 68, 'center', 'bold Georgia');
+  // Shadow text
+  ctx.globalAlpha = 0.2;
+  txt('DUCK DIEB', W / 2 + 4, 119, '#000', 68, 'center', 'bold Georgia');
+  ctx.globalAlpha = 1;
+
+  txt('A Duck Thief Adventure', W / 2, 148, '#88cc88', 17, 'center', 'italic Georgia');
+
+  // Big duck
+  ctx.save();
+  ctx.translate(W / 2, 240);
+  ctx.scale(3.2, 3.2);
+  drawDuck(0, 0, 'right');
+  ctx.restore();
+
+  rndRect(W/2 - 260, 300, 520, 120, 10, 'rgba(0,0,0,0.4)');
+  txt('\u2022  Walk to the target house and press DIEB!', W / 2, 326, '#ccc', 13, 'center');
+  txt('\u2022  Search rooms for the door code', W / 2, 350, '#ccc', 13, 'center');
+  txt('\u2022  Grab the Contraband and escape!', W / 2, 374, '#ccc', 13, 'center');
+  txt('\u2022  Raccoons can help cut the power \uD83E\uDD9D', W / 2, 398, '#ccc', 13, 'center');
+
+  txt('Arrow keys / WASD to move  \u2022  E to interact', W / 2, 448, '#888', 12, 'center');
+
+  var bounce = Math.sin(Date.now() / 500) * 3;
+  rndRect(W/2 - 130, 462 + bounce, 260, 46, 10, '#2a5a2a', '#ffd700', 2);
+  txt('\u25B6  TAP TO START', W / 2, 490 + bounce, '#ffd700', 18, 'center', 'bold monospace');
+}
+
+// ── Shared player movement ─────────────────────────────────────────────────
+function movePlayer(dt, xmin, xmax, ymin, ymax) {
+  var dx = 0, dy = 0;
+  if (isLeft())  dx = -1;
+  if (isRight()) dx =  1;
+  if (isUp())    dy = -1;
+  if (isDown())  dy =  1;
+  if (dx !== 0 && dy !== 0) { dx *= 0.707; dy *= 0.707; }
+  player.x = Math.max(xmin, Math.min(xmax, player.x + dx * PLAYER_SPEED * dt));
+  player.y = Math.max(ymin, Math.min(ymax, player.y + dy * PLAYER_SPEED * dt));
+  if      (dx > 0)  player.facing = 'right';
+  else if (dx < 0)  player.facing = 'left';
+  else if (dy > 0)  player.facing = 'down';
+  else if (dy < 0)  player.facing = 'up';
+}
+
+// ── Utility ────────────────────────────────────────────────────────────────
+function dist(a, b) {
+  var dx = a.x - b.x, dy = a.y - b.y;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+// ── Game loop ──────────────────────────────────────────────────────────────
+var lastTs = 0;
+
+function loop(ts) {
+  var dt = Math.min((ts - lastTs) / 1000, 0.05);
+  lastTs = ts;
+
+  // Drain energy during active phases
+  if (inMovablePhase()) {
+    energy = Math.max(0, energy - ENERGY_DRAIN * dt);
+  }
+
+  // Popup timer
+  if (popup.open && popup.timer > 0) {
+    popup.timer -= dt;
+    if (popup.timer <= 0) popup.open = false;
+  }
+
+  ctx.save();
+  ctx.clearRect(0, 0, W, H);
+
+  switch (phase) {
+    case 'title':   renderTitle();   break;
+    case 'alley':   updateAlley(dt); renderAlley();   break;
+    case 'house':   updateHouse(dt); renderHouse();   break;
+    case 'jackpot': updateJackpot(dt); renderJackpot(); break;
+    case 'chase':   updateChase(dt); renderChase();   break;
+    case 'jail':    updateJail(dt);  renderJail();    break;
+    case 'victory': renderVictory(); break;
+  }
+
+  ctx.restore();
+
+  // Clear JP at end of frame
+  JP = {};
+  requestAnimationFrame(loop);
+}
+
+// ── Boot ───────────────────────────────────────────────────────────────────
+document.addEventListener('keydown', function(e) {
+  if ((phase === 'title' || phase === 'victory') &&
+      (e.code === 'Enter' || e.code === 'Space')) {
+    startGame();
+  }
+});
+
+requestAnimationFrame(function(ts) { lastTs = ts; requestAnimationFrame(loop); });
+</script>
+</body>
+</html>
