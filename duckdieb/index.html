@@ -108,8 +108,25 @@ function resize() {
 }
 window.addEventListener('resize', resize); resize();
 
+// ── High scores ──────────────────────────────────────────────────────────────
+var HS_KEY = 'mucko_hs_duckdieb';
+function getHS() { try { return JSON.parse(localStorage.getItem(HS_KEY) || '[]'); } catch(e) { return []; } }
+function saveHS(entry) {
+  var sc = getHS(); sc.push(entry);
+  sc.sort(function(a, b) { return b.score - a.score; });
+  localStorage.setItem(HS_KEY, JSON.stringify(sc.slice(0, 10)));
+}
+
 // ── Touch detection ─────────────────────────────────────────────────────────
 var TOUCH_UI = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+
+// ── Mouse tracking ────────────────────────────────────────────────────────────
+var mx = W / 2, my = H / 2, mclk = false;
+canvas.addEventListener('mousemove', function(e) {
+  var r = canvas.getBoundingClientRect();
+  mx = (e.clientX - r.left) * (W / r.width);
+  my = (e.clientY - r.top)  * (H / r.height);
+});
 
 // ── Input ───────────────────────────────────────────────────────────────────
 var K = {}, JP = {};
@@ -173,15 +190,26 @@ function syncTouch(e) {
   if (!actHit) touchActionFired = false;
 }
 
-canvas.addEventListener('touchstart',  function(e){ syncTouch(e); e.preventDefault(); }, {passive:false});
+canvas.addEventListener('touchstart',  function(e){
+  if (e.changedTouches.length) {
+    var r = canvas.getBoundingClientRect();
+    mx = (e.changedTouches[0].clientX - r.left) * (W / r.width);
+    my = (e.changedTouches[0].clientY - r.top)  * (H / r.height);
+    mclk = true;
+  }
+  syncTouch(e); e.preventDefault();
+}, {passive:false});
 canvas.addEventListener('touchmove',   function(e){ syncTouch(e); e.preventDefault(); }, {passive:false});
 canvas.addEventListener('touchend',    function(e){ syncTouch(e); e.preventDefault(); }, {passive:false});
 canvas.addEventListener('touchcancel', function(e){ syncTouch(e); e.preventDefault(); }, {passive:false});
 window.addEventListener('blur', function() { touchDirs = {up:false,down:false,left:false,right:false}; });
 
 // Canvas click for title/victory
-canvas.addEventListener('click', function() {
-  if (phase === 'title' || phase === 'victory') startGame();
+canvas.addEventListener('click', function(e) {
+  var r = canvas.getBoundingClientRect();
+  mx = (e.clientX - r.left) * (W / r.width);
+  my = (e.clientY - r.top)  * (H / r.height);
+  mclk = true;
 });
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -248,6 +276,9 @@ var jailFlash = 0; // wrong-rug flash timer
 
 // Popup (paper text)
 var popup = { open:false, text:'', timer:0 };
+
+// Scoring
+var scoreSaved = false;
 
 // Player
 var player = { x:100, y:380, facing:'right' };
@@ -458,6 +489,7 @@ function startGame() {
   jailCount = 0;
   powerOff = false;
   raccoonsHelped = false;
+  scoreSaved = false;
   popup.open = false;
   initAlley();
   phase = 'alley';
@@ -1112,42 +1144,77 @@ function renderJail() {
 
 // ── VICTORY phase ──────────────────────────────────────────────────────────
 function renderVictory() {
+  // Save score once
+  if (!scoreSaved) {
+    scoreSaved = true;
+    var stars = energy / ENERGY_MAX > 0.72 ? 3 : energy / ENERGY_MAX > 0.38 ? 2 : energy / ENERGY_MAX > 0.1 ? 1 : 0;
+    var starStr = (stars >= 1 ? '\u2B50' : '\u2606') + (stars >= 2 ? '\u2B50' : '\u2606') + (stars >= 3 ? '\u2B50' : '\u2606');
+    saveHS({ score: Math.max(0, Math.floor(energy)), stars: starStr, jails: jailCount,
+             powerOff: powerOff, date: new Date().toLocaleDateString() });
+  }
+
   rect(0, 0, W, H, '#081408');
   ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 6;
   ctx.strokeRect(3, 3, W - 6, H - 6);
 
-  ctx.font = '70px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText('\uD83C\uDFC6', W / 2, 100);
+  ctx.font = '60px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('\uD83C\uDFC6', W / 2, 80);
   ctx.textBaseline = 'alphabetic';
 
-  txt('CONTRABAND SECURED!', W / 2, 160, '#ffd700', 30, 'center', 'bold Georgia');
+  txt('CONTRABAND SECURED!', W / 2, 135, '#ffd700', 28, 'center', 'bold Georgia');
 
   var score = Math.max(0, Math.floor(energy));
-  txt('Duck Dieb Energy: ' + score + ' / ' + ENERGY_MAX, W / 2, 210, '#88ff88', 18, 'center', 'bold monospace');
-
-  // Energy bar
-  var bw = 300, bh = 22, bx = (W - bw) / 2, by = 224;
-  rect(bx, by, bw, bh, '#1a1a1a');
   var pct = Math.max(0, energy / ENERGY_MAX);
+  txt('Energy: ' + score + ' / ' + ENERGY_MAX, W / 2, 170, '#88ff88', 16, 'center', 'bold monospace');
+
+  var bw = 280, bh = 18, bx = (W - bw) / 2, by = 178;
+  rect(bx, by, bw, bh, '#1a1a1a');
   rect(bx, by, bw * pct, bh, pct > 0.5 ? '#44cc44' : pct > 0.25 ? '#cccc44' : '#cc4444');
   ctx.strokeStyle = '#555'; ctx.lineWidth = 2; ctx.strokeRect(bx, by, bw, bh);
 
-  // Stars
   var stars = pct > 0.72 ? 3 : pct > 0.38 ? 2 : pct > 0.1 ? 1 : 0;
-  ctx.font = '38px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText((stars >= 1 ? '\u2B50' : '\u2606') +
-               (stars >= 2 ? '\u2B50' : '\u2606') +
-               (stars >= 3 ? '\u2B50' : '\u2606'), W / 2, 300);
+  ctx.font = '30px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText((stars >= 1 ? '\u2B50' : '\u2606') + (stars >= 2 ? '\u2B50' : '\u2606') + (stars >= 3 ? '\u2B50' : '\u2606'), W / 2, 226);
   ctx.textBaseline = 'alphabetic';
 
-  if (jailCount > 0) {
-    txt('Trips to jail: ' + jailCount, W / 2, 350, '#ff8888', 14, 'center');
+  if (jailCount > 0) txt('Trips to jail: ' + jailCount, W / 2, 258, '#ff8888', 13, 'center');
+  if (powerOff)      txt('\u26A1 Power-off bonus used', W / 2, 276, '#ffff88', 12, 'center');
+
+  // High score table
+  var hsAll = getHS();
+  if (hsAll.length > 0) {
+    var tbx = W / 2 - 190, tby = 290, tbw = 380, rowH = 24;
+    var rows = hsAll.slice(0, 5);
+    rndRect(tbx, tby, tbw, 22 + rows.length * rowH + 6, 6, 'rgba(0,20,0,0.75)', 'rgba(255,215,0,0.4)', 1.5);
+    txt('\uD83C\uDFC6 Best Runs', W / 2, tby + 16, '#ffd700', 12, 'center', 'bold monospace');
+    for (var i = 0; i < rows.length; i++) {
+      var e = rows[i];
+      var ry = tby + 22 + i * rowH;
+      var bg = (i === 0) ? 'rgba(255,215,0,0.08)' : 'rgba(255,255,255,0.03)';
+      rndRect(tbx + 4, ry, tbw - 8, rowH - 2, 3, bg);
+      var medal = i === 0 ? '\uD83E\uDD47' : i === 1 ? '\uD83E\uDD48' : i === 2 ? '\uD83E\uDD49' : (i + 1) + '.';
+      txt(medal + ' ' + e.score + ' pts', tbx + 12, ry + 16, '#d4d090', 11, 'left', 'monospace');
+      txt(e.stars + '  ' + (e.date || ''), tbx + tbw - 10, ry + 16, '#6a8a6a', 11, 'right', 'monospace');
+    }
   }
 
-  // Bounce "play again" text
-  var bounce = Math.sin(Date.now() / 500) * 3;
-  txt('Tap or press ENTER to play again', W / 2, H - 38 + bounce, '#aaffaa', 17, 'center', 'bold monospace');
+  // Buttons
+  var btnY = H - 50, btnH = 36;
+  var b1x = W / 2 - 230, b1w = 210;
+  var b2x = W / 2 + 20,  b2w = 210;
+  var h1 = mx >= b1x && mx <= b1x + b1w && my >= btnY && my <= btnY + btnH;
+  var h2 = mx >= b2x && mx <= b2x + b2w && my >= btnY && my <= btnY + btnH;
+  rndRect(b1x, btnY, b1w, btnH, 8, h1 ? '#2a5a2a' : '#183018', '#ffd700', 2);
+  txt('\u25B6  Play Again', b1x + b1w / 2, btnY + 24, '#ffd700', 15, 'center', 'bold monospace');
+  rndRect(b2x, btnY, b2w, btnH, 8, h2 ? '#2a3a5a' : '#101828', 'rgba(255,215,0,0.5)', 1.5);
+  txt('\uD83C\uDFC6 High Scores', b2x + b2w / 2, btnY + 24, '#aaccff', 15, 'center', 'bold monospace');
 
+  if (mclk) {
+    mclk = false;
+    if (h1) startGame();
+    else if (h2) { phase = 'highscores'; }
+  }
+  if (eat('Enter') || eat('Space')) startGame();
 }
 
 // ── TITLE phase ────────────────────────────────────────────────────────────
@@ -1183,11 +1250,68 @@ function renderTitle() {
   txt('\u2022  Grab the Contraband and escape!', W / 2, 374, '#ccc', 13, 'center');
   txt('\u2022  Raccoons can help cut the power \uD83E\uDD9D', W / 2, 398, '#ccc', 13, 'center');
 
-  txt('Arrow keys / WASD to move  \u2022  E to interact', W / 2, 448, '#888', 12, 'center');
+  txt('Arrow keys / WASD to move  \u2022  E to interact', W / 2, 440, '#888', 12, 'center');
 
   var bounce = Math.sin(Date.now() / 500) * 3;
-  rndRect(W/2 - 130, 462 + bounce, 260, 46, 10, '#2a5a2a', '#ffd700', 2);
-  txt('\u25B6  TAP TO START', W / 2, 490 + bounce, '#ffd700', 18, 'center', 'bold monospace');
+  var sb1x = W/2 - 140, sb1y = 454 + bounce, sb1w = 280, sb1h = 44;
+  var sb2x = W/2 - 110, sb2y = 508,          sb2w = 220, sb2h = 36;
+  var hs1 = mx >= sb1x && mx <= sb1x + sb1w && my >= sb1y && my <= sb1y + sb1h;
+  var hs2 = mx >= sb2x && mx <= sb2x + sb2w && my >= sb2y && my <= sb2y + sb2h;
+  rndRect(sb1x, sb1y, sb1w, sb1h, 10, hs1 ? '#3a6a3a' : '#2a5a2a', '#ffd700', 2);
+  txt('\u25B6  TAP TO START', W / 2, sb1y + 29 + bounce, '#ffd700', 18, 'center', 'bold monospace');
+  rndRect(sb2x, sb2y, sb2w, sb2h, 8, hs2 ? '#1a2a3a' : '#101828', 'rgba(255,215,0,0.5)', 1.5);
+  txt('\uD83C\uDFC6 High Scores', W / 2, sb2y + 24, '#aaccff', 14, 'center', 'bold monospace');
+
+  if (mclk) {
+    mclk = false;
+    if (hs2) phase = 'highscores';
+    else     startGame();
+  }
+  if (eat('Enter') || eat('Space')) startGame();
+}
+
+// ── HIGH SCORES screen ────────────────────────────────────────────────────
+function renderHighScores() {
+  var g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#081408'); g.addColorStop(1, '#0a200a');
+  rect(0, 0, W, H, '#081408'); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 4; ctx.strokeRect(3, 3, W-6, H-6);
+
+  ctx.font = '52px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('\uD83C\uDFC6', W / 2, 56);
+  ctx.textBaseline = 'alphabetic';
+  txt('HIGH SCORES', W / 2, 100, '#ffd700', 34, 'center', 'bold Georgia');
+  txt('Duck Dieb', W / 2, 126, '#88cc88', 16, 'center', 'italic Georgia');
+
+  var hsAll = getHS();
+  if (hsAll.length === 0) {
+    txt('No scores yet — steal something!', W / 2, H / 2, '#888', 18, 'center');
+  } else {
+    var cols = [W/2 - 200, W/2 - 80, W/2 + 60, W/2 + 170];
+    var hdrs = ['#', 'Energy', 'Stars', 'Date'];
+    rndRect(W/2 - 220, 144, 440, 26, 4, 'rgba(0,20,0,0.85)', 'rgba(255,215,0,0.4)', 1);
+    for (var h = 0; h < hdrs.length; h++) {
+      txt(hdrs[h], cols[h], 162, '#ffd700', 12, 'center', 'bold monospace');
+    }
+    var rows = hsAll.slice(0, 8);
+    for (var i = 0; i < rows.length; i++) {
+      var e = rows[i];
+      var ry = 172 + i * 36;
+      rndRect(W/2 - 220, ry, 440, 32, 4, i % 2 === 0 ? 'rgba(0,30,0,0.6)' : 'rgba(0,20,0,0.4)', 'rgba(60,80,60,0.4)', 1);
+      var medal = i === 0 ? '\uD83E\uDD47' : i === 1 ? '\uD83E\uDD48' : i === 2 ? '\uD83E\uDD49' : String(i + 1) + '.';
+      var vals = [medal, e.score + ' pts', e.stars || '---', e.date || ''];
+      for (var j = 0; j < vals.length; j++) {
+        txt(vals[j], cols[j], ry + 22, i === 0 ? '#ffd700' : '#c8d4b0', 12, 'center', 'monospace');
+      }
+    }
+  }
+
+  var bx = W/2 - 100, by = H - 54, bw = 200, bh = 38;
+  var bhov = mx >= bx && mx <= bx + bw && my >= by && my <= by + bh;
+  rndRect(bx, by, bw, bh, 8, bhov ? '#1a2a3a' : '#101828', '#ffd700', 1.5);
+  txt('\u2190  Back', W / 2, by + 25, '#ffd700', 16, 'center', 'bold monospace');
+  if (mclk) { mclk = false; if (bhov) phase = 'title'; }
+  if (eat('Escape') || eat('Backspace')) phase = 'title';
 }
 
 // ── Shared player movement ─────────────────────────────────────────────────
@@ -1234,29 +1358,25 @@ function loop(ts) {
   ctx.clearRect(0, 0, W, H);
 
   switch (phase) {
-    case 'title':   renderTitle();   break;
-    case 'alley':   updateAlley(dt); renderAlley();   break;
-    case 'house':   updateHouse(dt); renderHouse();   break;
-    case 'jackpot': updateJackpot(dt); renderJackpot(); break;
-    case 'chase':   updateChase(dt); renderChase();   break;
-    case 'jail':    updateJail(dt);  renderJail();    break;
-    case 'victory': renderVictory(); break;
+    case 'title':      renderTitle();      break;
+    case 'highscores': renderHighScores(); break;
+    case 'alley':      updateAlley(dt);   renderAlley();   break;
+    case 'house':      updateHouse(dt);   renderHouse();   break;
+    case 'jackpot':    updateJackpot(dt); renderJackpot(); break;
+    case 'chase':      updateChase(dt);   renderChase();   break;
+    case 'jail':       updateJail(dt);    renderJail();    break;
+    case 'victory':    renderVictory();   break;
   }
 
   ctx.restore();
 
-  // Clear JP at end of frame
+  // Clear per-frame input
   JP = {};
+  mclk = false;
   requestAnimationFrame(loop);
 }
 
 // ── Boot ───────────────────────────────────────────────────────────────────
-document.addEventListener('keydown', function(e) {
-  if ((phase === 'title' || phase === 'victory') &&
-      (e.code === 'Enter' || e.code === 'Space')) {
-    startGame();
-  }
-});
 
 requestAnimationFrame(function(ts) { lastTs = ts; requestAnimationFrame(loop); });
 </script>
