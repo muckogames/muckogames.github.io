@@ -576,8 +576,10 @@ function drawHouse(h) {
   rndRect(h.x + 38, h.y + 52, 30, h.h - 52, 4, '#6b3a1a');
   circ(h.x + 62, h.y + 80, 2.5, '#ffd700'); // knob
 
-  // House number
-  txt(h.number, h.x + h.w / 2, h.y + 4, '#fff', 12, 'center', 'bold monospace');
+  // House number placard — draw it below the house front so it's always visible on the road
+  var nw = 44, nh = 20, nx = h.x + (h.w - nw) / 2, ny = h.y + h.h + 4;
+  rndRect(nx, ny, nw, nh, 4, '#fffde7', '#888', 1.5);
+  txt(h.number, h.x + h.w / 2, ny + 14, '#222', 13, 'center', 'bold monospace');
 }
 
 // ── Seed sprite ────────────────────────────────────────────────────────────
@@ -734,7 +736,7 @@ function drawPrompt(msg, x, y) {
 // ── ALLEY phase ────────────────────────────────────────────────────────────
 function updateAlley(dt) {
   if (popup.open) { JP = {}; return; }
-  movePlayer(dt, 15, W - 15, 158, H - 20);
+  movePlayer(dt, 28, W - 28, 170, H - 30);
 
   // Collect alley seeds
   for (var i = 0; i < alleySeeds.length; i++) {
@@ -964,7 +966,7 @@ function updateChase(dt) {
   }
   if (stunTimer > 0) { stunTimer -= dt; return; }
 
-  movePlayer(dt, 15, W - 15, 15, H - 15);
+  movePlayer(dt, 28, W - 28, 28, H - 28);
 
   // Police AI
   for (var i = 0; i < police.length; i++) {
@@ -1017,7 +1019,7 @@ function renderChase() {
 function updateJail(dt) {
   if (jailFlash > 0) { jailFlash -= dt; return; }
   // Cell interior: x > 235
-  movePlayer(dt, 300, W - 15, 15, H - 15);
+  movePlayer(dt, 302, W - 28, 28, H - 28);
 
   if (eatAction()) {
     for (var i = 0; i < jailRugs.length; i++) {
