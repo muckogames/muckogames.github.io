@@ -190,7 +190,7 @@ var ENERGY_MAX     = 300;
 var ENERGY_DRAIN   = 0.35;  // per second
 var SEED_BONUS     = 25;
 var JAIL_PENALTY   = 45;
-var CHASE_DURATION = 30;
+var CHASE_DURATION = 10;
 var POLICE_SPEED   = 82;
 var INTERACT_DIST  = 44;
 
@@ -977,10 +977,12 @@ function updateChase(dt) {
       p.y += ((player.y - p.y) / d) * POLICE_SPEED * dt;
     }
     if (d < 18) {
-      energy = Math.max(0, energy - 12);
-      stunTimer = 1.2;
-      p.x = (i === 0) ? 720 : 80;
-      p.y = rngRange(80, H - 80);
+      // Caught! Go straight to jail.
+      jailCount++;
+      energy = Math.max(0, energy - JAIL_PENALTY);
+      initJail();
+      phase = 'jail';
+      return;
     }
   }
 }
@@ -1003,12 +1005,6 @@ function renderChase() {
   txt('POLICE CHASE!  Run for ' + timeLeft + 's', W / 2, 38, timerColor, 22, 'center', 'bold monospace');
 
   for (var j = 0; j < police.length; j++) drawPolice(police[j]);
-
-  if (stunTimer > 0) {
-    ctx.fillStyle = 'rgba(255,30,30,0.3)';
-    ctx.fillRect(0, 0, W, H);
-    txt('CAUGHT!  \u2212 energy', W / 2, H / 2, '#fff', 22, 'center', 'bold monospace');
-  }
 
   drawDuck(player.x, player.y, player.facing);
   drawMobileControls();
