@@ -168,7 +168,8 @@ var ACT_CX  = W - 68, ACT_CY = H - 88, ACT_R = 38;
 
 function inMovablePhase() {
   return phase === 'alley' || phase === 'house' ||
-         phase === 'jackpot' || phase === 'chase' || phase === 'jail';
+         phase === 'jackpot' || phase === 'chase' || phase === 'jail' ||
+         phase === 'escape';
 }
 
 function mapToCanvas(clientX, clientY) {
@@ -283,6 +284,13 @@ var returnPhase = 'alley'; // where to return after jail
 var chaseTimer = 0;
 var police = [];
 var stunTimer = 0;
+
+// Escape (final chase after grabbing contraband)
+var ESCAPE_DURATION = 15;
+var ESCAPE_POLICE_SPEED = 115;
+var escapeTimer = 0;
+var escapePolice = [];
+var escapeVan = { x: 740, y: 400, w: 56, h: 80 };
 
 // Jail
 var signColor = 'red';
@@ -475,6 +483,16 @@ function initChase() {
     { x: 720, y: 380 }
   ];
   player.x = 80; player.y = H / 2; player.facing = 'right';
+}
+
+function initEscape() {
+  escapeTimer = ESCAPE_DURATION;
+  escapePolice = [
+    { x: 720, y: 120 },
+    { x: 720, y: 300 },
+    { x: 720, y: 460 }
+  ];
+  player.x = 60; player.y = H / 2; player.facing = 'right';
 }
 
 function initJail() {
@@ -957,7 +975,8 @@ function renderHouse() {
 function updateJackpot(dt) {
   movePlayer(dt, 68, W - 68, 68, H - 68);
   if (eatAction() && dist(player, {x: W/2, y: H/2}) < 80) {
-    phase = 'victory';
+    initEscape();
+    phase = 'escape';
   }
 }
 
@@ -1053,6 +1072,112 @@ function renderChase() {
   drawHUD();
 }
 
+// ── ESCAPE phase (final chase after grabbing contraband) ──────────────────
+function updateEscape(dt) {
+  escapeTimer -= dt;
+
+  // Survived the timer — victory!
+  if (escapeTimer <= 0) {
+    phase = 'victory';
+    return;
+  }
+
+  movePlayer(dt, 28, W - 28, 28, H - 28);
+
+  // Check if player reached the getaway van
+  var vx = escapeVan.x, vy = escapeVan.y + escapeVan.h / 2;
+  if (dist(player, {x: vx, y: vy}) < 52) {
+    phase = 'victory';
+    return;
+  }
+
+  // Police AI — 3 officers, faster than regular chase
+  for (var i = 0; i < escapePolice.length; i++) {
+    var p = escapePolice[i];
+    var d = dist(p, player);
+    if (d > 0) {
+      p.x += ((player.x - p.x) / d) * ESCAPE_POLICE_SPEED * dt;
+      p.y += ((player.y - p.y) / d) * ESCAPE_POLICE_SPEED * dt;
+    }
+    if (d < 18) {
+      // Caught! Go to jail, then return to escape
+      jailCount++;
+      energy = Math.max(0, energy - JAIL_PENALTY);
+      returnPhase = 'escape';
+      initJail();
+      phase = 'jail';
+      return;
+    }
+  }
+}
+
+function renderEscape() {
+  rect(0, 0, W, H, '#0e0818');
+
+  // City street background
+  rect(0, 180, W, H - 180, '#161626');
+  rect(0, 420, W, 100, '#1c1c30');
+
+  // Sidewalk curb
+  rect(0, 178, W, 4, '#333');
+  rect(0, 418, W, 4, '#333');
+
+  // Streetlights with red/blue police flash
+  var flashR = Math.sin(Date.now() / 120) > 0;
+  for (var i = 0; i < 5; i++) {
+    var lx = 60 + i * 180;
+    rect(lx - 2, 100, 4, 80, '#444');
+    rndRect(lx - 24, 98, 48, 10, 3, '#555');
+    ctx.fillStyle = flashR ? 'rgba(255,60,60,0.08)' : 'rgba(60,60,255,0.08)';
+    ctx.beginPath(); ctx.arc(lx, 180, 80, 0, TAU); ctx.fill();
+    flashR = !flashR;
+  }
+
+  // Building silhouettes in the background
+  for (var b = 0; b < 6; b++) {
+    var bx = b * 140 - 20;
+    var bh = 80 + (b * 37 % 60);
+    rndRect(bx, 180 - bh, 120, bh, 2, '#0a0a18');
+    // Windows
+    for (var wy = 180 - bh + 12; wy < 170; wy += 20) {
+      for (var wx = bx + 10; wx < bx + 110; wx += 24) {
+        rect(wx, wy, 12, 12, ((wx * 7 + wy * 13) % 10) > 3 ? 'rgba(255,220,100,0.15)' : 'rgba(0,0,0,0.2)');
+      }
+    }
+  }
+
+  // Getaway van
+  var van = escapeVan;
+  var vanGlow = 6 + Math.sin(Date.now() / 300) * 3;
+  ctx.fillStyle = 'rgba(80,255,80,0.06)';
+  ctx.beginPath(); ctx.arc(van.x, van.y + van.h / 2, vanGlow + 40, 0, TAU); ctx.fill();
+  // Van body
+  rndRect(van.x - van.w / 2, van.y, van.w, van.h, 6, '#2a5a2a', '#44cc44', 2);
+  // Van window
+  rndRect(van.x - 18, van.y + 6, 36, 20, 3, '#1a3a2a');
+  // Van wheels
+  circ(van.x - 16, van.y + van.h + 2, 8, '#222');
+  circ(van.x + 16, van.y + van.h + 2, 8, '#222');
+  // Arrow pointing to van
+  var arrowBounce = Math.sin(Date.now() / 400) * 4;
+  txt('\u25BC', van.x, van.y - 10 + arrowBounce, '#44cc44', 20, 'center', 'bold monospace');
+
+  // Timer & header
+  var timeLeft = Math.ceil(escapeTimer);
+  var timerColor = timeLeft <= 5 ? '#ff4444' : '#ff8844';
+  txt('ESCAPE!  Reach the van!  ' + timeLeft + 's', W / 2, 38, timerColor, 22, 'center', 'bold monospace');
+
+  // Contraband indicator
+  txt('\uD83C\uDFC6 Contraband in hand!', W / 2, 62, '#ffd700', 13, 'center', 'bold monospace');
+
+  // Draw police
+  for (var j = 0; j < escapePolice.length; j++) drawPolice(escapePolice[j]);
+
+  drawDuck(player.x, player.y, player.facing);
+  drawMobileControls();
+  drawHUD();
+}
+
 // ── JAIL phase ─────────────────────────────────────────────────────────────
 function updateJail(dt) {
   if (jailFlash > 0) { jailFlash -= dt; return; }
@@ -1067,7 +1192,11 @@ function updateJail(dt) {
           Math.abs(player.y - cy) < rug.h / 2 + 10) {
         if (rug.color === signColor) {
           // Escape!
-          if (returnPhase === 'alley') {
+          if (returnPhase === 'escape') {
+            initEscape();
+            popup.open = false;
+            phase = 'escape';
+          } else if (returnPhase === 'alley') {
             player.x = 60; player.y = 390; player.facing = 'right';
             popup.open = false;
             phase = 'alley';
@@ -1257,7 +1386,7 @@ function renderTitle() {
   rndRect(W/2 - 260, 300, 520, 120, 10, 'rgba(0,0,0,0.4)');
   txt('\u2022  Walk to the target house and press DIEB!', W / 2, 326, '#ccc', 13, 'center');
   txt('\u2022  Search rooms for the door code', W / 2, 350, '#ccc', 13, 'center');
-  txt('\u2022  Grab the Contraband and escape!', W / 2, 374, '#ccc', 13, 'center');
+  txt('\u2022  Grab the Contraband and escape the police!', W / 2, 374, '#ccc', 13, 'center');
   txt('\u2022  Raccoons can help cut the power \uD83E\uDD9D', W / 2, 398, '#ccc', 13, 'center');
 
   txt('Arrow keys / WASD to move  \u2022  E to interact', W / 2, 440, '#888', 12, 'center');
@@ -1374,6 +1503,7 @@ function loop(ts) {
     case 'house':      updateHouse(dt);   renderHouse();   break;
     case 'jackpot':    updateJackpot(dt); renderJackpot(); break;
     case 'chase':      updateChase(dt);   renderChase();   break;
+    case 'escape':     updateEscape(dt);  renderEscape();  break;
     case 'jail':       updateJail(dt);    renderJail();    break;
     case 'victory':    renderVictory();   break;
   }
