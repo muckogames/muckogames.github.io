@@ -869,10 +869,10 @@ const HIDEOUT_ROOMS=[
     [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,1],
     [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
     [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    [1,1,1,1,1,1,1,1,1,7,7,1,1,1,1,1,1,1,1,1],
   ]},
   {name:'Storage Room',map:[
-    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    [1,1,1,1,1,1,1,1,1,7,7,1,1,1,1,1,1,1,1,1],
     [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
     [1,0,2,2,0,0,0,0,2,2,0,0,0,0,2,2,0,0,0,1],
     [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
@@ -889,21 +889,21 @@ const HIDEOUT_ROOMS=[
     [1,1,1,1,1,1,1,1,1,7,7,1,1,1,1,1,1,1,1,1],
   ]},
   {name:'The Vault',map:[
-    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,2,0,0,0,0,0,0,0,0,2,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,2,2,2,2,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,2,2,2,2,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,2,0,0,0,0,0,0,0,0,2,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
     [1,1,1,1,1,1,1,1,1,7,7,1,1,1,1,1,1,1,1,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,0,0,0,0,2,0,0,0,0,0,0,0,0,2,0,0,0,0,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,0,0,0,0,0,0,0,2,2,2,2,0,0,0,0,0,0,0,1],
+    [1,0,0,0,0,0,0,0,2,2,2,2,0,0,0,0,0,0,0,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,0,0,0,0,2,0,0,0,0,0,0,0,0,2,0,0,0,0,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
   ]},
 ];
 const ALL_CONTRABAND=[
@@ -968,10 +968,14 @@ function updateHideout(dt){
   // movement
   const spd=2.2;let vx=0,vy=0;
   const map=HIDEOUT_ROOMS[h.room].map;
-  if(K.ArrowLeft||K.KeyA){vx=-spd;h.player.dir=2;}
-  if(K.ArrowRight||K.KeyD){vx=spd;h.player.dir=3;}
-  if(K.ArrowUp||K.KeyW){vy=-spd;h.player.dir=0;}
-  if(K.ArrowDown||K.KeyS){vy=spd;h.player.dir=1;}
+  const moveLeft=K.ArrowLeft||K.KeyA;
+  const moveRight=K.ArrowRight||K.KeyD;
+  const moveUp=K.ArrowUp||K.KeyW;
+  const moveDown=K.ArrowDown||K.KeyS;
+  if(moveLeft){vx=-spd;h.player.dir=2;}
+  if(moveRight){vx=spd;h.player.dir=3;}
+  if(moveUp){vy=-spd;h.player.dir=0;}
+  if(moveDown){vy=spd;h.player.dir=1;}
   if(vx&&vy){vx*=0.707;vy*=0.707;}
   const nx=h.player.x+vx,ny=h.player.y+vy;
   if(canMoveTo(nx,h.player.y,map))h.player.x=nx;
@@ -981,8 +985,12 @@ function updateHideout(dt){
   const tile=tileAt(h.player.x,h.player.y,map);
   if(tile===TT.DOOR){
     const py=Math.floor(h.player.y/TILE);
-    if(py<=1&&h.room>0){h.room--;h.player.y=13*TILE;showHideoutMsg(HIDEOUT_ROOMS[h.room].name);clearBackdropCache();}
-    else if(py>=13&&h.room<HIDEOUT_ROOMS.length-1){h.room++;h.player.y=2*TILE;showHideoutMsg(HIDEOUT_ROOMS[h.room].name);clearBackdropCache();}
+    if(py<=1&&moveUp){
+      if(h.room>0){h.room--;h.player.y=13*TILE;showHideoutMsg(HIDEOUT_ROOMS[h.room].name);clearBackdropCache();}
+      else if(h.foundCount>=h.totalCount){startPhase('cart');return;}
+    } else if(py>=13&&moveDown&&h.room<HIDEOUT_ROOMS.length-1){
+      h.room++;h.player.y=2*TILE;showHideoutMsg(HIDEOUT_ROOMS[h.room].name);clearBackdropCache();
+    }
   }
   // item pickup
   const action=eat('Space')||eat('Enter')||eat('KeyE');
@@ -1007,10 +1015,6 @@ function updateHideout(dt){
     }
   });
   if(h.msg.timer>0)h.msg.timer--;
-  // check if all found — allow exit
-  if(h.foundCount>=h.totalCount&&h.room===0&&h.player.y<2*TILE){
-    startPhase('cart');
-  }
 }
 function drawHideoutTile(tile,r,c){
   const x=c*TILE,y=r*TILE;
