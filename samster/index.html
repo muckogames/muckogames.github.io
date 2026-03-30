@@ -1034,13 +1034,28 @@ function drawHideout(){
   h.items.forEach(it=>{
     if(it.found||it.room!==h.room)return;
     const ix=it.x*TILE+8,iy=it.y*TILE+8;
+    const near=Math.hypot(h.player.x-(ix+8),h.player.y-(iy+8))<40;
     if(!it.hidden){
       txt(it.emoji,ix,iy+16,'',18);
-      const near=Math.hypot(h.player.x-(ix+8),h.player.y-(iy+8))<40;
       if(near){rnd(ix-2,iy-2,TILE+4,TILE+4,4,null,C.gold,2);txt('Auto-grab!',ix,iy-6,C.gold,9,'left',"'Courier New',monospace");}
     } else {
-      const near=Math.hypot(h.player.x-(ix+8),h.player.y-(iy+8))<40;
-      if(near){rnd(ix-2,iy-2,TILE+4,TILE+4,4,null,'#ffaa44',2);txt('Press E/Space',ix-8,iy-6,'#ffaa44',9,'left',"'Courier New',monospace");}
+      // On easy: show a pulsing yellow outline + faint emoji so hidden items are visible
+      // On medium: show a subtle shimmer hint
+      // On hard: nothing visible until adjacent
+      if(diff.id==='easy'){
+        const pulse=0.35+Math.sin(t*0.06+it.x+it.y)*0.2;
+        ctx.save();ctx.globalAlpha=pulse;
+        rnd(ix-4,iy-4,TILE+8,TILE+8,6,null,'#ffdd66',2);
+        txt(it.emoji,ix,iy+16,'',18);
+        ctx.restore();
+        txt('?',ix+12,iy+2,'#ffdd66',12,'center','Georgia');
+      } else if(diff.id==='medium'){
+        const shimmer=0.12+Math.sin(t*0.04+it.x*3)*0.08;
+        ctx.save();ctx.globalAlpha=shimmer;
+        circ(ix+12,iy+12,10,'#ffdd66');
+        ctx.restore();
+      }
+      if(near){rnd(ix-2,iy-2,TILE+4,TILE+4,4,null,'#ffaa44',2);txt(TOUCH_UI?'Tap A':'Press E/Space',ix-8,iy-6,'#ffaa44',9,'left',"'Courier New',monospace");}
     }
   });
   // lasers
