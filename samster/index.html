@@ -173,7 +173,17 @@ canvas.addEventListener('touchstart',e=>{
   });
   syncTouchControls(e);e.preventDefault();
 },{passive:false});
-canvas.addEventListener('touchmove',e=>{syncTouchControls(e);e.preventDefault();},{passive:false});
+canvas.addEventListener('touchmove',e=>{
+  syncTouchControls(e);
+  // keep mx/my updated on touch devices for hover-like detection
+  const rect=canvas.getBoundingClientRect();
+  const sx=W/rect.width,sy=H/rect.height;
+  if(e.touches.length>0){
+    mx=(e.touches[0].clientX-rect.left)*sx;
+    my=(e.touches[0].clientY-rect.top)*sy;
+  }
+  e.preventDefault();
+},{passive:false});
 canvas.addEventListener('touchend',e=>{syncTouchControls(e);e.preventDefault();},{passive:false});
 canvas.addEventListener('touchcancel',e=>{syncTouchControls(e);e.preventDefault();},{passive:false});
 window.addEventListener('blur',()=>{touchState.buttons.clear();applyTouchDirs(new Set());});
@@ -551,23 +561,35 @@ function drawCage(){
     const ang=cage.wheelSpin+i*(TAU/6);
     line(wheelX,wheelY,wheelX+Math.cos(ang)*wheelR,wheelY+Math.sin(ang)*wheelR,'#a09070',1.5);
   }
+  // helper: enlarged hit test for touch-friendly taps (pad = extra pixels each side)
+  const PAD=TOUCH_UI?20:5;
+  function cageHit(x,y,w,h){return mx>=x-PAD&&mx<=x+w+PAD&&my>=y-PAD&&my<=y+h+PAD;}
+  function cageHitCirc(cx2,cy2,r){return Math.hypot(mx-cx2,my-cy2)<r+(TOUCH_UI?25:5);}
+
   // wood piece
   if(cage.step===0){
     // wood on cage floor — clickable
     const wx=cx-80,wy=cy+60;
-    rnd(wx,wy,30,10,2,'#b08040','#806030',1.5);
-    txt('🪵',wx+5,wy+2,'',12);
-    if(mx>=wx&&mx<=wx+30&&my>=wy&&my<=wy+12){
+    rnd(wx-4,wy-4,38,18,4,'#b08040','#806030',1.5);
+    txt('🪵',wx+5,wy+2,'',14);
+    // pulsing highlight to make it obvious
+    const pulse=0.4+Math.sin(cage.anim*0.08)*0.3;
+    ctx.save();ctx.globalAlpha=pulse;rnd(wx-8,wy-8,46,26,6,null,'#ffcc44',2);ctx.restore();
+    txt('↑ TAP',wx+2,wy+30,'#ffcc44',11,'center','Georgia');
+    if(cageHit(wx-4,wy-4,38,18)){
       canvas.style.cursor='pointer';
-      if(mclk){mclk=false;cage.step=1;cage.hint='Now jam the wood in the wheel!';cage.hintTimer=180;}
+      if(mclk){mclk=false;cage.step=1;cage.hint='Now tap the wheel to jam the wood in!';cage.hintTimer=220;}
     }
   }
   if(cage.step===1){
-    // wood follows near wheel — click wheel to jam it
+    // wood follows near wheel — tap wheel to jam it
     rnd(wheelX-45,wheelY+wheelR-5,30,10,2,'#b08040','#806030',1.5);
-    if(Math.hypot(mx-wheelX,my-wheelY)<wheelR+15){
+    // highlight wheel
+    const pulse=0.4+Math.sin(cage.anim*0.08)*0.3;
+    ctx.save();ctx.globalAlpha=pulse;strokeCirc(wheelX,wheelY,wheelR+6,'#ffcc44',3);ctx.restore();
+    if(cageHitCirc(wheelX,wheelY,wheelR+15)){
       canvas.style.cursor='pointer';
-      if(mclk){mclk=false;cage.step=2;cage.wheelSpin=0;cage.hint='Climb up the back of the wheel!';cage.hintTimer=180;}
+      if(mclk){mclk=false;cage.step=2;cage.wheelSpin=0;cage.hint='Tap the top of the wheel to climb!';cage.hintTimer=220;}
     }
   }
   if(cage.step>=2){
@@ -577,11 +599,13 @@ function drawCage(){
     rnd(wx1-4,wy1-12,8,24,2,'#b08040','#806030',1.5);
   }
   if(cage.step===2){
-    // click back of wheel to climb
+    // tap top of wheel to climb
     const climbX=wheelX,climbY=wheelY-wheelR;
-    if(Math.hypot(mx-climbX,my-climbY)<25){
+    const pulse=0.4+Math.sin(cage.anim*0.08)*0.3;
+    ctx.save();ctx.globalAlpha=pulse;circ(climbX,climbY,18,'rgba(255,204,68,0.3)');strokeCirc(climbX,climbY,18,'#ffcc44',2);ctx.restore();
+    if(cageHitCirc(climbX,climbY,25)){
       canvas.style.cursor='pointer';
-      if(mclk){mclk=false;cage.step=3;cage.hint='Push the lid off!';cage.hintTimer=180;}
+      if(mclk){mclk=false;cage.step=3;cage.hint='Tap the lid to push it off!';cage.hintTimer=220;}
     }
   }
   // samster position depends on step
@@ -591,9 +615,11 @@ function drawCage(){
   if(!cage.escaped)drawSamster(sx,sy,1.2,cage.anim,0);
 
   if(cage.step===3){
-    // click lid to push it off
+    // tap lid to push it off — large hit zone
     const lx=cx-cw/2,ly=cy-ch/2-8;
-    if(my>=ly-10&&my<=ly+20&&mx>=lx&&mx<=lx+cw){
+    const pulse=0.4+Math.sin(cage.anim*0.08)*0.3;
+    ctx.save();ctx.globalAlpha=pulse;rnd(lx-4,ly-12,cw+8,30,4,null,'#ffcc44',3);ctx.restore();
+    if(cageHit(lx,ly-12,cw,30)){
       canvas.style.cursor='pointer';
       if(mclk){mclk=false;cage.step=4;cage.escaped=true;cage.escTimer=0;cage.hint='Freedom!';cage.hintTimer=120;}
     }
