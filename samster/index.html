@@ -968,6 +968,11 @@ function initHideout(){
     alarm:false,alarmTimer:0,
     msg:{text:'',timer:0},
     foundCount:0,totalCount:count,
+    raccoons:[
+      {room:0,x:16*TILE,y:9*TILE,powerOff:0,cooldown:0,chatAnim:0},
+      {room:1,x:4*TILE,y:4*TILE,powerOff:0,cooldown:0,chatAnim:0},
+      {room:2,x:3*TILE,y:8*TILE,powerOff:0,cooldown:0,chatAnim:0},
+    ],
   };
   showHideoutMsg(HIDEOUT_ROOMS[0].name);
 }
@@ -1002,8 +1007,26 @@ function updateHideout(dt){
       h.room++;h.player.y=1.5*TILE;showHideoutMsg(HIDEOUT_ROOMS[h.room].name);clearBackdropCache();
     }
   }
+  // raccoon power-cut logic
+  const powerDur=diff.id==='easy'?10:diff.id==='medium'?7:5;
+  const cooldownDur=diff.id==='easy'?12:diff.id==='medium'?18:25;
+  h.raccoons.forEach(rc=>{
+    if(rc.powerOff>0)rc.powerOff-=dt;
+    if(rc.cooldown>0)rc.cooldown-=dt;
+    if(rc.chatAnim>0)rc.chatAnim-=dt;
+  });
   // item pickup
   const action=eat('Space')||eat('Enter')||eat('KeyE');
+  // raccoon interaction
+  if(action){
+    h.raccoons.forEach(rc=>{
+      if(rc.room!==h.room)return;
+      if(Math.hypot(h.player.x-rc.x,h.player.y-rc.y)<50&&rc.cooldown<=0){
+        rc.powerOff=powerDur;rc.cooldown=cooldownDur;rc.chatAnim=2.5;
+        showHideoutMsg('🦝 *chews cable* Lasers offline!');
+      }
+    });
+  }
   h.items.forEach(it=>{
     if(it.found||it.room!==h.room)return;
     const ix=it.x*TILE+16,iy=it.y*TILE+16;
@@ -1013,10 +1036,12 @@ function updateHideout(dt){
       else if(action){it.found=true;h.foundCount++;score+=it.pts;showHideoutMsg(`Found hidden: ${it.name} (+${it.pts})`);}
     }
   });
-  // laser collision
+  // laser collision (skip if raccoon cut power for this room)
+  const roomPowerOff=h.raccoons.some(rc=>rc.room===h.room&&rc.powerOff>0);
   h.lasers.forEach(l=>{
     if(l.room!==h.room)return;
     l.angle+=l.speed*dt;
+    if(roomPowerOff)return; // lasers disabled!
     const ex=l.cx+Math.cos(l.angle)*l.len/2,ey=l.cy+Math.sin(l.angle)*l.len/2;
     const sx=l.cx-Math.cos(l.angle)*l.len/2,sy=l.cy-Math.sin(l.angle)*l.len/2;
     if(lineCircHit(sx,sy,ex,ey,h.player.x,h.player.y,10)){
@@ -1072,16 +1097,65 @@ function drawHideout(){
       if(near){rnd(ix-2,iy-2,TILE+4,TILE+4,4,null,'#ffaa44',2);txt(TOUCH_UI?'Tap A':'Press E/Space',ix-8,iy-6,'#ffaa44',9,'left',"'Courier New',monospace");}
     }
   });
-  // lasers
+  // raccoons
+  const roomPowerOff2=h.raccoons.some(rc=>rc.room===h.room&&rc.powerOff>0);
+  h.raccoons.forEach(rc=>{
+    if(rc.room!==h.room)return;
+    const near=Math.hypot(h.player.x-rc.x,h.player.y-rc.y)<50;
+    const bob=Math.sin(t*0.06+rc.x)*2;
+    ctx.save();ctx.translate(rc.x,rc.y+bob);
+    // raccoon body
+    ellipse(0,6,10,6,'#555');strokeEllipse(0,6,10,6,C.ink,1.5);
+    // head
+    circ(0,-6,8,'#666');strokeCirc(0,-6,8,C.ink,1.5);
+    // ears
+    ellipse(-6,-12,3,4,'#555');ellipse(6,-12,3,4,'#555');
+    // mask
+    rnd(-7,-9,14,5,2,'#222');
+    // eyes
+    circ(-3,-7,1.5,'#fff');circ(3,-7,1.5,'#fff');
+    circ(-3,-7,0.7,'#111');circ(3,-7,0.7,'#111');
+    // nose
+    circ(0,-3,1.2,'#333');
+    // tail
+    ctx.save();ctx.translate(10,4);ctx.rotate(0.3+Math.sin(t*0.08)*0.2);
+    line(0,0,8,-6,'#555',3);line(8,-6,10,-10,'#888',2.5);
+    ctx.restore();
+    // chat bubble when activated
+    if(rc.chatAnim>0){
+      const ca=Math.min(1,rc.chatAnim);
+      ctx.globalAlpha=ca;
+      rnd(-28,-38,56,22,6,'rgba(0,0,0,0.85)','#c8a060',1.5);
+      txt('⚡ *chomp*',-0,-22,'#ffdd66',10,'center','Georgia');
+      ctx.globalAlpha=1;
+    }
+    ctx.restore();
+    // prompt
+    if(near&&rc.cooldown<=0){
+      rnd(rc.x-30,rc.y-50+bob,60,18,4,'rgba(0,0,0,0.8)',C.gold,1);
+      txt(TOUCH_UI?'Tap A':'Press E',rc.x,rc.y-37+bob,C.gold,10,'center','Georgia');
+    } else if(near&&rc.cooldown>0&&rc.powerOff<=0){
+      txt('💤',rc.x,rc.y-30+bob,'',14,'center');
+    }
+  });
+  // lasers (dimmed/off when power cut)
   ctx.save();
   h.lasers.forEach(l=>{
     if(l.room!==h.room)return;
     const ex=l.cx+Math.cos(l.angle)*l.len/2,ey=l.cy+Math.sin(l.angle)*l.len/2;
     const sx=l.cx-Math.cos(l.angle)*l.len/2,sy=l.cy-Math.sin(l.angle)*l.len/2;
-    ctx.shadowColor=C.laserRed;ctx.shadowBlur=8;
-    line(sx,sy,ex,ey,C.laserRed,2);
-    ctx.shadowBlur=0;
-    line(sx,sy,ex,ey,'rgba(255,100,100,0.3)',6);
+    if(roomPowerOff2){
+      // flickering dim lasers
+      const flk=Math.random()>0.7?0.15:0.05;
+      ctx.globalAlpha=flk;
+      line(sx,sy,ex,ey,'#884444',2);
+      ctx.globalAlpha=1;
+    } else {
+      ctx.shadowColor=C.laserRed;ctx.shadowBlur=8;
+      line(sx,sy,ex,ey,C.laserRed,2);
+      ctx.shadowBlur=0;
+      line(sx,sy,ex,ey,'rgba(255,100,100,0.3)',6);
+    }
   });
   ctx.restore();
   // player
@@ -1104,8 +1178,18 @@ function drawHideout(){
     rnd(UI_X+10,220,UI_W-20,40,6,'rgba(40,80,40,0.6)','#88ff88',1.5);
     txt('All found! Exit ↑',UI_X+UI_W/2,246,'#88ff88',11,'center','Georgia');
   }
-  txt(TOUCH_UI?'Tap A: Search':'E/Space: Search',UI_X+UI_W/2,280,C.dimTxt,9,'center',"'Courier New',monospace");
-  txt(TOUCH_UI?'Walk into doors':'↕ Doors: next room',UI_X+UI_W/2,296,C.dimTxt,9,'center',"'Courier New',monospace");
+  // raccoon power-off indicator
+  const curRc=h.raccoons.find(rc=>rc.room===h.room);
+  if(curRc&&curRc.powerOff>0){
+    const pct=curRc.powerOff/(diff.id==='easy'?10:diff.id==='medium'?7:5);
+    rnd(UI_X+10,265,UI_W-20,34,6,'rgba(40,40,80,0.6)','#6688ff',1.5);
+    txt('🦝 POWER OFF',UI_X+UI_W/2,280,'#88aaff',9,'center',"'Courier New',monospace");
+    fillRect(UI_X+16,286,(UI_W-32)*pct,6,'#6688ff');
+  } else {
+    txt(TOUCH_UI?'🦝 Tap A near raccoon':'🦝 Press E near raccoon',UI_X+UI_W/2,280,C.dimTxt,8,'center',"'Courier New',monospace");
+  }
+  txt(TOUCH_UI?'Tap A: Search':'E/Space: Search',UI_X+UI_W/2,310,C.dimTxt,9,'center',"'Courier New',monospace");
+  txt(TOUCH_UI?'Walk into doors':'↕ Doors: next room',UI_X+UI_W/2,326,C.dimTxt,9,'center',"'Courier New',monospace");
   // alarm overlay
   if(h.alarm){
     ctx.globalAlpha=0.7;fillRect(0,0,MAP_W,H,'#330000');ctx.globalAlpha=1;
