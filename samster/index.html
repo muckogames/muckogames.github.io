@@ -111,8 +111,15 @@ function mobileLayout(){
     return{dpad:null,buttons};
   }
   if(phase==='brake'){
-    buttons.push({id:'brake',cx:W/2-80,cy:H-80,r:36,label:'B',sub:'Brake'});
-    buttons.push({id:'blanket',cx:W/2+80,cy:H-80,r:36,label:'O',sub:'Cover'});
+    if(brk&&brk.phase==='qte'&&brk.qteIdx<brk.qtePrompts.length){
+      // Show tappable letter button for current QTE key
+      const key=brk.qteKey;
+      const label=QTE_LABELS[key]||'?';
+      buttons.push({id:'qte_'+key,cx:W/2,cy:H-80,r:48,label:label,sub:'SHUSH!'});
+    } else {
+      buttons.push({id:'brake',cx:W/2-80,cy:H-80,r:36,label:'B',sub:'Brake'});
+      buttons.push({id:'blanket',cx:W/2+80,cy:H-80,r:36,label:'O',sub:'Cover'});
+    }
     return{dpad:null,buttons};
   }
   return{dpad:null,buttons:[]};
@@ -147,6 +154,7 @@ function fireMobileButton(id){
   else if(id==='duck'){JP.ArrowDown=true;JP.KeyS=true;}
   else if(id==='brake'){JP.KeyB=true;}
   else if(id==='blanket'){JP.KeyO=true;}
+  else if(id.startsWith('qte_')){JP[id.substring(4)]=true;}
 }
 function syncTouchControls(e){
   const rect=canvas.getBoundingClientRect();
@@ -414,7 +422,8 @@ function drawTitle(){
     fillRect(bx,H-130-bh,bw,bh+130,'rgba(15,20,35,0.9)');
     for(let wy=H-130-bh+10;wy<H-20;wy+=20){
       for(let wx=bx+8;wx<bx+bw-8;wx+=14){
-        fillRect(wx,wy,6,8,Math.random()>0.6?'rgba(255,220,100,0.3)':'rgba(40,50,70,0.5)');
+        const seed=(wx*31+wy*17+i*53)%100;
+        fillRect(wx,wy,6,8,seed>60?'rgba(255,220,100,0.3)':'rgba(40,50,70,0.5)');
       }
     }
   }
@@ -688,7 +697,7 @@ function updateStealth(dt){
     if(tile===TT.CREAK)s.noise+=diff.noiseRate*0.8;
     else s.noise+=diff.noiseRate*0.12;
   } else {
-    s.noise=Math.max(0,s.noise-0.15);
+    s.noise=Math.max(0,s.noise-0.35);
   }
   if(s.noise>=100){s.caught=true;s.caughtTimer=2.5;s.noise=100;}
   if(tileAt(s.player.x,s.player.y,BED_MAP)===TT.VENT){s.won=true;score+=50;}
@@ -720,8 +729,9 @@ function drawStealth(){
   ctx.save();
   ctx.fillStyle='rgba(10,10,20,0.75)';
   ctx.beginPath();ctx.rect(0,0,MAP_W,MAP_H);
-  ctx.moveTo(s.player.x+60,s.player.y);
-  ctx.arc(s.player.x,s.player.y,60,-0,TAU,true);
+  const visR=diff.id==='easy'?110:diff.id==='medium'?90:70;
+  ctx.moveTo(s.player.x+visR,s.player.y);
+  ctx.arc(s.player.x,s.player.y,visR,-0,TAU,true);
   ctx.fill();
   ctx.restore();
   // Pflueger sleeping
@@ -743,7 +753,7 @@ function drawStealth(){
   txt(pStatus,UI_X+UI_W/2,148,s.noise<50?'#88bb88':'#dd8844',11,'center','Georgia');
   // controls
   txt('CONTROLS',UI_X+UI_W/2,180,C.dimTxt,10,'center',"'Courier New',monospace");
-  txt('↑↓←→ Move',UI_X+UI_W/2,200,'#aaa',10,'center',"'Courier New',monospace");
+  txt(TOUCH_UI?'D-pad to move':'↑↓←→ Move',UI_X+UI_W/2,200,'#aaa',10,'center',"'Courier New',monospace");
   txt('Avoid creaky boards!',UI_X+UI_W/2,218,'#aaa',10,'center',"'Courier New',monospace");
   // caught overlay
   if(s.caught){
@@ -1094,8 +1104,8 @@ function drawHideout(){
     rnd(UI_X+10,220,UI_W-20,40,6,'rgba(40,80,40,0.6)','#88ff88',1.5);
     txt('All found! Exit ↑',UI_X+UI_W/2,246,'#88ff88',11,'center','Georgia');
   }
-  txt('E/Space: Search',UI_X+UI_W/2,280,C.dimTxt,9,'center',"'Courier New',monospace");
-  txt('↕ Doors: next room',UI_X+UI_W/2,296,C.dimTxt,9,'center',"'Courier New',monospace");
+  txt(TOUCH_UI?'Tap A: Search':'E/Space: Search',UI_X+UI_W/2,280,C.dimTxt,9,'center',"'Courier New',monospace");
+  txt(TOUCH_UI?'Walk into doors':'↕ Doors: next room',UI_X+UI_W/2,296,C.dimTxt,9,'center',"'Courier New',monospace");
   // alarm overlay
   if(h.alarm){
     ctx.globalAlpha=0.7;fillRect(0,0,MAP_W,H,'#330000');ctx.globalAlpha=1;
@@ -1153,8 +1163,7 @@ function updateCart(dt){
     const ox=o.x-c.scrollX;
     if(ox>-20&&ox<60){
       if(o.type==='pipe'&&!c.ducking){o.hit=true;c.speed=Math.max(0,c.speed-3);score=Math.max(0,score-5);}
-      if(o.type==='rat'&&c.ducking){} // duck doesn't help with rats
-      if(o.type==='rat'&&!c.ducking){/* rats are on floor, jump over by not ducking — actually rats you need speed to pass */}
+      if(o.type==='rat'&&c.speed<4){o.hit=true;c.speed=Math.max(0,c.speed-2);score=Math.max(0,score-3);}
     }
   });
   if(c.distance>=c.targetDist){c.done=true;score+=30;}
@@ -1192,6 +1201,7 @@ function drawCart(){
       if(o.hit)txt('💥',ox,100,'',20);
     } else {
       txt('🐀',ox,H-125,'',18);
+      if(o.hit)txt('💥',ox,H-135,'',14);
     }
   });
   // cart
@@ -1226,7 +1236,7 @@ function drawCart(){
   txt(`Distance: ${pct}%`,W-210,42,C.gold,12,'left','Georgia');
   // controls hint
   rnd(W/2-140,H-35,280,28,6,'rgba(0,0,0,0.6)',null);
-  txt('← → Alternate to pump | ↓ Duck',W/2,H-16,C.cream,11,'center',"'Courier New',monospace");
+  txt(TOUCH_UI?'Tap L/R to pump | D to duck':'← → Alternate to pump | ↓ Duck',W/2,H-16,C.cream,11,'center',"'Courier New',monospace");
 }
 function drawCartWin(){
   fillRect(0,0,W,H,'#1a2a1a');
@@ -1319,14 +1329,14 @@ function drawBrake(){
     txt('BRAKE HERE!',b.brakeTarget,H-130,'#88ff88',12,'center','Georgia');
     // instruction
     rnd(W/2-100,30,200,36,6,'rgba(0,0,0,0.8)',C.dialogBdr,1.5);
-    txt('Press B to brake!',W/2,54,C.gold,15,'center','Georgia');
+    txt(TOUCH_UI?'Tap BRAKE!':'Press B to brake!',W/2,54,C.gold,15,'center','Georgia');
   }
   if(b.phase==='blanket'){
     // cart in alcove
     rnd(490,H-160,60,30,4,C.cartRust,'#333',2);
     ctx.save();ctx.translate(510,H-175);drawSamster(0,0,0.5,t,0);ctx.restore();
     rnd(W/2-120,30,240,36,6,'rgba(0,0,0,0.8)',C.dialogBdr,1.5);
-    txt('Press O to lower blanket!',W/2,54,C.gold,15,'center','Georgia');
+    txt(TOUCH_UI?'Tap COVER!':'Press O to lower blanket!',W/2,54,C.gold,15,'center','Georgia');
   }
   if(b.phase==='qte'||b.phase==='done'){
     // cart hidden with blanket
