@@ -102,7 +102,7 @@ function mobileLayout(){
   const buttons=[];
   if(phase==='stealth'||phase==='hideout'||phase==='victory'){
     if(phase==='hideout')buttons.push({id:'action',cx:W-88,cy:H-90,r:32,label:'A',sub:'Search'});
-    return{dpad:{cx:92,cy:H-92,r:34},buttons};
+    return{dpad:{cx:100,cy:H-100,r:46},buttons};
   }
   if(phase==='cart'){
     buttons.push({id:'pumpL',cx:80,cy:H-80,r:44,label:'L',sub:'Pump'});
@@ -126,7 +126,7 @@ function mobileLayout(){
 }
 function getMobileDpadDir(tx,ty,dpad){
   const dx=tx-dpad.cx,dy=ty-dpad.cy;
-  if(Math.hypot(dx,dy)>dpad.r*2.15)return null;
+  if(Math.hypot(dx,dy)>dpad.r*2.4)return null;
   if(Math.abs(dx)>=Math.abs(dy))return dx<0?'left':'right';
   return dy<0?'up':'down';
 }
@@ -999,7 +999,7 @@ function updateHideout(dt){
       if(h.room>0){h.room--;h.player.y=13*TILE;showHideoutMsg(HIDEOUT_ROOMS[h.room].name);clearBackdropCache();}
       else if(h.foundCount>=h.totalCount){startPhase('cart');return;}
     } else if(py>=13&&moveDown&&h.room<HIDEOUT_ROOMS.length-1){
-      h.room++;h.player.y=2*TILE;showHideoutMsg(HIDEOUT_ROOMS[h.room].name);clearBackdropCache();
+      h.room++;h.player.y=1.5*TILE;showHideoutMsg(HIDEOUT_ROOMS[h.room].name);clearBackdropCache();
     }
   }
   // item pickup
@@ -1479,12 +1479,12 @@ function drawMobileControls(){
     const d=layout.dpad;
     circ(d.cx,d.cy,d.r*0.78,'rgba(20,12,30,0.58)');
     strokeCirc(d.cx,d.cy,d.r*0.78,'rgba(200,160,96,0.5)',2);
-    [{id:'up',x:d.cx,y:d.cy-d.r-4,g:'▲'},{id:'down',x:d.cx,y:d.cy+d.r+4,g:'▼'},
-     {id:'left',x:d.cx-d.r-4,y:d.cy,g:'◀'},{id:'right',x:d.cx+d.r+4,y:d.cy,g:'▶'}].forEach(p=>{
+    [{id:'up',x:d.cx,y:d.cy-d.r-6,g:'▲'},{id:'down',x:d.cx,y:d.cy+d.r+6,g:'▼'},
+     {id:'left',x:d.cx-d.r-6,y:d.cy,g:'◀'},{id:'right',x:d.cx+d.r+6,y:d.cy,g:'▶'}].forEach(p=>{
       const a=touchState.dirs.has(p.id);
-      circ(p.x,p.y,22,a?'rgba(200,160,96,0.34)':'rgba(25,16,36,0.66)');
-      strokeCirc(p.x,p.y,22,a?C.gold:'rgba(200,160,96,0.45)',2);
-      txt(p.g,p.x,p.y+6,a?'#fff6d8':'#efe2c2',16,'center',"'Courier New',monospace");
+      circ(p.x,p.y,30,a?'rgba(200,160,96,0.34)':'rgba(25,16,36,0.66)');
+      strokeCirc(p.x,p.y,30,a?C.gold:'rgba(200,160,96,0.45)',2);
+      txt(p.g,p.x,p.y+7,a?'#fff6d8':'#efe2c2',20,'center',"'Courier New',monospace");
     });
   }
   layout.buttons.forEach(btn=>{
