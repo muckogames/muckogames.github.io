@@ -1275,10 +1275,15 @@ function updateBrake(dt){
   const b=brk;if(!b)return;
   if(b.phase==='brake'){
     b.cartX+=3;
+    const brakeWindow=diff.id==='easy'?100:diff.id==='medium'?75:60;
     if(eat('KeyB')){
       const dist=Math.abs(b.cartX-b.brakeTarget);
-      if(dist<60){b.braked=true;b.phase='blanket';score+=Math.max(0,30-Math.floor(dist/2));}
+      if(dist<brakeWindow){b.braked=true;b.phase='blanket';score+=Math.max(0,30-Math.floor(dist/2));}
       else{b.cartX=Math.max(0,b.cartX-100);} // overshot, push back
+    }
+    // auto-advance if cart goes way past target (no stuck state)
+    if(b.cartX>b.brakeTarget+200){
+      b.braked=true;b.phase='blanket';score=Math.max(0,score-15);
     }
   }
   if(b.phase==='blanket'){
