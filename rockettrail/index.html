@@ -108,7 +108,13 @@ document.addEventListener('keyup', function(e) { K[e.code] = false; });
 function eat(c) { if (JP[c]) { JP[c]=false; return true; } return false; }
 function held(c) { return !!K[c]; }
 
-var mx=W/2, my=H/2, mclk=false;
+var mx=W/2, my=H/2, mclk=false, mouseDown=false;
+canvas.addEventListener('mousedown', function(e) {
+  var r=canvas.getBoundingClientRect();
+  mx=(e.clientX-r.left)*(W/r.width); my=(e.clientY-r.top)*(H/r.height);
+  mouseDown=true; mclk=true;
+});
+canvas.addEventListener('mouseup', function() { mouseDown=false; });
 canvas.addEventListener('click', function(e) {
   var r=canvas.getBoundingClientRect();
   mx=(e.clientX-r.left)*(W/r.width); my=(e.clientY-r.top)*(H/r.height);
@@ -155,11 +161,14 @@ canvas.addEventListener('touchcancel', function(e) {
 },{passive:false});
 
 function handleTouchFire(tx,ty) {
-  if (phase==='chute') { // deploy button
+  if (phase==='chute') {
     if (ty > H-120 && Math.abs(tx-W/2)<130) { JP.Space=true; }
   }
-  if (phase==='moonasc' || phase==='launch') {
+  if (phase==='moonasc' || phase==='launch' || phase==='travel') {
     if (tx > W-120 && ty > H-60) { JP.Space=true; }
+  }
+  if (phase==='mining' && mine && !mine.done) {
+    fireMiningLaser(tx, ty); mclk=false;
   }
 }
 function syncTouchKeys() {
@@ -289,6 +298,9 @@ var phase = 'title';
 var gT = 0; // global tick
 var runScore = {landing:0, reentry:0, chute:0};
 var scoreSaved = false;
+var minerals = 0;   // collected during asteroid mining
+var trav = null;    // travel phase state
+var mine = null;    // mining phase state
 
 /* ══════════════════════════════════════════════════════════════════════════
    DRAWING: SATURN V
@@ -491,6 +503,373 @@ function drawMoonSurface(groundY, padX) {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
+   PHASE: PAD  (pre-launch — player clicks the big button)
+   ══════════════════════════════════════════════════════════════════════════ */
+var padT = 0;
+function initPad() {
+  runScore = {landing:0, reentry:0, chute:0};
+  scoreSaved = false; minerals = 0;
+  padT = 0;
+  phase = 'pad';
+}
+function updatePad(dt) { padT += dt; }
+function drawPad() {
+  // Night sky
+  vgrad(0,0,W,H,[[0,'#020208'],[0.7,'#06061a'],[1,'#09091f']]);
+  drawStars(1);
+  // Ground horizon
+  vgrad(0,H-55,W,55,[[0,'#222220'],[1,'#141412']]);
+  // Launch tower structure
+  drect(W/2-48,H-150,7,92,'#363634'); drect(W/2+41,H-150,7,92,'#363634');
+  drect(W/2-41,H-125,41,5,'#282826'); drect(W/2,H-116,41,5,'#282826');
+  // Pad base
+  drect(W/2-55,H-55,110,10,'#555'); drect(W/2-80,H-45,160,6,'#444');
+  // Rocket on pad
+  drawSaturnV(W/2, H-55, 3, 0);
+  // Flood-light glow from below
+  ctx.save(); ctx.globalAlpha=0.12;
+  var lgr=ctx.createRadialGradient(W/2,H-55,0,W/2,H-55,250);
+  lgr.addColorStop(0,'rgba(255,240,200,1)'); lgr.addColorStop(1,'rgba(255,240,200,0)');
+  ctx.fillStyle=lgr; ctx.fillRect(0,0,W,H); ctx.restore();
+
+  // Header
+  txt('KENNEDY SPACE CENTER', W/2, 38, '#99aacc', 13, 'center', 'bold monospace');
+  txt('LAUNCH COMPLEX 39A', W/2, 56, '#667788', 11, 'center', 'monospace');
+
+  // Checklist
+  var checks=['\u2714 FUEL LOADED','\u2714 CREW ABOARD','\u2714 SYSTEMS GO','\u25B6 AWAITING LAUNCH'];
+  var checkCols=['#44aa44','#44aa44','#44aa44','#ffcc44'];
+  for (var ci=0;ci<checks.length;ci++) {
+    txt(checks[ci], W/2-88, 86+ci*22, checkCols[ci], 12, 'left', 'monospace');
+  }
+
+  // Big red LAUNCH button
+  var pulse = 1 + Math.sin(padT*2.5)*0.022;
+  var bx=W/2-155, by=192, bw=310, bh=64;
+  var bhov = mx>=bx&&mx<=bx+bw&&my>=by&&my<=by+bh;
+  ctx.save();
+  if (!bhov) { ctx.translate(W/2,by+bh/2); ctx.scale(pulse,pulse); ctx.translate(-W/2,-(by+bh/2)); }
+  ctx.shadowColor='rgba(255,50,0,0.65)'; ctx.shadowBlur=bhov?32:18;
+  rnd(bx,by,bw,bh,14,bhov?'#cc1a00':'#880e00','#ff5522',3);
+  ctx.shadowBlur=0;
+  txt('T-MINUS',W/2,by+24,'#ffaa88',13,'center','bold monospace');
+  txt('INITIATE COUNTDOWN',W/2,by+50,'#ffffff',19,'center','bold monospace');
+  ctx.restore();
+
+  txt('SPACE = launch', W/2, H-12, 'rgba(100,150,200,0.5)', 10, 'center', 'monospace');
+
+  if (mclk) { mclk=false; if (bhov) { initAudio(); initLaunch(); } }
+  if (eat('Space')||eat('Enter')) { initAudio(); initLaunch(); }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PHASE: TRAVEL  (Oregon Trail progress — sleep/wake cycles + mining)
+   ══════════════════════════════════════════════════════════════════════════ */
+var TRAVEL_TEXTS_OUT = [
+  'All systems nominal. Mission Control confirms trajectory.',
+  'Asteroid field detected — mining operation authorised.',
+  'Navigation burn complete. Lunar orbit insertion in 18 hours.',
+];
+var TRAVEL_TEXTS_BACK = [
+  'Trans-Earth Injection burn completed successfully.',
+  'Midcourse correction executed. Re-entry corridor confirmed.',
+  'Earth grows large in the windows. Crew prepares for re-entry.',
+];
+
+function initTravel(dest) {
+  trav = {
+    t:0, sub:'intro', subT:0,
+    dest: dest,
+    hasMining: dest === 'moonland',
+    day: 1,
+    shipX: dest==='moonland' ? 90 : W-90,
+    zzz: [],
+    texts: dest==='moonland' ? TRAVEL_TEXTS_OUT : TRAVEL_TEXTS_BACK,
+  };
+  phase = 'travel';
+}
+// Sequence of sub-phases for each trip direction
+var SEQ_OUT  = ['intro','sleep1','wake1','mining','sleep2','wake2','done'];
+var SEQ_BACK = ['intro','sleep1','wake1','sleep2','wake2','done'];
+
+function nextTravelSub() {
+  var seq = trav.hasMining ? SEQ_OUT : SEQ_BACK;
+  var idx = seq.indexOf(trav.sub);
+  if (idx < 0 || idx >= seq.length-1) return;
+  trav.sub = seq[idx+1]; trav.subT = 0;
+  trav.day = idx >= 3 ? 3 : idx >= 1 ? 2 : 1;
+  if (trav.sub === 'mining') { initMining(); return; }
+  if (trav.sub === 'done') {
+    if (trav.dest === 'moonland') initMoonLand(); else initReentry();
+  }
+}
+function updateTravel(dt) {
+  trav.t += dt; trav.subT += dt;
+  var sub = trav.sub;
+  // Zzz particles during sleep
+  if ((sub==='sleep1'||sub==='sleep2') && Math.random()<0.06) {
+    trav.zzz.push({x:W/2+(Math.random()-0.5)*70, y:H/2+10, vy:-20-Math.random()*15, life:0});
+  }
+  trav.zzz = trav.zzz.filter(function(z){z.y+=z.vy*dt; z.life+=dt; return z.life<3.5;});
+  // Ship moves toward destination
+  var prog = sub==='intro'?0:sub==='sleep1'?0.15:sub==='wake1'?0.32:
+             sub==='mining'?0.45:sub==='sleep2'?0.62:sub==='wake2'?0.82:1;
+  var targetX = trav.dest==='moonland' ? (90+prog*(W-200)) : ((W-90)-prog*(W-200));
+  trav.shipX += (targetX - trav.shipX) * Math.min(1, dt*1.8);
+  // Auto-advance sleep after 2.5s, wake2 after 3s
+  if ((sub==='sleep1'||sub==='sleep2') && trav.subT>2.5) nextTravelSub();
+  if (sub==='wake2' && trav.subT>3) nextTravelSub();
+}
+function drawTravel() {
+  var isNight = trav.sub==='sleep1'||trav.sub==='sleep2';
+  // Space background
+  drect(0,0,W,H,'#03030d'); drawStars(isNight?0.85:0.65);
+  // Planets
+  var earthX = trav.dest==='moonland'?66:W-66;
+  var moonX  = trav.dest==='moonland'?W-66:66;
+  ctx.save(); ctx.globalAlpha = isNight?0.4:0.65;
+  drawEarth(earthX, H/2+10, 46);
+  drawMoon(moonX,   H/2+10, 30);
+  ctx.restore();
+  // Dotted flight path
+  ctx.save(); ctx.setLineDash([5,7]);
+  ln(earthX+48, H/2+10, moonX-32, H/2+10, 'rgba(80,130,200,0.3)', 1.5);
+  ctx.setLineDash([]); ctx.restore();
+  // Ship
+  ctx.save(); ctx.translate(trav.shipX, H/2+10);
+  poly([[0,-7],[-5,6],[5,6]],'#d8d8d0','#888',1);
+  ctx.restore();
+
+  // Night overlay
+  if (isNight) {
+    ctx.save(); ctx.globalAlpha=0.55; drect(0,0,W,H,'#000'); ctx.restore();
+    // Zzz
+    trav.zzz.forEach(function(z) {
+      ctx.save(); ctx.globalAlpha=Math.max(0,0.7-z.life/3.5);
+      txt('z',z.x,z.y,'#99aacc',11+z.life*2,'center','bold Georgia');
+      ctx.restore();
+    });
+    txt('REST CYCLE — DAY '+trav.day, W/2, H/2-66, '#7788aa', 16, 'center', 'bold monospace');
+    txt('Crew asleep...', W/2, H/2-42, '#445566', 13, 'center', 'italic Georgia');
+    var bh=mx>W/2-100&&mx<W/2+100&&my>H/2+20&&my<H/2+56;
+    rnd(W/2-100,H/2+20,200,36,8,bh?'#1a2a3a':'#0d1828','rgba(100,150,200,0.5)',1.5);
+    txt('WAKE CREW',W/2,H/2+44,'#7799bb',14,'center','bold monospace');
+    if (mclk){mclk=false; nextTravelSub();}
+    if (eat('Space')||eat('Enter')) nextTravelSub();
+    return;
+  }
+
+  // Day panel
+  var sub=trav.sub;
+  var hdg = sub==='intro' ?
+      (trav.dest==='moonland'?'DAY 1 — TRANS LUNAR INJECTION':'DAY 1 — TRANS EARTH INJECTION') :
+    sub==='wake1' ? 'DAY 2 — IN TRANSIT' :
+    sub==='wake2' ? (trav.dest==='moonland'?'DAY 3 — APPROACHING LUNAR ORBIT':'DAY 3 — APPROACHING EARTH') :
+    'MISSION DAY '+trav.day;
+  var tidx = sub==='intro'?0:sub==='wake1'?1:2;
+  var evtTxt = trav.texts[Math.min(tidx, trav.texts.length-1)];
+
+  rnd(W/2-260,H/2-110,520,220,14,'rgba(0,6,20,0.88)','rgba(80,140,220,0.4)',2);
+  txt(hdg, W/2, H/2-76, '#88ccff', 17, 'center', 'bold monospace');
+
+  // Word-wrap event text
+  var words=evtTxt.split(' '), ln1='', ln2='';
+  words.forEach(function(w){
+    if((ln1+' '+w).trim().length<=48) ln1=(ln1+' '+w).trim();
+    else ln2=(ln2+' '+w).trim();
+  });
+  txt(ln1, W/2, H/2-40, '#a8bedd', 13, 'center', 'Georgia');
+  if (ln2) txt(ln2, W/2, H/2-22, '#a8bedd', 13, 'center', 'Georgia');
+
+  // Minerals hint on return trip
+  if (trav.dest==='reentry' && minerals>0) {
+    txt('\u2694 '+minerals+' minerals aboard — shields boosted!', W/2, H/2+2, '#ffcc44', 12, 'center', 'italic Georgia');
+  }
+  if (trav.dest==='moonland' && minerals>0) {
+    txt('\u2694 '+minerals+' minerals — extra LEM fuel!', W/2, H/2+2, '#ffcc44', 12, 'center', 'italic Georgia');
+  }
+
+  var btnTxt = (sub==='wake1'&&trav.hasMining) ? '\u2605  BEGIN MINING OPERATION' : 'CONTINUE  \u25BA';
+  var btnFg  = (sub==='wake1'&&trav.hasMining) ? '#ffcc44' : '#88ccff';
+  var bhov=mx>W/2-130&&mx<W/2+130&&my>H/2+38&&my<H/2+74;
+  rnd(W/2-130,H/2+38,260,36,8,bhov?'#1a2a3a':'#0d1828','rgba(100,150,200,0.5)',1.5);
+  txt(btnTxt, W/2, H/2+62, bhov?'#fff':btnFg, 14, 'center', 'bold monospace');
+
+  if (sub==='wake2') txt('Arriving at destination...', W/2, H/2+84, 'rgba(150,180,220,0.55)', 11, 'center', 'monospace');
+  if (mclk){mclk=false;if(bhov)nextTravelSub();}
+  if (eat('Space')||eat('Enter')) nextTravelSub();
+
+  // Skip hint
+  rnd(W-120,H-42,112,34,6,'rgba(0,0,0,0.5)','rgba(100,150,200,0.35)',1);
+  txt('SPACE=skip',W-64,H-20,'rgba(150,180,220,0.6)',11,'center','monospace');
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PHASE: ASTEROID MINING  (shoot rocks, collect minerals)
+   ══════════════════════════════════════════════════════════════════════════ */
+var MINE_DUR = 30;
+function initMining() {
+  mine = {
+    t:0, asteroids:[], lasers:[], frags:[], gems:[],
+    minerals:0, spawnT:0, spawnInt:1.6,
+    done:false, doneT:0, cooldown:0
+  };
+  for (var i=0;i<5;i++) spawnAsteroid();
+  phase = 'mining';
+}
+function spawnAsteroid() {
+  var side=Math.floor(Math.random()*3); // 0=top,1=left,2=right
+  var r=13+Math.random()*22, spd=28+Math.random()*38;
+  var x,y,vx,vy;
+  if (side===0)      { x=Math.random()*W; y=-r;   vx=(Math.random()-0.5)*24; vy=spd; }
+  else if (side===1) { x=-r;  y=50+Math.random()*(H-180); vx=spd;  vy=(Math.random()-0.5)*18; }
+  else               { x=W+r; y=50+Math.random()*(H-180); vx=-spd; vy=(Math.random()-0.5)*18; }
+  mine.asteroids.push({
+    x:x,y:y,vx:vx,vy:vy,r:r,
+    health:r>28?2:1, minerals:r>28?3:r>20?2:1,
+    rot:Math.random()*TAU, rotV:(Math.random()-0.5)*1.5,
+    ice: Math.random()<0.3
+  });
+}
+function fireMiningLaser(tx,ty) {
+  if (!mine||mine.done||mine.cooldown>0) return;
+  mine.cooldown=0.14;
+  var sx=W/2,sy=H-48;
+  var dx=tx-sx,dy=ty-sy,len=Math.sqrt(dx*dx+dy*dy);
+  if(len<1) return;
+  var ndx=dx/len,ndy=dy/len;
+  var hitX=sx+ndx*W*2,hitY=sy+ndy*H*2,hitAny=false;
+  for (var i=0;i<mine.asteroids.length;i++) {
+    var a=mine.asteroids[i]; if(a.health<=0) continue;
+    var t2=(a.x-sx)*ndx+(a.y-sy)*ndy; if(t2<0) continue;
+    var cx=sx+t2*ndx,cy=sy+t2*ndy;
+    var dist=Math.sqrt((a.x-cx)*(a.x-cx)+(a.y-cy)*(a.y-cy));
+    if(dist<a.r+3) {
+      hitX=a.x; hitY=a.y; hitAny=true;
+      a.health--;
+      if(a.health<=0) {
+        mine.minerals+=a.minerals;
+        for(var fi=0;fi<5;fi++) mine.frags.push({
+          x:a.x,y:a.y,vx:(Math.random()-0.5)*90,vy:(Math.random()-0.5)*90,r:a.r*0.22,life:0
+        });
+        for(var gi=0;gi<a.minerals;gi++) mine.gems.push({
+          x:a.x+(Math.random()-0.5)*18,y:a.y,vy:-28-Math.random()*18,life:0
+        });
+        beep(880,0.15,0.2);
+      } else { beep(440,0.08,0.15); }
+      break;
+    }
+  }
+  mine.lasers.push({x1:sx,y1:sy,x2:hitX,y2:hitY,life:0});
+  if(!hitAny) beep(200,0.06,0.08,'square');
+}
+function updateMining(dt) {
+  mine.t+=dt; mine.cooldown=Math.max(0,mine.cooldown-dt);
+  if(mine.done){ mine.doneT+=dt; if(mine.doneT>2.5){minerals+=mine.minerals;nextTravelSub();} return; }
+  // Auto-fire while mouse held on desktop
+  if(mouseDown && mine.cooldown<=0) fireMiningLaser(mx,my);
+  if(mclk && !mine.done){ fireMiningLaser(mx,my); mclk=false; }
+  // Spawn
+  mine.spawnT+=dt;
+  if(mine.spawnT>=mine.spawnInt){ mine.spawnT=0; mine.spawnInt=Math.max(0.7,mine.spawnInt-0.04); spawnAsteroid(); }
+  // Update objects
+  mine.asteroids=mine.asteroids.filter(function(a){
+    a.x+=a.vx*dt;a.y+=a.vy*dt;a.rot+=a.rotV*dt;
+    return a.health>0&&a.x>-80&&a.x<W+80&&a.y>-80&&a.y<H+20;
+  });
+  mine.lasers=mine.lasers.filter(function(l){l.life+=dt;return l.life<0.22;});
+  mine.frags=mine.frags.filter(function(f){f.x+=f.vx*dt;f.y+=f.vy*dt;f.life+=dt;return f.life<1.0;});
+  mine.gems=mine.gems.filter(function(g){g.y+=g.vy*dt;g.life+=dt;return g.life<2.2;});
+  if(mine.t>=MINE_DUR) mine.done=true;
+}
+function drawMining() {
+  drect(0,0,W,H,'#03030e'); drawStars(0.75);
+  // Faint Earth
+  ctx.save(); ctx.globalAlpha=0.22; drawEarth(640,430,75); ctx.restore();
+
+  // Asteroids
+  mine.asteroids.forEach(function(a){
+    ctx.save(); ctx.translate(a.x,a.y); ctx.rotate(a.rot);
+    ctx.beginPath();
+    for(var pi=0;pi<7;pi++){
+      var ang=pi/7*TAU, rr=a.r*(0.72+Math.sin(pi*2.3+a.rot*2)*0.28);
+      pi===0?ctx.moveTo(Math.cos(ang)*rr,Math.sin(ang)*rr):ctx.lineTo(Math.cos(ang)*rr,Math.sin(ang)*rr);
+    }
+    ctx.closePath();
+    ctx.fillStyle=a.ice?'#6a8fa8':'#7a6a56'; ctx.fill();
+    ctx.strokeStyle=a.ice?'#4a6f88':'#5a4a38'; ctx.lineWidth=2; ctx.stroke();
+    if(a.health===1&&!a.ice){ // cracked
+      ctx.globalAlpha=0.5+Math.sin(gT*0.2)*0.3;
+      ctx.strokeStyle='#ff8844'; ctx.lineWidth=2; ctx.stroke();
+    }
+    circ(a.r*0.18,-a.r*0.2,2,a.ice?'rgba(160,210,255,0.55)':'rgba(255,200,80,0.5)');
+    ctx.restore();
+  });
+
+  // Fragments
+  mine.frags.forEach(function(f){
+    ctx.save(); ctx.globalAlpha=1-f.life;
+    circ(f.x,f.y,Math.max(0.5,f.r*(1-f.life)),'#988878'); ctx.restore();
+  });
+
+  // Gems
+  mine.gems.forEach(function(g){
+    var a=Math.max(0,1-g.life/2.2), sz=5.5-g.life*1.8;
+    if(sz>0.3){
+      ctx.save(); ctx.globalAlpha=a; ctx.fillStyle='#ffcc44';
+      ctx.beginPath();
+      ctx.moveTo(g.x,g.y-sz);ctx.lineTo(g.x+sz,g.y);
+      ctx.lineTo(g.x,g.y+sz);ctx.lineTo(g.x-sz,g.y);
+      ctx.closePath(); ctx.fill(); ctx.restore();
+    }
+  });
+
+  // Lasers
+  mine.lasers.forEach(function(l){
+    ctx.save(); ctx.globalAlpha=1-l.life/0.22;
+    ctx.strokeStyle='#ff3300'; ctx.lineWidth=2.5;
+    ctx.shadowColor='#ff4400'; ctx.shadowBlur=8;
+    ctx.beginPath(); ctx.moveTo(l.x1,l.y1); ctx.lineTo(l.x2,l.y2); ctx.stroke();
+    ctx.restore();
+  });
+
+  // Ship (cannon at bottom)
+  ctx.save(); ctx.translate(W/2,H-48);
+  rnd(-20,-12,40,22,5,'#484848','#777',1.5);
+  rnd(-9,-20,18,12,3,'#333','#666',1);
+  ln(0,-20,0,-32,'#aaa',3.5);   // barrel
+  ctx.restore();
+
+  // HUD
+  rnd(10,10,170,36,6,'rgba(0,0,0,0.6)','rgba(255,200,50,0.4)',1.5);
+  txt('\u2694 MINERALS: '+mine.minerals, 16, 33, '#ffcc44', 14, 'left', 'bold monospace');
+  // Timer bar
+  var tf=Math.max(0,(MINE_DUR-mine.t)/MINE_DUR);
+  rnd(W/2-120,12,240,14,4,'rgba(0,0,0,0.5)','rgba(255,255,255,0.2)',1);
+  rnd(W/2-120,12,Math.round(240*tf),14,4,tf>0.3?'#44aaff':'#ff4444',null,0);
+  txt(Math.max(0,Math.ceil(MINE_DUR-mine.t))+'s',W/2,24,'#ccddff',10,'center','monospace');
+
+  // First-5s instruction
+  if(mine.t<5){
+    ctx.save(); ctx.globalAlpha=Math.max(0.15,1-mine.t/5)*0.9;
+    rnd(W/2-160,H/2-20,320,40,8,'rgba(0,0,20,0.72)',null,0);
+    txt('CLICK / TAP ASTEROIDS TO FIRE LASER',W/2,H/2+5,'#aaccff',12,'center','monospace');
+    ctx.restore();
+  }
+
+  // Done overlay
+  if(mine.done){
+    var fa=Math.min(1,mine.doneT*2);
+    ctx.save(); ctx.globalAlpha=fa;
+    rnd(W/2-190,H/2-58,380,116,14,'rgba(0,10,30,0.92)','rgba(100,200,255,0.5)',2);
+    txt('MINING COMPLETE',W/2,H/2-22,'#88ffaa',24,'center','bold Georgia');
+    txt('\u2694  '+mine.minerals+' minerals collected',W/2,H/2+18,'#ffcc44',18,'center','Georgia');
+    txt('Minerals will boost your mission!',W/2,H/2+46,'#8899bb',13,'center','Georgia');
+    ctx.restore();
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
    PHASE: TITLE
    ══════════════════════════════════════════════════════════════════════════ */
 var titleT = 0;
@@ -544,11 +923,11 @@ function drawTitle() {
     mclk=false;
     if (hover2) { phase='scores'; return; }
     if (hover1 || (mx>W/2-120&&mx<W/2+120&&my>240&&my<340)) {
-      initAudio(); initLaunch(); return;
+      initAudio(); initPad(); return;
     }
     if (my > H-30) window.location.href='/index.html';
   }
-  if (eat('Space')||eat('Enter')) { initAudio(); initLaunch(); }
+  if (eat('Space')||eat('Enter')) { initAudio(); initPad(); }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -556,8 +935,6 @@ function drawTitle() {
    ══════════════════════════════════════════════════════════════════════════ */
 var lch = null;
 function initLaunch() {
-  runScore = {landing:0, reentry:0, chute:0};
-  scoreSaved = false;
   lch = {
     t:0,            // seconds since phase start
     rocketY: H-90,  // rocket bottom Y on screen
@@ -636,10 +1013,10 @@ function updateLaunch(dt) {
   if (lch.rocketY < -250 || lch.t > 28) {
     lch.doneTimer += dt;
     if (lch.doneTimer > 1.5 || eat('Space') || eat('Enter')) {
-      initMoonLand();
+      initTravel('moonland');
     }
   }
-  if (eat('Space') && lch.t > 5) { initMoonLand(); }
+  if (eat('Space') && lch.t > 5) { initTravel('moonland'); }
 }
 function separateStage(n) {
   lch.stages--;
@@ -753,13 +1130,14 @@ var PAD_X_DEFAULT = 380;
 
 function initMoonLand() {
   var padX = 280 + Math.floor(Math.random()*240);
+  var fuelBonus = Math.min(100, minerals * 3); // minerals mined → extra LEM fuel
   ml = {
     t: 0,
     x: 200+Math.random()*400,
     y: 70,
     vx: (Math.random()-0.5)*30,
     vy: 12,           // px/s downward at start
-    fuel: 150,
+    fuel: 150 + fuelBonus,
     padX: padX,
     landed: false,
     crashed: false,
@@ -930,9 +1308,9 @@ function updateMoonAsc(dt) {
     masc.lemVy -= 5*dt; // slight acceleration
     if (masc.lemY < -60) { masc.phase='dock'; masc.t=0; }
   } else if (masc.phase === 'dock') {
-    if (masc.t > 2.5 || eat('Space') || eat('Enter')) initReentry();
+    if (masc.t > 2.5 || eat('Space') || eat('Enter')) initTravel('reentry');
   }
-  if (eat('Space') && masc.t > 0.5) initReentry();
+  if (eat('Space') && masc.t > 0.5) initTravel('reentry');
 }
 function drawMoonAsc() {
   drawMoonSurface(GROUND_Y, ml ? ml.padX : PAD_X_DEFAULT);
@@ -987,11 +1365,12 @@ var RE_CAP_SPEED = 220;  // px/s player lateral
 var RE_START_FREQ = 0.6; // rockets per second initially
 
 function initReentry() {
+  var shieldBonus = Math.min(2, Math.floor(minerals / 5)); // 5 minerals → 1 extra shield
   re = {
     t: 0,
     cx: W/2,        // capsule center X
     vy: 0,          // capsule descent (visual only)
-    shields: 3,
+    shields: 3 + shieldBonus,
     rockets: [],
     hitTimer: 0,    // flash on hit
     spawnTimer: 0,
@@ -1430,11 +1809,11 @@ function drawVictory() {
     ctx.restore();
     if (mclk) {
       mclk=false;
-      if (h1)       { initLaunch(); return; }
+      if (h1)       { initPad(); return; }
       if (h2)       { phase='scores'; return; }
       if (my>395&&my<435) { window.location.href='/index.html'; return; }
     }
-    if ((eat('Space')||eat('Enter')) && vic.t>2) { initLaunch(); }
+    if ((eat('Space')||eat('Enter')) && vic.t>2) { initPad(); }
   }
 }
 
@@ -1525,7 +1904,10 @@ function loop(ts) {
 
   switch (phase) {
     case 'title':    updateTitle(dt);    drawTitle();    break;
+    case 'pad':      updatePad(dt);      drawPad();      break;
     case 'launch':   updateLaunch(dt);   drawLaunch();   break;
+    case 'travel':   updateTravel(dt);   drawTravel();   break;
+    case 'mining':   updateMining(dt);   drawMining();   break;
     case 'moonland': updateMoonLand(dt); drawMoonLand(); break;
     case 'moonasc':  updateMoonAsc(dt);  drawMoonAsc();  break;
     case 'reentry':  updateReentry(dt);  drawReentry();  break;
