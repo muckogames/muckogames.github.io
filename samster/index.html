@@ -118,13 +118,13 @@ function mobileControlsOn(){
 function mobileLayout(){
   const buttons=[];
   if(phase==='stealth'||phase==='hideout'||phase==='victory'){
-    if(phase==='hideout')buttons.push({id:'action',cx:W-88,cy:H-90,r:32,label:'A',sub:'Search'});
-    return{dpad:{cx:100,cy:H-100,r:46},buttons};
+    if(phase==='hideout')buttons.push({id:'action',cx:W-88,cy:H-88,r:46,label:'A',sub:'Search'});
+    return{dpad:{cx:108,cy:H-108,r:58},buttons};
   }
   if(phase==='cart'){
-    buttons.push({id:'pumpL',cx:80,cy:H-80,r:44,label:'L',sub:'Pump'});
-    buttons.push({id:'pumpR',cx:W-80,cy:H-80,r:44,label:'R',sub:'Pump'});
-    buttons.push({id:'duck',cx:W/2,cy:H-60,r:28,label:'D',sub:'Duck'});
+    buttons.push({id:'pumpL',cx:80,cy:H-88,r:56,label:'L',sub:'Pump'});
+    buttons.push({id:'pumpR',cx:W-80,cy:H-88,r:56,label:'R',sub:'Pump'});
+    buttons.push({id:'duck',cx:W/2,cy:H-65,r:40,label:'D',sub:'Duck'});
     return{dpad:null,buttons};
   }
   if(phase==='brake'){
@@ -132,10 +132,10 @@ function mobileLayout(){
       // Show tappable letter button for current QTE key
       const key=brk.qteKey;
       const label=QTE_LABELS[key]||'?';
-      buttons.push({id:'qte_'+key,cx:W/2,cy:H-80,r:48,label:label,sub:'SHUSH!'});
+      buttons.push({id:'qte_'+key,cx:W/2,cy:H-85,r:62,label:label,sub:'SHUSH!'});
     } else {
-      buttons.push({id:'brake',cx:W/2-80,cy:H-80,r:36,label:'B',sub:'Brake'});
-      buttons.push({id:'blanket',cx:W/2+80,cy:H-80,r:36,label:'O',sub:'Cover'});
+      buttons.push({id:'brake',cx:W/2-88,cy:H-85,r:50,label:'B',sub:'Brake'});
+      buttons.push({id:'blanket',cx:W/2+88,cy:H-85,r:50,label:'O',sub:'Cover'});
     }
     return{dpad:null,buttons};
   }
@@ -454,19 +454,19 @@ function drawTitle(){
   txt('Samster',W/2,100,C.gold,52,'center','Georgia');
   txt('Diebs from the Diebs',W/2,148,'#c8a060',28,'center','Georgia');
   ctx.restore();
-  txt('A hamster heist adventure',W/2,178,'#8899aa',14,'center','Georgia');
+  txt('A hamster heist adventure',W/2,178,'#8899aa',16,'center','Georgia');
   rnd(10,10,W-20,H-20,22,null,'rgba(200,160,96,0.2)',2);
   // high scores button
   const hx=W-168,hy=H-52,hw=154,hh=36;
   const hh2=mx>=hx&&mx<=hx+hw&&my>=hy&&my<=hy+hh;
   rnd(hx,hy,hw,hh,6,hh2?'rgba(40,20,80,0.95)':'rgba(20,10,50,0.8)','rgba(200,160,96,0.6)',1.5);
-  txt('🏆 High Scores',hx+hw/2,hy+22,C.gold,13,'center','Georgia');
+  txt('🏆 High Scores',hx+hw/2,hy+22,C.gold,15,'center','Georgia');
   if(hh2)canvas.style.cursor='pointer';
   // back button
   const bbx=14,bby=H-52,bbw=140,bbh=36;
   const bbhov=mx>=bbx&&mx<=bbx+bbw&&my>=bby&&my<=bby+bbh;
   rnd(bbx,bby,bbw,bbh,6,bbhov?'rgba(40,20,80,0.95)':'rgba(20,10,50,0.8)','rgba(200,160,96,0.6)',1.5);
-  txt('← Mucko\'s Games',bbx+bbw/2,bby+22,C.gold,12,'center','Georgia');
+  txt('← Mucko\'s Games',bbx+bbw/2,bby+22,C.gold,14,'center','Georgia');
   if(bbhov)canvas.style.cursor='pointer';
   if(mclk){
     mclk=false;
@@ -491,14 +491,14 @@ function drawHighScores(){
   else{
     const cols=[W/2-140,W/2-30,W/2+80];
     rnd(W/2-180,118,360,28,4,'rgba(10,5,30,0.82)','rgba(80,50,120,0.5)',1);
-    ['#','Score','Difficulty'].forEach((h,i)=>txt(h,cols[i],136,C.gold,11,'center','Georgia'));
+    ['#','Score','Difficulty'].forEach((h,i)=>txt(h,cols[i],136,C.gold,13,'center','Georgia'));
     hs.slice(0,8).forEach((e,i)=>{
       const ry=150+i*30;
       rnd(W/2-180,ry,360,28,4,'rgba(10,5,30,0.6)','rgba(60,40,100,0.4)',1);
       const medal=i===0?'🥇':i===1?'🥈':i===2?'🥉':String(i+1);
-      txt(medal,cols[0],ry+18,'#d4c090',11,'center',"'Courier New',monospace");
-      txt(`${e.score}pts`,cols[1],ry+18,'#d4c090',11,'center',"'Courier New',monospace");
-      txt(e.diff||'?',cols[2],ry+18,'#d4c090',11,'center',"'Courier New',monospace");
+      txt(medal,cols[0],ry+18,'#d4c090',13,'center',"'Courier New',monospace");
+      txt(`${e.score}pts`,cols[1],ry+18,'#d4c090',13,'center',"'Courier New',monospace");
+      txt(e.diff||'?',cols[2],ry+18,'#d4c090',13,'center',"'Courier New',monospace");
     });
   }
   const bx=W/2-100,by=H-50,bw=200,bh=38;
@@ -518,16 +518,16 @@ function drawDiff(){
   fillRect(0,0,W,H,g);
   rnd(14,14,W-28,H-28,22,null,'rgba(200,160,96,0.22)',2.5);
   txt('Choose Your Challenge',W/2,60,C.gold,30,'center','Georgia');
-  txt('Affects noise sensitivity, laser speed, and more.',W/2,88,C.dimTxt,13,'center',"'Courier New',monospace");
+  txt('Affects noise sensitivity, laser speed, and more.',W/2,88,C.dimTxt,14,'center',"'Courier New',monospace");
   DIFFS.forEach((d,i)=>{
     const bx=W/2-200,by=120+i*115,bw=400,bh=95;
     const hov=mx>=bx&&mx<=bx+bw&&my>=by&&my<=by+bh;
     const sel=diff.id===d.id;
     rnd(bx,by,bw,bh,10,sel?'rgba(40,20,80,0.95)':'rgba(20,10,50,0.8)',sel?d.col:'#605050',sel?3:1);
     txt(d.label,bx+20,by+35,d.col,22,'left','Georgia');
-    txt(d.desc,bx+20,by+62,'#c0b0a0',13,'left',"'Courier New',monospace");
+    txt(d.desc,bx+20,by+62,'#c0b0a0',14,'left',"'Courier New',monospace");
     const bar='█'.repeat(Math.round((i+1)*2))+'░'.repeat(6-Math.round((i+1)*2));
-    txt('Challenge: '+bar,bx+20,by+82,d.col,11,'left',"'Courier New',monospace");
+    txt('Challenge: '+bar,bx+20,by+82,d.col,13,'left',"'Courier New',monospace");
     if(hov)canvas.style.cursor='pointer';
     if(hov&&mclk){mclk=false;diff=d;}
   });
@@ -657,13 +657,13 @@ function drawCage(){
   // UI overlay
   rnd(W/2-180,16,360,36,8,'rgba(0,0,0,0.7)',C.dialogBdr,1.5);
   const stepLabels=['Find the wood piece','Jam it in the wheel','Climb the wheel','Push off the lid!','ESCAPED!'];
-  txt(stepLabels[cage.step],W/2,40,C.gold,15,'center','Georgia');
+  txt(stepLabels[cage.step],W/2,40,C.gold,18,'center','Georgia');
 
   if(cage.hintTimer>0&&cage.hint){
     const alpha=Math.min(1,cage.hintTimer/30);
     ctx.save();ctx.globalAlpha=alpha;
-    rnd(W/2-200,H-70,400,40,8,'rgba(0,0,0,0.85)',C.dialogBdr,1);
-    txt(cage.hint,W/2,H-44,C.cream,14,'center','Georgia');
+    rnd(W/2-220,H-72,440,44,8,'rgba(0,0,0,0.85)',C.dialogBdr,1);
+    txt(cage.hint,W/2,H-44,C.cream,17,'center','Georgia');
     ctx.restore();
   }
 }
@@ -756,22 +756,22 @@ function drawStealth(){
   // player
   drawSamster(s.player.x,s.player.y,0.8,s.player.anim,s.player.dir);
   // noise meter UI
-  txt('SNEAK TO THE VENT',UI_X+UI_W/2,28,C.gold,12,'center',"'Courier New',monospace");
-  txt('NOISE',UI_X+UI_W/2,60,C.dimTxt,11,'center',"'Courier New',monospace");
-  rnd(UI_X+12,68,UI_W-24,14,4,'rgba(255,255,255,0.08)',null);
+  txt('SNEAK TO VENT',UI_X+UI_W/2,28,C.gold,13,'center',"'Courier New',monospace");
+  txt('NOISE',UI_X+UI_W/2,58,C.dimTxt,12,'center',"'Courier New',monospace");
+  rnd(UI_X+12,66,UI_W-24,14,4,'rgba(255,255,255,0.08)',null);
   const nw=(UI_W-28)*s.noise/100;
   const nc=s.noise<50?'#66bb66':s.noise<80?'#ddaa22':'#dd4444';
-  fillRect(UI_X+14,70,nw,10,nc);
+  fillRect(UI_X+14,68,nw,10,nc);
   strokeCirc(0,0,0,'transparent',0); // reset
-  txt(`${Math.round(s.noise)}%`,UI_X+UI_W/2,96,C.cream,11,'center',"'Courier New',monospace");
+  txt(`${Math.round(s.noise)}%`,UI_X+UI_W/2,94,C.cream,13,'center',"'Courier New',monospace");
   // Pflueger status
   const pStatus=s.noise<50?'💤 Sleeping':s.noise<80?'😐 Stirring...':'😡 Waking up!';
-  txt('PFLUEGER',UI_X+UI_W/2,130,C.dimTxt,10,'center',"'Courier New',monospace");
-  txt(pStatus,UI_X+UI_W/2,148,s.noise<50?'#88bb88':'#dd8844',11,'center','Georgia');
+  txt('PFLUEGER',UI_X+UI_W/2,126,C.dimTxt,12,'center',"'Courier New',monospace");
+  txt(pStatus,UI_X+UI_W/2,146,s.noise<50?'#88bb88':'#dd8844',13,'center','Georgia');
   // controls
-  txt('CONTROLS',UI_X+UI_W/2,180,C.dimTxt,10,'center',"'Courier New',monospace");
-  txt(TOUCH_UI?'D-pad to move':'↑↓←→ Move',UI_X+UI_W/2,200,'#aaa',10,'center',"'Courier New',monospace");
-  txt('Avoid creaky boards!',UI_X+UI_W/2,218,'#aaa',10,'center',"'Courier New',monospace");
+  txt('CONTROLS',UI_X+UI_W/2,178,C.dimTxt,12,'center',"'Courier New',monospace");
+  txt(TOUCH_UI?'D-pad to move':'↑↓←→ Move',UI_X+UI_W/2,196,'#aaa',12,'center',"'Courier New',monospace");
+  txt('Avoid creaky boards!',UI_X+UI_W/2,214,'#aaa',11,'center',"'Courier New',monospace");
   // caught overlay
   if(s.caught){
     ctx.globalAlpha=0.85;fillRect(0,0,MAP_W,H,'#1a0808');ctx.globalAlpha=1;
@@ -854,19 +854,19 @@ function drawCutscene(){
     const visible=curLine.substring(0,dlg.charIdx);
     const speaker=curLine.startsWith('DIGORY:')?'Digory':curLine.startsWith('OFFICER:')?'Officer':'';
     rnd(30,30,W-60,110,10,C.dialogBg,C.dialogBdr,2);
-    if(speaker)txt(speaker,50,58,C.gold,14,'left',"'Courier New',monospace");
+    if(speaker)txt(speaker,50,58,C.gold,16,'left',"'Courier New',monospace");
     // word wrap the visible text
     const dispText=speaker?visible.substring(visible.indexOf(':')+1).trim():visible;
-    ctx.save();ctx.fillStyle=C.cream;ctx.font='16px Georgia';ctx.textAlign='left';
-    let lx=50,ly=speaker?80:62;
+    ctx.save();ctx.fillStyle=C.cream;ctx.font='20px Georgia';ctx.textAlign='left';
+    let lx=50,ly=speaker?82:62;
     dispText.split(' ').forEach(w=>{
       const ww=ctx.measureText(w+' ').width;
-      if(lx>50&&lx+ww>W-80){lx=50;ly+=22;}
+      if(lx>50&&lx+ww>W-80){lx=50;ly+=26;}
       ctx.fillText(w+' ',lx,ly);lx+=ww;
     });
     ctx.restore();
-    if(dlg.charIdx>=curLine.length){const blink=Math.floor(t/20)%2===0;if(blink)txt('▼',W-60,120,C.gold,14);}
-    txt(`${dlg.lineIdx+1}/${dlg.lines.length}`,W-80,52,C.dimTxt,11,'left',"'Courier New',monospace");
+    if(dlg.charIdx>=curLine.length){const blink=Math.floor(t/20)%2===0;if(blink)txt('▼',W-60,122,C.gold,16);}
+    txt(`${dlg.lineIdx+1}/${dlg.lines.length}`,W-80,52,C.dimTxt,13,'left',"'Courier New',monospace");
   } else {
     // done — show continue button
     const bx=W/2-120,by=H-70,bw=240,bh=50;
@@ -991,6 +991,7 @@ function initHideout(){
       {room:2,x:3*TILE,y:8*TILE,powerOff:0,cooldown:0,chatAnim:0},
     ],
     diebsHome:false,diebAlertTimer:0,
+    easyGraceActive:false,easyGraceTimer:0,
     diebs:[
       {room:0,x:9.5*TILE,y:1.5*TILE,dir:1,anim:0,patrolY:0},
       {room:1,x:5*TILE,y:7*TILE,dir:3,anim:0,patrolY:0},
@@ -1096,8 +1097,8 @@ function updateHideout(dt){
     const ix=it.x*TILE+16,iy=it.y*TILE+16;
     const near=Math.hypot(h.player.x-ix,h.player.y-iy)<40;
     if(near&&(!it.hidden||action)){
-      if(!it.hidden){it.found=true;h.foundCount++;score+=it.pts;showHideoutMsg(`Found: ${it.name} (+${it.pts})`);if(h.foundCount>=h.totalCount&&!h.diebsHome){triggerDiebsHome(h);}}
-      else if(action){it.found=true;h.foundCount++;score+=it.pts;showHideoutMsg(`Found hidden: ${it.name} (+${it.pts})`);if(h.foundCount>=h.totalCount&&!h.diebsHome){triggerDiebsHome(h);}}
+      if(!it.hidden){it.found=true;h.foundCount++;score+=it.pts;showHideoutMsg(`Found: ${it.name} (+${it.pts})`);if(h.foundCount>=h.totalCount&&!h.diebsHome&&!h.easyGraceActive){if(diff.id==='easy'){h.easyGraceActive=true;h.easyGraceTimer=12;showHideoutMsg('All found! 🏃 Diebs coming in 12s!');}else{triggerDiebsHome(h);}}}
+      else if(action){it.found=true;h.foundCount++;score+=it.pts;showHideoutMsg(`Found hidden: ${it.name} (+${it.pts})`);if(h.foundCount>=h.totalCount&&!h.diebsHome&&!h.easyGraceActive){if(diff.id==='easy'){h.easyGraceActive=true;h.easyGraceTimer=12;showHideoutMsg('All found! 🏃 Diebs coming in 12s!');}else{triggerDiebsHome(h);}}}
     }
   });
   // laser collision (skip if raccoon cut power for this room)
@@ -1113,6 +1114,14 @@ function updateHideout(dt){
       showHideoutMsg('ALARM! Laser triggered! -10pts');
     }
   });
+  // easy mode grace timer — countdown before diebs come home
+  if(h.easyGraceActive&&!h.diebsHome){
+    h.easyGraceTimer-=dt;
+    if(Math.ceil(h.easyGraceTimer)!==Math.ceil(h.easyGraceTimer+dt)&&h.easyGraceTimer>0){
+      showHideoutMsg(`🏃 Diebs coming in ${Math.ceil(h.easyGraceTimer)}s!`);
+    }
+    if(h.easyGraceTimer<=0){h.easyGraceActive=false;triggerDiebsHome(h);}
+  }
   updateDiebs(h,dt);
   if(h.msg.timer>0)h.msg.timer--;
 }
@@ -1261,41 +1270,46 @@ function drawHideout(){
   // player
   drawSamster(h.player.x,h.player.y,0.8,h.player.anim,h.player.dir);
   // UI
-  txt('DIEB HIDEOUT',UI_X+UI_W/2,28,C.gold,12,'center',"'Courier New',monospace");
-  txt(rm.name,UI_X+UI_W/2,48,'#d8cdbd',11,'center','Georgia');
-  txt('CONTRABAND',UI_X+UI_W/2,78,C.dimTxt,10,'center',"'Courier New',monospace");
-  txt(`${h.foundCount} / ${h.totalCount}`,UI_X+UI_W/2,98,h.foundCount>=h.totalCount?'#88ff88':C.cream,14,'center','Georgia');
+  txt('DIEB HIDEOUT',UI_X+UI_W/2,26,C.gold,13,'center',"'Courier New',monospace");
+  txt(rm.name,UI_X+UI_W/2,44,'#d8cdbd',12,'center','Georgia');
+  txt('CONTRABAND',UI_X+UI_W/2,72,C.dimTxt,11,'center',"'Courier New',monospace");
+  txt(`${h.foundCount} / ${h.totalCount}`,UI_X+UI_W/2,94,h.foundCount>=h.totalCount?'#88ff88':C.cream,16,'center','Georgia');
   // room indicator
-  txt('ROOMS',UI_X+UI_W/2,130,C.dimTxt,10,'center',"'Courier New',monospace");
+  txt('ROOMS',UI_X+UI_W/2,122,C.dimTxt,11,'center',"'Courier New',monospace");
   for(let i=0;i<HIDEOUT_ROOMS.length;i++){
-    const px=UI_X+30+i*40,py=145;
-    circ(px,py,12,i===h.room?diff.col:'#303050');
-    txt(String(i+1),px,py+5,C.cream,11,'center');
+    const px=UI_X+30+i*40,py=138;
+    circ(px,py,13,i===h.room?diff.col:'#303050');
+    txt(String(i+1),px,py+5,C.cream,12,'center');
   }
-  txt('SCORE',UI_X+UI_W/2,180,C.dimTxt,10,'center',"'Courier New',monospace");
-  txt(String(score),UI_X+UI_W/2,200,C.gold,16,'center','Georgia');
+  txt('SCORE',UI_X+UI_W/2,172,C.dimTxt,11,'center',"'Courier New',monospace");
+  txt(String(score),UI_X+UI_W/2,194,C.gold,18,'center','Georgia');
   if(h.foundCount>=h.totalCount){
     if(h.diebsHome){
       const flash=Math.sin(t*0.15)>0?'rgba(80,20,20,0.7)':'rgba(60,10,10,0.5)';
-      rnd(UI_X+10,220,UI_W-20,40,6,flash,'#ff4444',1.5);
-      txt('🚨 ESCAPE! ↑',UI_X+UI_W/2,246,'#ff6666',12,'center','Georgia');
+      rnd(UI_X+10,214,UI_W-20,42,6,flash,'#ff4444',1.5);
+      txt('🚨 ESCAPE! ↑',UI_X+UI_W/2,242,'#ff6666',13,'center','Georgia');
+    } else if(h.easyGraceActive){
+      const flash2=Math.sin(t*0.1)>0?'rgba(80,60,20,0.7)':'rgba(60,40,10,0.5)';
+      rnd(UI_X+10,214,UI_W-20,42,6,flash2,'#ffaa44',1.5);
+      txt(`⏱ ${Math.ceil(h.easyGraceTimer)}s`,UI_X+UI_W/2,242,'#ffcc66',14,'center','Georgia');
     } else {
-      rnd(UI_X+10,220,UI_W-20,40,6,'rgba(40,80,40,0.6)','#88ff88',1.5);
-      txt('All found! Exit ↑',UI_X+UI_W/2,246,'#88ff88',11,'center','Georgia');
+      rnd(UI_X+10,214,UI_W-20,42,6,'rgba(40,80,40,0.6)','#88ff88',1.5);
+      txt('All found! Exit ↑',UI_X+UI_W/2,242,'#88ff88',12,'center','Georgia');
     }
   }
   // raccoon power-off indicator
   const curRc=h.raccoons.find(rc=>rc.room===h.room);
   if(curRc&&curRc.powerOff>0){
     const pct=curRc.powerOff/(diff.id==='easy'?10:diff.id==='medium'?7:5);
-    rnd(UI_X+10,265,UI_W-20,34,6,'rgba(40,40,80,0.6)','#6688ff',1.5);
-    txt('🦝 POWER OFF',UI_X+UI_W/2,280,'#88aaff',9,'center',"'Courier New',monospace");
-    fillRect(UI_X+16,286,(UI_W-32)*pct,6,'#6688ff');
+    rnd(UI_X+10,262,UI_W-20,36,6,'rgba(40,40,80,0.6)','#6688ff',1.5);
+    txt('🦝 POWER OFF',UI_X+UI_W/2,278,'#88aaff',11,'center',"'Courier New',monospace");
+    fillRect(UI_X+16,284,(UI_W-32)*pct,6,'#6688ff');
   } else {
-    txt(TOUCH_UI?'🦝 Tap A near raccoon':'🦝 Press E near raccoon',UI_X+UI_W/2,280,C.dimTxt,8,'center',"'Courier New',monospace");
+    txt(TOUCH_UI?'🦝 Near raccoon:':'🦝 Near raccoon:',UI_X+UI_W/2,272,C.dimTxt,10,'center',"'Courier New',monospace");
+    txt(TOUCH_UI?'Tap A to cut power':'Press E to cut power',UI_X+UI_W/2,287,C.dimTxt,10,'center',"'Courier New',monospace");
   }
-  txt(TOUCH_UI?'Tap A: Search':'E/Space: Search',UI_X+UI_W/2,310,C.dimTxt,9,'center',"'Courier New',monospace");
-  txt(TOUCH_UI?'Walk into doors':'↕ Doors: next room',UI_X+UI_W/2,326,C.dimTxt,9,'center',"'Courier New',monospace");
+  txt(TOUCH_UI?'Tap A: Search':'E/Space: Search',UI_X+UI_W/2,314,C.dimTxt,11,'center',"'Courier New',monospace");
+  txt(TOUCH_UI?'Walk into doors':'↕ Doors: next room',UI_X+UI_W/2,330,C.dimTxt,11,'center',"'Courier New',monospace");
   // alarm overlay
   if(h.alarm){
     ctx.globalAlpha=0.7;fillRect(0,0,MAP_W,H,'#330000');ctx.globalAlpha=1;
@@ -1320,8 +1334,8 @@ function drawHideout(){
   if(h.msg.timer>0){
     const a=Math.min(1,h.msg.timer/20);
     ctx.save();ctx.globalAlpha=a;
-    rnd(W/2-180,H-50,360,36,8,'rgba(0,0,0,0.85)',C.dialogBdr,1.5);
-    txt(h.msg.text,W/2,H-26,C.gold,13,'center','Georgia');
+    rnd(W/2-220,H-52,440,40,8,'rgba(0,0,0,0.85)',C.dialogBdr,1.5);
+    txt(h.msg.text,W/2,H-25,C.gold,16,'center','Georgia');
     ctx.restore();
   }
 }
@@ -1430,16 +1444,16 @@ function drawCart(){
   }
   // speed meter
   rnd(20,20,200,30,6,'rgba(0,0,0,0.7)',C.dialogBdr,1.5);
-  txt('SPEED',30,42,C.dimTxt,11,'left',"'Courier New',monospace");
+  txt('SPEED',30,42,C.dimTxt,13,'left',"'Courier New',monospace");
   fillRect(80,28,120,14,'rgba(255,255,255,0.1)');
   fillRect(80,28,120*(c.speed/10),14,c.speed>5?'#88cc44':'#ccaa44');
   // distance
   rnd(W-220,20,200,30,6,'rgba(0,0,0,0.7)',C.dialogBdr,1.5);
   const pct=Math.min(100,Math.round(c.distance/c.targetDist*100));
-  txt(`Distance: ${pct}%`,W-210,42,C.gold,12,'left','Georgia');
+  txt(`Distance: ${pct}%`,W-210,42,C.gold,14,'left','Georgia');
   // controls hint
-  rnd(W/2-140,H-35,280,28,6,'rgba(0,0,0,0.6)',null);
-  txt(TOUCH_UI?'Tap L/R to pump | D to duck':'← → Alternate to pump | ↓ Duck',W/2,H-16,C.cream,11,'center',"'Courier New',monospace");
+  rnd(W/2-160,H-37,320,30,6,'rgba(0,0,0,0.6)',null);
+  txt(TOUCH_UI?'Tap L/R to pump | D to duck':'← → Alternate to pump | ↓ Duck',W/2,H-16,C.cream,13,'center',"'Courier New',monospace");
 }
 function drawCartWin(){
   fillRect(0,0,W,H,'#1a2a1a');
@@ -1562,12 +1576,12 @@ function drawBrake(){
       // QTE prompt
       const key=QTE_LABELS[b.qteKey]||'?';
       rnd(W/2-60,60,120,70,10,'rgba(0,0,0,0.9)',b.qteTimer<0.5?'#ff4444':C.dialogBdr,3);
-      txt('SHUSH!',W/2,85,'#ffaaaa',13,'center','Georgia');
+      txt('SHUSH!',W/2,85,'#ffaaaa',16,'center','Georgia');
       txt(key,W/2,118,C.gold,32,'center','Georgia');
       // bark meter
       rnd(W/2-80,145,160,16,4,'rgba(0,0,0,0.6)',null);
       fillRect(W/2-78,147,156*(b.barkMeter/100),12,b.barkMeter>60?'#dd4444':'#ddaa44');
-      txt('Bark meter',W/2,175,C.dimTxt,10,'center',"'Courier New',monospace");
+      txt('Bark meter',W/2,175,C.dimTxt,13,'center',"'Courier New',monospace");
       // Digory trying to bark
       const digShake=Math.sin(t*0.5)*3;
       ctx.save();ctx.translate(510+digShake,H-195);drawDigoryTD(0,0,true,t);ctx.restore();
@@ -1654,26 +1668,26 @@ function drawVictory(){
   // score banner
   rnd(W/2-180,4,360,56,10,'rgba(0,0,0,0.8)',C.dialogBdr,2);
   txt('🎉 MISSION COMPLETE! 🎉',W/2,28,C.gold,18,'center','Georgia');
-  txt(`Final Score: ${score}  |  🍩 ${v.donutsEaten}/12`,W/2,50,C.cream,13,'center','Georgia');
+  txt(`Final Score: ${score}  |  🍩 ${v.donutsEaten}/12`,W/2,50,C.cream,15,'center','Georgia');
   if(v.rank>0&&v.rank<=3){
     const medals=['🥇','🥈','🥉'];
     txt(`${medals[v.rank-1]} High Score #${v.rank}!`,W/2,H-120,C.gold,16,'center','Georgia');
   }
   // instructions
   rnd(W/2-130,H-40,260,32,6,'rgba(0,0,0,0.6)',null);
-  txt('Walk around & eat donuts! 🍩',W/2,H-18,C.cream,12,'center','Georgia');
+  txt('Walk around & eat donuts! 🍩',W/2,H-18,C.cream,14,'center','Georgia');
   // play again button
-  const bx=10,by=H-42,bw=120,bh=32;
+  const bx=10,by=H-44,bw=130,bh=36;
   const bh2=mx>=bx&&mx<=bx+bw&&my>=by&&my<=by+bh;
   rnd(bx,by,bw,bh,6,bh2?'#3a2060':'#2a1040',C.dialogBdr,1.5);
-  txt('Play Again',bx+bw/2,by+21,C.gold,12,'center','Georgia');
+  txt('Play Again',bx+bw/2,by+23,C.gold,14,'center','Georgia');
   if(bh2)canvas.style.cursor='pointer';
   if(bh2&&mclk){mclk=false;resetRun();phase='title';}
   // back button
-  const b2x=W-130,b2y=H-42,b2w=120,b2h=32;
+  const b2x=W-140,b2y=H-44,b2w=130,b2h=36;
   const b2h2=mx>=b2x&&mx<=b2x+b2w&&my>=b2y&&my<=b2y+b2h;
   rnd(b2x,b2y,b2w,b2h,6,b2h2?'#3a2060':'#2a1040',C.dialogBdr,1.5);
-  txt('← Games',b2x+b2w/2,b2y+21,C.gold,12,'center','Georgia');
+  txt('← Games',b2x+b2w/2,b2y+23,C.gold,14,'center','Georgia');
   if(b2h2)canvas.style.cursor='pointer';
   if(b2h2&&mclk){mclk=false;window.location.href='../index.html';}
 }
@@ -1690,17 +1704,17 @@ function drawMobileControls(){
     [{id:'up',x:d.cx,y:d.cy-d.r-6,g:'▲'},{id:'down',x:d.cx,y:d.cy+d.r+6,g:'▼'},
      {id:'left',x:d.cx-d.r-6,y:d.cy,g:'◀'},{id:'right',x:d.cx+d.r+6,y:d.cy,g:'▶'}].forEach(p=>{
       const a=touchState.dirs.has(p.id);
-      circ(p.x,p.y,30,a?'rgba(200,160,96,0.34)':'rgba(25,16,36,0.66)');
-      strokeCirc(p.x,p.y,30,a?C.gold:'rgba(200,160,96,0.45)',2);
-      txt(p.g,p.x,p.y+7,a?'#fff6d8':'#efe2c2',20,'center',"'Courier New',monospace");
+      circ(p.x,p.y,40,a?'rgba(200,160,96,0.34)':'rgba(25,16,36,0.66)');
+      strokeCirc(p.x,p.y,40,a?C.gold:'rgba(200,160,96,0.45)',2);
+      txt(p.g,p.x,p.y+9,a?'#fff6d8':'#efe2c2',28,'center',"'Courier New',monospace");
     });
   }
   layout.buttons.forEach(btn=>{
     const a=touchState.buttons.has(btn.id);
     circ(btn.cx,btn.cy,btn.r,a?'rgba(200,160,96,0.34)':'rgba(25,16,36,0.7)');
     strokeCirc(btn.cx,btn.cy,btn.r,a?C.gold:'rgba(200,160,96,0.55)',2.2);
-    txt(btn.label,btn.cx,btn.cy+6,'#fff7e7',18,'center',"'Courier New',monospace");
-    if(btn.sub)txt(btn.sub,btn.cx,btn.cy+btn.r+15,C.cream,10,'center',"'Courier New',monospace");
+    txt(btn.label,btn.cx,btn.cy+8,'#fff7e7',26,'center',"'Courier New',monospace");
+    if(btn.sub)txt(btn.sub,btn.cx,btn.cy+btn.r+16,C.cream,13,'center',"'Courier New',monospace");
   });
   ctx.restore();
 }
