@@ -293,6 +293,40 @@ function saveHS(entry) {
   localStorage.setItem(HS_KEY,JSON.stringify(sc.slice(0,10)));
 }
 
+/* ── MISSION CONTROL RADIO ───────────────────────────────────────────────── */
+var radio = {msg:'', alpha:0, timer:0};
+function showRadio(msg) { radio.msg=msg; radio.alpha=1; radio.timer=0; }
+function updateRadio(dt) {
+  radio.timer+=dt;
+  if(radio.timer>3.8) radio.alpha=Math.max(0,radio.alpha-dt*2.5);
+}
+function drawRadio() {
+  if(radio.alpha<0.01) return;
+  ctx.save(); ctx.globalAlpha=radio.alpha;
+  rnd(8,H-52,W-16,40,8,'rgba(0,15,0,0.88)','rgba(0,180,0,0.55)',1.5);
+  txt('\uD83D\uDCE1 HOUSTON: '+radio.msg, 20, H-28, '#55ff55', 11.5, 'left', 'bold monospace');
+  ctx.restore();
+}
+
+/* ── RANDOM EVENTS (Oregon Trail style) ─────────────────────────────────── */
+var EVENTS = [
+  {txt:'Carbon-rich asteroid spotted nearby!',
+   opts:['Mine it (+ minerals)','Keep course'],
+   res:[{m:6,s:0},{m:0,s:25}]},
+  {txt:'Micrometeorite shower rattles the hull.',
+   opts:['Boost shields','Ride it out'],
+   res:[{m:-2,s:30},{m:0,s:-20}]},
+  {txt:'Strange signal from the lunar surface!',
+   opts:['Investigate it','Stay on course'],
+   res:[{m:3,s:20},{m:0,s:0}]},
+  {txt:'Equipment glitch in the nav computer.',
+   opts:['Manual repair','Reboot system'],
+   res:[{m:-2,s:40},{m:0,s:-15}]},
+  {txt:'Solar flare warning from Mission Control!',
+   opts:['All shields up','Partial cover only'],
+   res:[{m:-1,s:20},{m:0,s:10}]},
+];
+
 /* ── GAME STATE ─────────────────────────────────────────────────────────── */
 var phase = 'title';
 var gT = 0; // global tick
@@ -585,7 +619,11 @@ function initTravel(dest) {
     shipX: dest==='moonland' ? 90 : W-90,
     zzz: [],
     texts: dest==='moonland' ? TRAVEL_TEXTS_OUT : TRAVEL_TEXTS_BACK,
+    event: null,       // random event object (shown during wake1)
+    eventDone: false,  // event has been resolved
   };
+  if (dest==='moonland') showRadio('Columbia, Houston. You\'re on course. Looking good.');
+  else showRadio('Trans-Earth Injection burn complete. Welcome home!');
   phase = 'travel';
 }
 // Sequence of sub-phases for each trip direction
@@ -598,6 +636,11 @@ function nextTravelSub() {
   if (idx < 0 || idx >= seq.length-1) return;
   trav.sub = seq[idx+1]; trav.subT = 0;
   trav.day = idx >= 3 ? 3 : idx >= 1 ? 2 : 1;
+  // Trigger random event on wake1 during outbound trip
+  if (trav.sub === 'wake1' && trav.hasMining) {
+    trav.event = EVENTS[Math.floor(Math.random() * EVENTS.length)];
+    trav.eventDone = false;
+  }
   if (trav.sub === 'mining') { initMining(); return; }
   if (trav.sub === 'done') {
     if (trav.dest === 'moonland') initMoonLand(); else initReentry();
@@ -689,6 +732,39 @@ function drawTravel() {
     txt('\u2694 '+minerals+' minerals — extra LEM fuel!', W/2, H/2+2, '#ffcc44', 12, 'center', 'italic Georgia');
   }
 
+  // ── Random event panel (wake1 outbound) ──────────────────────────────────
+  if (sub==='wake1' && trav.event && !trav.eventDone) {
+    var ev=trav.event;
+    rnd(W/2-230,H/2+18,460,148,12,'rgba(5,20,5,0.92)','rgba(0,200,80,0.45)',2);
+    txt('\u26A0\uFE0F  EVENT', W/2, H/2+40, '#ffdd44', 13, 'center', 'bold monospace');
+    txt(ev.txt, W/2, H/2+60, '#cceecc', 13, 'center', 'Georgia');
+    // Choice A
+    var ha=mx>W/2-210&&mx<W/2-10&&my>H/2+72&&my<H/2+106;
+    rnd(W/2-210,H/2+72,200,34,7,ha?'#1a3a1a':'#0d2010','rgba(0,180,60,0.5)',1.5);
+    txt(ev.opts[0],W/2-110,H/2+95,ha?'#fff':'#88ffaa',11,'center','bold monospace');
+    // Choice B
+    var hb=mx>W/2+10&&mx<W/2+210&&my>H/2+72&&my<H/2+106;
+    rnd(W/2+10,H/2+72,200,34,7,hb?'#1a3a1a':'#0d2010','rgba(0,180,60,0.5)',1.5);
+    txt(ev.opts[1],W/2+110,H/2+95,hb?'#fff':'#88ffaa',11,'center','bold monospace');
+    txt('Choose wisely, Commander.', W/2, H/2+145, 'rgba(150,200,150,0.5)', 10, 'center', 'italic Georgia');
+    if (mclk) {
+      mclk=false;
+      var chosen=-1;
+      if (ha) chosen=0; else if (hb) chosen=1;
+      if (chosen>=0) {
+        var res=ev.res[chosen];
+        minerals=Math.max(0,minerals+res.m);
+        runScore.landing=Math.max(0,runScore.landing+res.s);
+        trav.eventDone=true;
+        if (res.m>0) showRadio('Nice work \u2014 '+res.m+' minerals collected!');
+        else if (res.m<0) showRadio('Shields held. Cost us some minerals though.');
+        else if (res.s>0) showRadio('Mission Control gives you the thumbs up!');
+        else showRadio('Understood, Columbia. Continuing on course.');
+      }
+    }
+    return;
+  }
+
   var btnTxt = (sub==='wake1'&&trav.hasMining) ? '\u2605  BEGIN MINING OPERATION' : 'CONTINUE  \u25BA';
   var btnFg  = (sub==='wake1'&&trav.hasMining) ? '#ffcc44' : '#88ccff';
   var bhov=mx>W/2-130&&mx<W/2+130&&my>H/2+38&&my<H/2+74;
@@ -712,23 +788,29 @@ function initMining() {
   mine = {
     t:0, asteroids:[], lasers:[], frags:[], gems:[],
     minerals:0, spawnT:0, spawnInt:1.6,
-    done:false, doneT:0, cooldown:0
+    done:false, doneT:0, cooldown:0,
+    goldMsg: 0  // timer for gold asteroid hint
   };
   for (var i=0;i<5;i++) spawnAsteroid();
+  showRadio('Mining lasers online. Shoot those asteroids! Watch for gold!');
   phase = 'mining';
 }
 function spawnAsteroid() {
   var side=Math.floor(Math.random()*3); // 0=top,1=left,2=right
-  var r=13+Math.random()*22, spd=28+Math.random()*38;
+  var isGold = Math.random() < 0.08; // 8% chance — rare gold asteroid!
+  var r = isGold ? (12+Math.random()*10) : (13+Math.random()*22);
+  var spd = isGold ? (55+Math.random()*30) : (28+Math.random()*38);
   var x,y,vx,vy;
   if (side===0)      { x=Math.random()*W; y=-r;   vx=(Math.random()-0.5)*24; vy=spd; }
   else if (side===1) { x=-r;  y=50+Math.random()*(H-180); vx=spd;  vy=(Math.random()-0.5)*18; }
   else               { x=W+r; y=50+Math.random()*(H-180); vx=-spd; vy=(Math.random()-0.5)*18; }
+  var isIce = !isGold && Math.random()<0.25;
   mine.asteroids.push({
     x:x,y:y,vx:vx,vy:vy,r:r,
-    health:r>28?2:1, minerals:r>28?3:r>20?2:1,
+    health: isGold ? 1 : r>28 ? 2 : 1,
+    minerals: isGold ? 8 : r>28 ? 3 : r>20 ? 2 : 1,
     rot:Math.random()*TAU, rotV:(Math.random()-0.5)*1.5,
-    ice: Math.random()<0.3
+    ice: isIce, gold: isGold
   });
 }
 function fireMiningLaser(tx,ty) {
@@ -750,12 +832,14 @@ function fireMiningLaser(tx,ty) {
       if(a.health<=0) {
         mine.minerals+=a.minerals;
         for(var fi=0;fi<5;fi++) mine.frags.push({
-          x:a.x,y:a.y,vx:(Math.random()-0.5)*90,vy:(Math.random()-0.5)*90,r:a.r*0.22,life:0
+          x:a.x,y:a.y,vx:(Math.random()-0.5)*90,vy:(Math.random()-0.5)*90,r:a.r*0.22,life:0,
+          gold:a.gold
         });
         for(var gi=0;gi<a.minerals;gi++) mine.gems.push({
-          x:a.x+(Math.random()-0.5)*18,y:a.y,vy:-28-Math.random()*18,life:0
+          x:a.x+(Math.random()-0.5)*18,y:a.y,vy:-28-Math.random()*18,life:0, gold:a.gold
         });
-        beep(880,0.15,0.2);
+        if(a.gold){ beep(1200,0.08,0.25); beep(1400,0.2,0.3); showRadio('Gold asteroid! +8 minerals! Outstanding!'); }
+        else beep(880,0.15,0.2);
       } else { beep(440,0.08,0.15); }
       break;
     }
@@ -789,38 +873,61 @@ function drawMining() {
 
   // Asteroids
   mine.asteroids.forEach(function(a){
-    ctx.save(); ctx.translate(a.x,a.y); ctx.rotate(a.rot);
+    ctx.save(); ctx.translate(a.x,a.y);
+    // Gold asteroid: draw glowing aura first
+    if (a.gold) {
+      var glow=ctx.createRadialGradient(0,0,a.r*0.5,0,0,a.r*2.2);
+      glow.addColorStop(0,'rgba(255,220,0,0.35)');
+      glow.addColorStop(1,'rgba(255,180,0,0)');
+      ctx.fillStyle=glow; ctx.beginPath(); ctx.arc(0,0,a.r*2.2,0,TAU); ctx.fill();
+    }
+    ctx.rotate(a.rot);
     ctx.beginPath();
     for(var pi=0;pi<7;pi++){
       var ang=pi/7*TAU, rr=a.r*(0.72+Math.sin(pi*2.3+a.rot*2)*0.28);
       pi===0?ctx.moveTo(Math.cos(ang)*rr,Math.sin(ang)*rr):ctx.lineTo(Math.cos(ang)*rr,Math.sin(ang)*rr);
     }
     ctx.closePath();
-    ctx.fillStyle=a.ice?'#6a8fa8':'#7a6a56'; ctx.fill();
-    ctx.strokeStyle=a.ice?'#4a6f88':'#5a4a38'; ctx.lineWidth=2; ctx.stroke();
-    if(a.health===1&&!a.ice){ // cracked
+    ctx.fillStyle=a.gold?'#f0c020':a.ice?'#6a8fa8':'#7a6a56'; ctx.fill();
+    ctx.strokeStyle=a.gold?'#ffd700':a.ice?'#4a6f88':'#5a4a38'; ctx.lineWidth=a.gold?2.5:2; ctx.stroke();
+    if(a.health===1&&!a.ice&&!a.gold){ // cracked
       ctx.globalAlpha=0.5+Math.sin(gT*0.2)*0.3;
       ctx.strokeStyle='#ff8844'; ctx.lineWidth=2; ctx.stroke();
     }
-    circ(a.r*0.18,-a.r*0.2,2,a.ice?'rgba(160,210,255,0.55)':'rgba(255,200,80,0.5)');
+    if(a.gold){ // sparkle
+      ctx.globalAlpha=0.6+Math.sin(gT*0.25)*0.4;
+      circ(a.r*0.25,-a.r*0.3,3,'rgba(255,255,150,0.9)');
+      circ(-a.r*0.2,a.r*0.2,2,'rgba(255,240,100,0.7)');
+    } else {
+      circ(a.r*0.18,-a.r*0.2,2,a.ice?'rgba(160,210,255,0.55)':'rgba(255,200,80,0.5)');
+    }
     ctx.restore();
   });
 
   // Fragments
   mine.frags.forEach(function(f){
     ctx.save(); ctx.globalAlpha=1-f.life;
-    circ(f.x,f.y,Math.max(0.5,f.r*(1-f.life)),'#988878'); ctx.restore();
+    circ(f.x,f.y,Math.max(0.5,f.r*(1-f.life)),f.gold?'#ffd700':'#988878'); ctx.restore();
   });
 
   // Gems
   mine.gems.forEach(function(g){
-    var a=Math.max(0,1-g.life/2.2), sz=5.5-g.life*1.8;
+    var a=Math.max(0,1-g.life/2.2), sz=(g.gold?8:5.5)-g.life*1.8;
     if(sz>0.3){
-      ctx.save(); ctx.globalAlpha=a; ctx.fillStyle='#ffcc44';
+      ctx.save(); ctx.globalAlpha=a;
+      ctx.fillStyle=g.gold?'#ffd700':'#ffcc44';
+      if(g.gold){ ctx.shadowColor='#ffd700'; ctx.shadowBlur=10; }
       ctx.beginPath();
       ctx.moveTo(g.x,g.y-sz);ctx.lineTo(g.x+sz,g.y);
       ctx.lineTo(g.x,g.y+sz);ctx.lineTo(g.x-sz,g.y);
-      ctx.closePath(); ctx.fill(); ctx.restore();
+      ctx.closePath(); ctx.fill();
+      if(g.gold){ // star shape extra points
+        ctx.beginPath();
+        ctx.moveTo(g.x-sz*0.5,g.y-sz*0.5);ctx.lineTo(g.x+sz*0.5,g.y+sz*0.5);
+        ctx.moveTo(g.x+sz*0.5,g.y-sz*0.5);ctx.lineTo(g.x-sz*0.5,g.y+sz*0.5);
+        ctx.strokeStyle='#fff'; ctx.lineWidth=1; ctx.stroke();
+      }
+      ctx.restore();
     }
   });
 
@@ -848,6 +955,16 @@ function drawMining() {
   rnd(W/2-120,12,240,14,4,'rgba(0,0,0,0.5)','rgba(255,255,255,0.2)',1);
   rnd(W/2-120,12,Math.round(240*tf),14,4,tf>0.3?'#44aaff':'#ff4444',null,0);
   txt(Math.max(0,Math.ceil(MINE_DUR-mine.t))+'s',W/2,24,'#ccddff',10,'center','monospace');
+
+  // Gold asteroid indicator (top right when one is present)
+  var hasGold = mine.asteroids.some(function(a){return a.gold;});
+  if(hasGold && !mine.done) {
+    ctx.save(); ctx.globalAlpha=0.7+Math.sin(gT*0.2)*0.25;
+    rnd(W-160,10,150,32,6,'rgba(0,0,0,0.7)','rgba(255,200,0,0.7)',1.5);
+    ctx.shadowColor='#ffd700'; ctx.shadowBlur=8;
+    txt('\u2605 GOLD! +8 min',W-85,30,'#ffd700',12,'center','bold monospace');
+    ctx.shadowBlur=0; ctx.restore();
+  }
 
   // First-5s instruction
   if(mine.t<5){
@@ -942,12 +1059,14 @@ function initLaunch() {
     stages:3,       // stages still attached
     countdownDone: [false,false,false,false], // 3,2,1,0
     liftoffDone: false,
+    liftoffRadio: false,
     flashAlpha:0,
     debris:[],
     exhaust:[],
     done:false,
     doneTimer:0
   };
+  showRadio('All stations go for launch. Go for launch!');
   phase = 'launch';
 }
 function updateLaunch(dt) {
@@ -963,11 +1082,13 @@ function updateLaunch(dt) {
     lch.countdownDone[3]=true;
     boom(1.0,0.4); // ignition roar
     beep(100,1.5,0.2,'square');
+    showRadio('Ignition sequence start!');
   }
 
   // Liftoff at t=3.5
   if (lch.t >= 3.5) {
     lch.liftoffDone = true;
+    if (!lch.liftoffRadio) { lch.liftoffRadio=true; showRadio('Tower clear \u2014 you are go! Go! Go!'); }
     var bt = lch.t - 3.5;
     lch.rocketVy = -(18 + bt*bt*6);
     if (lch.rocketVy < -380) lch.rocketVy = -380;
@@ -1030,6 +1151,9 @@ function separateStage(n) {
     vy:Math.abs(lch.rocketVy)*0.15+15,
     n:n, rot:0, rotV:(Math.random()-0.5)*4, alpha:1
   });
+  if (n===1) showRadio('S-IC separation confirmed. Stage 2 ignition!');
+  else if (n===2) showRadio('S-II sep confirmed. Stage 3 burning. Beautiful!');
+  else showRadio('TLI burn complete. Godspeed, crew \u2014 you\'re on your way!');
 }
 function drawLaunch() {
   // Sky colour based on altitude
@@ -1145,8 +1269,14 @@ function initMoonLand() {
     onPad: false,
     resultTimer: 0,
     done: false,
-    thrustOn: false
+    thrustOn: false,
+    // Moon walk animation state
+    walkPhase: null,   // null|'walkout'|'plant'|'pose'|'walkin'
+    walkT: 0,
+    astroX: 0,        // astronaut X position
+    flagPlanted: false
   };
+  showRadio('Eagle, you are go for powered descent. Good luck!');
   phase = 'moonland';
 }
 
@@ -1159,7 +1289,38 @@ var ML_FUEL_RATE = 3.5; // fuel per second when thrusting
 function updateMoonLand(dt) {
   ml.t += dt;
   if (ml.done) { ml.resultTimer+=dt; if(ml.resultTimer>3) initMoonAsc(); return; }
-  if (ml.landed || ml.crashed) { ml.resultTimer+=dt; if(ml.resultTimer>2.5) initMoonAsc(); return; }
+  if (ml.crashed) { ml.resultTimer+=dt; if(ml.resultTimer>2.5) initMoonAsc(); return; }
+  if (ml.landed) {
+    ml.resultTimer+=dt;
+    // Initiate moon walk 1.2s after landing
+    if (ml.resultTimer > 1.2 && !ml.walkPhase) {
+      ml.walkPhase='walkout'; ml.walkT=0;
+      ml.astroX = ml.x + 16; // start just outside LEM door
+      ml.flagPlanted = false;
+    }
+    if (ml.walkPhase) {
+      ml.walkT+=dt;
+      var flagX = ml.x + 50; // flag planting spot
+      if (ml.walkPhase==='walkout') {
+        ml.astroX = ml.x+16 + (flagX-ml.x-16)*Math.min(1,ml.walkT/1.2);
+        if (ml.walkT>=1.2) { ml.walkPhase='plant'; ml.walkT=0; }
+      } else if (ml.walkPhase==='plant') {
+        if (!ml.flagPlanted && ml.walkT>0.5) {
+          ml.flagPlanted=true;
+          beep(784,0.06,0.2); beep(1047,0.2,0.25);
+          showRadio(ml.onPad?'Tranquility Base. The Eagle has landed! Historic moment!':'Good touchdown. Exploring the surface!');
+        }
+        if (ml.walkT>=1.6) { ml.walkPhase='pose'; ml.walkT=0; }
+      } else if (ml.walkPhase==='pose') {
+        if (ml.walkT>=0.8) { ml.walkPhase='walkin'; ml.walkT=0; }
+      } else if (ml.walkPhase==='walkin') {
+        var flagX2=ml.x+50;
+        ml.astroX = flagX2 - (flagX2-ml.x-16)*Math.min(1,ml.walkT/1.0);
+        if (ml.walkT>=1.2) { initMoonAsc(); return; }
+      }
+    }
+    return;
+  }
 
   var thrustOn  = held('ArrowUp')||held('Space')||held('KeyW');
   var rcsLeft   = held('ArrowLeft')||held('KeyA');
@@ -1201,6 +1362,7 @@ function updateMoonLand(dt) {
       ml.crashed = true;
       boom(0.5, 0.35);
       beep(150,0.4,0.2,'sawtooth');
+      showRadio('Eagle, we lost signal. Search and rescue on standby.');
     } else {
       ml.landed = true;
       // Score
@@ -1226,6 +1388,60 @@ function drawMoonLand() {
 
   // LEM
   drawLEM(ml.x, ml.y, ml.thrustOn && ml.fuel > 0);
+
+  // ── Moon walk animation ──────────────────────────────────────────────────
+  if (ml.walkPhase) {
+    var ax = ml.astroX, ay = GROUND_Y; // astronaut foot Y
+    var walkBob = (ml.walkPhase==='walkout'||ml.walkPhase==='walkin') ? Math.sin(gT*0.3)*2 : 0;
+    // Astronaut (cute simple figure, ~12px tall)
+    ctx.save(); ctx.translate(ax, ay-12+walkBob);
+    // Suit body
+    rnd(-5,-6,10,9,3,'#e0e0d8','#aaa',1);
+    // Helmet (round)
+    circ(0,-10,5,'#d8d8d0');
+    ctx.fillStyle='rgba(50,80,150,0.7)'; ctx.beginPath();
+    ctx.arc(0,-10,4,Math.PI*1.15,Math.PI*1.85); ctx.closePath(); ctx.fill();
+    // Highlight on visor
+    ctx.save(); ctx.globalAlpha=0.5;
+    circ(-1,-11,1.5,'rgba(200,230,255,0.8)');
+    ctx.restore();
+    // Backpack
+    rnd(4,-5,4,6,1,'#aaa','#888',1);
+    // Legs
+    ln(-3,3,-4,7,'#bbb',2); ln(3,3,4,7,'#bbb',2);
+    // Arms (waving on arrive)
+    var armAngle = ml.walkPhase==='plant' ? -0.8 : 0.2;
+    ctx.save(); ctx.translate(-5,-3); ctx.rotate(-armAngle);
+    ln(0,0,-4,4,'#bbb',1.5); ctx.restore();
+    ctx.save(); ctx.translate(5,-3); ctx.rotate(armAngle);
+    ln(0,0,4,4,'#bbb',1.5); ctx.restore();
+    ctx.restore();
+
+    // Flag (appears after planted)
+    if (ml.flagPlanted) {
+      var flagX = ml.x+50, flagY = GROUND_Y;
+      var plantT = ml.walkPhase==='plant'?(ml.walkT/1.6):1;
+      plantT = Math.min(1, plantT);
+      ctx.save(); ctx.globalAlpha=plantT;
+      // Pole
+      ln(flagX, flagY, flagX, flagY-28, '#ddd', 2);
+      // Flag fabric (waves gently)
+      var wave = Math.sin(gT*0.12)*3;
+      ctx.fillStyle='#cc2222';
+      ctx.beginPath();
+      ctx.moveTo(flagX, flagY-28);
+      ctx.lineTo(flagX+16+wave, flagY-24+wave*0.3);
+      ctx.lineTo(flagX+16+wave*0.5, flagY-18);
+      ctx.lineTo(flagX, flagY-20);
+      ctx.closePath(); ctx.fill();
+      // Stars (simplified: 3 dots)
+      ctx.fillStyle='#ffffff'; ctx.globalAlpha=plantT*0.9;
+      [[-5,-25],[0,-23],[5,-22]].forEach(function(p){
+        ctx.beginPath(); ctx.arc(flagX+p[0],flagY+p[1],1.2,0,TAU); ctx.fill();
+      });
+      ctx.restore();
+    }
+  }
 
   // Crash explosion
   if (ml.crashed) {
@@ -1273,20 +1489,23 @@ function drawMoonLand() {
     txt('\u2191/SPACE=thrust  \u2190\u2192=steer',W/2,H-25,'#99aacc',12,'center','monospace');
   }
 
-  // Result overlay
+  // Result overlay — fades out as moonwalk starts
   if (ml.landed || ml.crashed) {
     var fa = Math.min(1, ml.resultTimer*2);
-    ctx.save(); ctx.globalAlpha=fa;
-    rnd(W/2-160,H/2-50,320,120,14,'rgba(0,10,30,0.9)','rgba(100,200,255,0.5)',2);
-    if (ml.crashed) {
-      txt('CRASH!',W/2,H/2-10,'#ff4444',32,'center','bold Georgia');
-      txt('No landing score',W/2,H/2+30,'#cc8888',16,'center','Georgia');
-    } else {
-      txt(ml.onPad?'PERFECT LANDING!':'SAFE LANDING',W/2,H/2-10,
-          ml.onPad?'#ffee44':'#88ffaa',ml.onPad?26:22,'center','bold Georgia');
-      txt('Score: '+runScore.landing,W/2,H/2+30,'#ccddff',18,'center','Georgia');
+    if (ml.walkPhase) fa = Math.max(0, 1 - ml.walkT*2); // fade during moonwalk
+    if (fa > 0.01) {
+      ctx.save(); ctx.globalAlpha=fa;
+      rnd(W/2-160,H/2-50,320,120,14,'rgba(0,10,30,0.9)','rgba(100,200,255,0.5)',2);
+      if (ml.crashed) {
+        txt('CRASH!',W/2,H/2-10,'#ff4444',32,'center','bold Georgia');
+        txt('No landing score',W/2,H/2+30,'#cc8888',16,'center','Georgia');
+      } else {
+        txt(ml.onPad?'PERFECT LANDING!':'SAFE LANDING',W/2,H/2-10,
+            ml.onPad?'#ffee44':'#88ffaa',ml.onPad?26:22,'center','bold Georgia');
+        txt('Score: '+runScore.landing,W/2,H/2+30,'#ccddff',18,'center','Georgia');
+      }
+      ctx.restore();
     }
-    ctx.restore();
   }
 
   // Mobile controls hint
@@ -1379,6 +1598,7 @@ function initReentry() {
     doneTimer: 0,
     score: 0
   };
+  showRadio('Columbia, you\'re go for re-entry. Watch those rockets!');
   phase = 'reentry';
 }
 function updateReentry(dt) {
@@ -1553,6 +1773,7 @@ function initChute() {
     done: false,
     promptShown: false
   };
+  showRadio('Columbia, we see you on radar. Deploy chutes when ready!');
   phase = 'chute';
 }
 function updateChute(dt) {
@@ -1719,7 +1940,8 @@ function drawChute() {
 var vic = null;
 function initVictory() {
   var total = runScore.landing + runScore.reentry + runScore.chute;
-  vic = { t:0, total:total, wave:0 };
+  var stars = total >= 600 ? 3 : total >= 350 ? 2 : 1;
+  vic = { t:0, total:total, wave:0, stars:stars };
   if (!scoreSaved) {
     scoreSaved = true;
     var d = new Date();
@@ -1732,6 +1954,9 @@ function initVictory() {
     });
     chime();
   }
+  if (stars===3) showRadio('Incredible mission! Perfect score across the board!');
+  else if (stars===2) showRadio('Great mission crew! The whole world is watching!');
+  else showRadio('Welcome home, Columbia. Recovery team is en route!');
   phase = 'victory';
 }
 function updateVictory(dt) {
@@ -1770,27 +1995,40 @@ function drawVictory() {
   ctx.shadowBlur=0;
   ctx.restore();
 
+  // Star rating
+  if (vic.t > 0.3) {
+    var sa=Math.min(1,(vic.t-0.3)*2);
+    ctx.save(); ctx.globalAlpha=sa;
+    var starStr=''; var emptyStr='';
+    for(var si=0;si<3;si++) starStr += (si<vic.stars?'\u2605':'\u2606');
+    var starCol = vic.stars===3?'#ffd700':vic.stars===2?'#e8e820':'#cc9900';
+    ctx.font='bold 32px Georgia'; ctx.textAlign='center'; ctx.textBaseline='alphabetic';
+    ctx.shadowColor=starCol; ctx.shadowBlur=vic.stars===3?18:8;
+    ctx.fillStyle=starCol; ctx.fillText(starStr, W/2, 108);
+    ctx.shadowBlur=0; ctx.restore();
+  }
+
   // Score breakdown
   if (vic.t > 0.5) {
     var ba=Math.min(1,(vic.t-0.5)*2);
     ctx.save(); ctx.globalAlpha=ba;
-    rnd(W/2-200,108,400,180,14,'rgba(0,10,40,0.85)','rgba(100,180,255,0.4)',2);
+    rnd(W/2-200,118,400,178,14,'rgba(0,10,40,0.85)','rgba(100,180,255,0.4)',2);
     var rows=[
       ['\uD83C\uDF11 Moon Landing',  runScore.landing,  300],
       ['\uD83D\uDD25 Re-entry',      runScore.reentry,  Math.round(RE_DURATION*12)+180],
       ['\uD83E\uDE82 Parachute',     runScore.chute,    200],
     ];
     rows.forEach(function(row,i) {
-      var ry=142+i*44;
+      var ry=152+i*44;
       txt(row[0],    W/2-80, ry, '#aaccee', 15, 'left',   'Georgia');
       txt(row[1]+' pts', W/2+80, ry, '#ffee88', 15, 'right', 'bold monospace');
       var bw=100, bx=W/2-50;
       rnd(bx,ry+6,bw,8,3,'rgba(50,50,80,0.6)',null,0);
       rnd(bx,ry+6,Math.round(bw*(row[1]/row[2])),8,3,'#4488cc',null,0);
     });
-    ln(W/2-190,255,W/2+190,255,'rgba(100,150,200,0.4)',1);
-    txt('TOTAL', W/2-80, 278, '#ccddff', 18, 'left', 'bold Georgia');
-    txt(vic.total+' pts', W/2+80, 278, '#ffee44', 20, 'right', 'bold monospace');
+    ln(W/2-190,265,W/2+190,265,'rgba(100,150,200,0.4)',1);
+    txt('TOTAL', W/2-80, 288, '#ccddff', 18, 'left', 'bold Georgia');
+    txt(vic.total+' pts', W/2+80, 288, '#ffee44', 20, 'right', 'bold monospace');
     ctx.restore();
   }
 
@@ -1914,6 +2152,12 @@ function loop(ts) {
     case 'chute':    updateChute(dt);    drawChute();    drawMobileChuteControls(); break;
     case 'victory':  updateVictory(dt);  drawVictory();  break;
     case 'scores':                       drawScores();   break;
+  }
+
+  // Radio overlay (drawn on top of everything except title/scores)
+  if (phase!=='title' && phase!=='scores' && phase!=='pad') {
+    updateRadio(dt);
+    drawRadio();
   }
 
   mclk = false;
