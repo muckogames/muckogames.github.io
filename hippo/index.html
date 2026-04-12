@@ -245,6 +245,19 @@ window.addEventListener('blur',()=>{
 
 /* ─── CHEAT CODES ─── */
 let cbuf='';
+let activatedCheats=new Set();
+let cheatScrollShown=false;
+let cheatScrollPhase=null; // phase to return to after dismissing scroll
+const CHEAT_LORE={
+  LEKAN:        'The Panda Mastermind himself. Planner. Visionary. Surprisingly chill once you meet him.',
+  NIKNIK:       'Nik the Seal. Loudest creature in the zoo by a factor of eleven. Use wisely.',
+  BASIL:        'Basil the zookeeper. Would rather be reading. Not really cut out for this.',
+  PRASTHEKOALA: 'Pras the Koala. Currently in hour 19 of a 22-hour nap. He\u2019s fine.',
+  MARGARITAVILLE:'Unlocked by someone who knows what\u2019s up.',
+  SKREEEEM:     'The sound Nik makes. Phonetically accurate. Scientifically terrifying.',
+  CLOSETLIFE:   'The closet sees all. The closet knows all. The closet judges no one.',
+  PBANDJ:       'Pflueger\u2019s post-school ritual. Creamy, not crunchy. This is not negotiable.',
+};
 const CHEATS={
   MARGARITAVILLE:()=>startPhase('epilogue'),
   LEKAN:()=>startPhase('escape'),
@@ -259,8 +272,117 @@ function cheatKey(k){
   if(k.length!==1)return;
   cbuf=(cbuf+k.toUpperCase()).slice(-20);
   for(const code of Object.keys(CHEATS)){
-    if(cbuf.endsWith(code)){CHEATS[code]();cbuf='';return;}
+    if(cbuf.endsWith(code)){
+      activatedCheats.add(code);
+      CHEATS[code]();
+      cbuf='';
+      if(activatedCheats.size>=3&&!cheatScrollShown){
+        cheatScrollShown=true;
+        setTimeout(()=>showCheatScroll(),400);
+      }
+      return;
+    }
   }
+}
+function showCheatScroll(){
+  cheatScrollPhase=phase;
+  phase='cheatscroll';
+}
+function updateCheatScroll(){
+  if(eat('Space')||eat('Enter')||eat('Escape')){
+    phase=cheatScrollPhase||'title';
+  }
+}
+function drawCheatScroll(){
+  // Dim overlay
+  ctx.save();
+  ctx.fillStyle='rgba(0,0,0,0.72)';
+  ctx.fillRect(0,0,W,H);
+
+  // Parchment background
+  const px=60,py=30,pw=W-120,ph=H-60;
+  ctx.fillStyle='#f5e6c8';
+  roundRect(ctx,px,py,pw,ph,14);
+  ctx.fill();
+  ctx.strokeStyle='#b8964a';
+  ctx.lineWidth=3;
+  ctx.stroke();
+
+  // Inner border
+  ctx.strokeStyle='rgba(160,120,50,0.4)';
+  ctx.lineWidth=1.5;
+  roundRect(ctx,px+8,py+8,pw-16,ph-16,10);
+  ctx.stroke();
+
+  // Header
+  ctx.fillStyle='#5c3a0a';
+  ctx.font='bold 20px Georgia,serif';
+  ctx.textAlign='center';
+  ctx.fillText('\uD83D\uDCDC  THE KEEPER\u2019S LEDGER  \uD83D\uDCDC',W/2,py+38);
+
+  ctx.font='italic 11px Georgia,serif';
+  ctx.fillStyle='#8a6030';
+  ctx.fillText('Secrets unlocked this session: '+activatedCheats.size+' of '+Object.keys(CHEAT_LORE).length,W/2,py+56);
+
+  // Divider
+  ctx.strokeStyle='#c8a050';
+  ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(px+20,py+66); ctx.lineTo(px+pw-20,py+66); ctx.stroke();
+
+  // Entries
+  const codes=Object.keys(CHEAT_LORE);
+  const entryH=Math.floor((ph-90)/codes.length);
+  codes.forEach((code,i)=>{
+    const ex=px+24, ey=py+76+i*entryH;
+    const known=activatedCheats.has(code);
+    if(known){
+      ctx.font='bold 12px monospace';
+      ctx.fillStyle='#7a3800';
+      ctx.textAlign='left';
+      ctx.fillText(code,ex,ey+14);
+      ctx.font='italic 11px Georgia,serif';
+      ctx.fillStyle='#5c3a0a';
+      const lore=CHEAT_LORE[code];
+      // word-wrap if needed
+      wrapText(ctx,lore,ex+120,ey+14,pw-160,14,'#5c3a0a','11px Georgia,serif');
+    } else {
+      ctx.font='bold 12px monospace';
+      ctx.fillStyle='#bba070';
+      ctx.textAlign='left';
+      ctx.fillText('\u2014\u2014\u2014\u2014\u2014\u2014\u2014',ex,ey+14);
+      ctx.font='italic 11px Georgia,serif';
+      ctx.fillStyle='#bba070';
+      ctx.fillText('(not yet discovered)',ex+120,ey+14);
+    }
+  });
+
+  // Footer
+  ctx.font='bold 12px monospace';
+  ctx.fillStyle='#7a5020';
+  ctx.textAlign='center';
+  ctx.fillText('[ SPACE / ENTER to close ]',W/2,py+ph-14);
+  ctx.restore();
+}
+function roundRect(c,x,y,w,h,r){
+  c.beginPath();
+  c.moveTo(x+r,y); c.lineTo(x+w-r,y); c.quadraticCurveTo(x+w,y,x+w,y+r);
+  c.lineTo(x+w,y+h-r); c.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+  c.lineTo(x+r,y+h); c.quadraticCurveTo(x,y+h,x,y+h-r);
+  c.lineTo(x,y+r); c.quadraticCurveTo(x,y,x+r,y);
+  c.closePath();
+}
+function wrapText(c,text,x,y,maxW,lineH,col,font){
+  c.font=font; c.fillStyle=col; c.textAlign='left';
+  const words=text.split(' ');
+  let line='';
+  let cy=y;
+  for(let i=0;i<words.length;i++){
+    const test=line+(line?' ':'')+words[i];
+    if(c.measureText(test).width>maxW&&line){
+      c.fillText(line,x,cy); line=words[i]; cy+=lineH;
+    } else { line=test; }
+  }
+  if(line) c.fillText(line,x,cy);
 }
 
 /* ─── DIFFICULTY ─── */
@@ -3172,6 +3294,7 @@ function stepSimulation(dt){
     case 'stealth': updateStealth(dt); break;
     case 'cleanup': updateCleanup(dt); break;
     case 'closet_game': updateCloset(dt); break;
+    case 'cheatscroll': updateCheatScroll(); break;
   }
   if(suspNotice.timer>0)suspNotice.timer=Math.max(0,suspNotice.timer-dt*60);
 }
@@ -3187,6 +3310,7 @@ function renderPhase(){
     case 'cleanup': drawCleanup(); break;
     case 'closet_game': drawCloset(); break;
     case 'credits': drawCredits(); break;
+    case 'cheatscroll': drawCheatScroll(); break;
     case 'epilogue':
       sceneIdx=findScene('epilogue_start');
       phase='story';

@@ -186,7 +186,7 @@ function syncTouchKeys() {
       } else {
         K.ArrowUp=true; // upper half of screen = thrust too
       }
-    } else if (phase==='reentry') {
+    } else if (phase==='reentry' || phase==='solarflare') {
       if (p.y > H-160) {
         if (p.x < W/2) K.ArrowLeft=true;
         else            K.ArrowRight=true;
@@ -613,21 +613,23 @@ function drawPad() {
   txt('MISSION PROFILE', W/2-88, 162, '#8899bb', 11, 'left', 'monospace');
   var diffs=['mercury','gemini','apollo'];
   var dlabels=['MERCURY','GEMINI','APOLLO'];
+  var dsubs=['\u2609 Solar Flare','\u2694 Mining','\uD83D\uDCC8 Choices']; // travel event label per difficulty
   var dcols=['#44cc88','#ffcc44','#ff7744'];
   var dselBg=['rgba(10,50,25,0.9)','rgba(40,38,8,0.9)','rgba(50,16,5,0.9)'];
   for (var di=0;di<3;di++) {
-    var dbx=W/2-136+di*91, dby=166, dbw=88, dbh=26;
+    var dbx=W/2-136+di*91, dby=166, dbw=88, dbh=32;
     var dsel=difficulty===diffs[di];
     var dhov=mx>=dbx&&mx<=dbx+dbw&&my>=dby&&my<=dby+dbh;
     rnd(dbx,dby,dbw,dbh,6,dsel?dselBg[di]:dhov?'#111820':'#080d14',
         dsel?dcols[di]:'rgba(80,110,160,0.5)',dsel?2:1);
-    txt(dlabels[di],dbx+dbw/2,dby+18,dsel?dcols[di]:dhov?'#dde':'#7788aa',11,'center','bold monospace');
+    txt(dlabels[di],dbx+dbw/2,dby+13,dsel?dcols[di]:dhov?'#dde':'#7788aa',11,'center','bold monospace');
+    txt(dsubs[di],dbx+dbw/2,dby+24,dsel?dcols[di]+'aa':'#445566',8,'center','monospace');
     if (mclk && dhov) { difficulty=diffs[di]; mclk=false; }
   }
 
   // Big red LAUNCH button
   var pulse = 1 + Math.sin(padT*2.5)*0.022;
-  var bx=W/2-155, by=202, bw=310, bh=64;
+  var bx=W/2-155, by=208, bw=310, bh=64;
   var bhov = mx>=bx&&mx<=bx+bw&&my>=by&&my<=by+bh;
   ctx.save();
   if (!bhov) { ctx.translate(W/2,by+bh/2); ctx.scale(pulse,pulse); ctx.translate(-W/2,-(by+bh/2)); }
@@ -674,12 +676,16 @@ function initTravel(dest) {
   else showRadio('Trans-Earth Injection burn complete. Welcome home!');
   phase = 'travel';
 }
-// Sequence of sub-phases for each trip direction
-var SEQ_OUT  = ['intro','sleep1','wake1','mining','sleep2','wake2','done'];
+// Sequence of sub-phases for each trip direction (varies by difficulty)
 var SEQ_BACK = ['intro','sleep1','wake1','sleep2','wake2','done'];
+function getSeqOut() {
+  if (difficulty === 'mercury') return ['intro','sleep1','wake1','solarflare','mining','sleep2','wake2','done'];
+  if (difficulty === 'apollo')  return ['intro','sleep1','wake1','deepspace','sleep2','wake2','done'];
+  return ['intro','sleep1','wake1','mining','sleep2','wake2','done']; // gemini default
+}
 
 function nextTravelSub() {
-  var seq = trav.hasMining ? SEQ_OUT : SEQ_BACK;
+  var seq = trav.hasMining ? getSeqOut() : SEQ_BACK;
   var idx = seq.indexOf(trav.sub);
   if (idx < 0 || idx >= seq.length-1) return;
   trav.sub = seq[idx+1]; trav.subT = 0;
@@ -689,7 +695,9 @@ function nextTravelSub() {
     trav.event = EVENTS[Math.floor(Math.random() * EVENTS.length)];
     trav.eventDone = false;
   }
-  if (trav.sub === 'mining') { initMining(); return; }
+  if (trav.sub === 'mining')     { initMining();     return; }
+  if (trav.sub === 'solarflare') { initSolarFlare(); return; }
+  if (trav.sub === 'deepspace')  { initDeepSpace();  return; }
   if (trav.sub === 'done') {
     if (trav.dest === 'moonland') initMoonLand(); else initReentry();
   }
@@ -1051,6 +1059,256 @@ function drawMining() {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
+   PHASE: SOLAR FLARE  (Mercury difficulty — dodge plasma bursts mid-travel)
+   ══════════════════════════════════════════════════════════════════════════ */
+var sf = null;
+var SF_DUR = 10;  // seconds
+function initSolarFlare() {
+  sf = {
+    t: 0, cx: W/2, vy: 0,
+    bursts: [], spawnT: 0,
+    shields: 2, hitTimer: 0,
+    done: false, doneT: 0, survived: false,
+    score: 0
+  };
+  showRadio('Columbia, solar activity spiking — brace for plasma bursts!');
+  phase = 'solarflare';
+}
+function updateSolarFlare(dt) {
+  sf.t += dt;
+  sf.hitTimer = Math.max(0, sf.hitTimer - dt);
+  if (sf.done) {
+    sf.doneT += dt;
+    if (sf.doneT > 2.5) {
+      // After flare: proceed to mining
+      initMining();
+    }
+    return;
+  }
+  // Move capsule
+  var spd = 200;
+  if (held('ArrowLeft')||held('KeyA'))  sf.cx = Math.max(36, sf.cx - spd*dt);
+  if (held('ArrowRight')||held('KeyD')) sf.cx = Math.min(W-36, sf.cx + spd*dt);
+  // Spawn plasma bursts — come from top, random X
+  sf.spawnT += dt;
+  var spawnInterval = Math.max(0.28, 0.75 - sf.t * 0.04);
+  if (sf.spawnT >= spawnInterval) {
+    sf.spawnT = 0;
+    var fast = Math.random() < 0.35;
+    sf.bursts.push({
+      x: 30 + Math.random() * (W - 60),
+      y: -20,
+      vy: fast ? 280 : 160,
+      r: fast ? 8 : 14,
+      fast: fast
+    });
+  }
+  // Update bursts
+  sf.bursts = sf.bursts.filter(function(b) {
+    b.y += b.vy * dt;
+    return b.y < H + 30;
+  });
+  // Collision (capsule center at sf.cx, H-110)
+  var capX = sf.cx, capY = H - 110;
+  for (var i = 0; i < sf.bursts.length; i++) {
+    var b = sf.bursts[i];
+    var dist = Math.sqrt((capX-b.x)*(capX-b.x)+(capY-b.y)*(capY-b.y));
+    if (dist < b.r + 14 && !b.hit) {
+      b.hit = true; sf.shields--; sf.hitTimer = 0.4;
+      boom(0.2, 0.2); beep(300, 0.2, 0.15, 'sawtooth');
+      if (sf.shields <= 0) {
+        sf.shields = 0; sf.done = true; sf.survived = false;
+        sf.score = Math.round(sf.t * 8); showRadio('Shield damage! Pushing through on reserve power.');
+      }
+    }
+  }
+  // Time's up
+  if (sf.t >= SF_DUR) {
+    sf.done = true; sf.survived = true;
+    sf.score = 60 + sf.shields * 30;
+    minerals += 4; // survived flare = bonus minerals
+    chime(); showRadio('Flare passing! Core systems intact. Mining lasers back online.');
+  }
+}
+function drawSolarFlare() {
+  // Orange-red space background
+  var prog = Math.min(1, sf.t / SF_DUR);
+  vgrad(0,0,W,H,[
+    [0,'#0a0208'],
+    [0.4,'rgba('+Math.round(30+prog*80)+','+Math.round(8+prog*15)+',5,1)'],
+    [1,'rgba('+Math.round(60+prog*120)+','+Math.round(20+prog*30)+',5,1)']
+  ]);
+  drawStars(Math.max(0.1, 0.7 - prog*0.5));
+  // Solar glow at top
+  var sg = ctx.createRadialGradient(W/2, -60, 0, W/2, -60, W);
+  sg.addColorStop(0, 'rgba(255,180,50,'+(0.3+prog*0.4)+')');
+  sg.addColorStop(0.5, 'rgba(255,80,0,'+(0.1+prog*0.2)+')');
+  sg.addColorStop(1, 'rgba(255,30,0,0)');
+  ctx.fillStyle = sg; ctx.fillRect(0, 0, W, H/2);
+  // Plasma bursts
+  sf.bursts.forEach(function(b) {
+    if (b.hit) return;
+    var bg = ctx.createRadialGradient(b.x,b.y,0,b.x,b.y,b.r*1.8);
+    bg.addColorStop(0, b.fast?'rgba(255,255,180,0.95)':'rgba(255,140,20,0.9)');
+    bg.addColorStop(0.5, b.fast?'rgba(255,200,50,0.6)':'rgba(255,60,0,0.6)');
+    bg.addColorStop(1, 'rgba(255,30,0,0)');
+    ctx.fillStyle=bg; ctx.beginPath(); ctx.arc(b.x,b.y,b.r*1.8,0,TAU); ctx.fill();
+    ctx.fillStyle=b.fast?'#ffff88':'#ffaa22'; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,TAU); ctx.fill();
+  });
+  // Capsule
+  if (sf.hitTimer > 0) { ctx.save(); ctx.globalAlpha=0.6+Math.sin(gT*0.4)*0.3; }
+  drawCapsule(sf.cx, H-110, 0);
+  if (sf.hitTimer > 0) ctx.restore();
+  // Hit flash
+  if (sf.hitTimer > 0) {
+    ctx.save(); ctx.globalAlpha=sf.hitTimer*0.35; drect(0,0,W,H,'#ff4400'); ctx.restore();
+  }
+  // Timer bar
+  var timeLeft = Math.max(0, SF_DUR - sf.t);
+  var tf = timeLeft / SF_DUR;
+  rnd(W/2-120,10,240,14,4,'rgba(0,0,0,0.5)','rgba(255,255,255,0.2)',1);
+  rnd(W/2-120,10,Math.round(240*tf),14,4,tf>0.4?'#ff8844':'#ff3300',null,0);
+  txt(Math.ceil(timeLeft)+'s',W/2,22,'#ffccaa',10,'center','monospace');
+  // Shield pips
+  txt('SHIELD', W-90, 46, '#bb7755', 9, 'center', 'monospace');
+  for (var si=0;si<2;si++) {
+    var sx=W-114+si*24, sy=18, scol=si<sf.shields?'#ff8844':'rgba(100,50,30,0.5)';
+    circ(sx+10,sy+10,9,scol,si<sf.shields?'rgba(255,150,80,0.8)':'#333',1.5);
+  }
+  // Controls
+  if (TOUCH_UI) {
+    drawMobileReentryControls();
+  } else if (sf.t < 3) {
+    ctx.save(); ctx.globalAlpha=Math.max(0,1-(sf.t-2));
+    rnd(W/2-130,H-46,260,36,6,'rgba(0,0,0,0.6)',null,0);
+    txt('\u2190\u2192 / A D  to dodge plasma bursts',W/2,H-25,'#ffbb88',12,'center','monospace');
+    ctx.restore();
+  }
+  // Done overlay
+  if (sf.done) {
+    var fa=Math.min(1,sf.doneT*2);
+    ctx.save(); ctx.globalAlpha=fa;
+    rnd(W/2-170,H/2-50,340,110,14,'rgba(0,10,30,0.92)','rgba(255,150,80,0.5)',2);
+    txt(sf.survived?'FLARE SURVIVED!':'SHIELD DEPLETED',W/2,H/2-16,
+        sf.survived?'#ffcc88':'#ff6644',24,'center','bold Georgia');
+    txt(sf.survived?'Mining lasers online! +4 bonus minerals':'Proceeding on reserve power.',
+        W/2,H/2+18,'#cc9966',13,'center','Georgia');
+    ctx.restore();
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PHASE: DEEP SPACE  (Apollo difficulty — Oregon Trail–style resource choices)
+   ══════════════════════════════════════════════════════════════════════════ */
+var ds = null;
+var DS_EVENTS = [
+  {
+    title: 'Fuel Cell C is running warm.',
+    body:  'A micro-fracture may be developing. Do you throttle back to protect it?',
+    opts: [
+      {label:'Throttle back (safe)',    effect:'Save 30 fuel',   apply:function(){minerals+=10;} },
+      {label:'Push through (efficient)',effect:'Risk nothing',   apply:function(){} }
+    ]
+  },
+  {
+    title: 'Debris field detected ahead.',
+    body:  'The nav computer found two routes — through or around?',
+    opts: [
+      {label:'Burn around it',          effect:'-15 fuel, no risk', apply:function(){minerals=Math.max(0,minerals-5);} },
+      {label:'Fly through carefully',   effect:'Shield stress',     apply:function(){} }
+    ]
+  },
+  {
+    title: 'Pre-descent systems check.',
+    body:  'Run a full diagnostic of landing systems before you reach the Moon?',
+    opts: [
+      {label:'Full check (thorough)',   effect:'+wider landing zone', apply:function(){ds.landingBonus=true;} },
+      {label:'Skip — trust the ship',   effect:'No change',           apply:function(){} }
+    ]
+  }
+];
+function initDeepSpace() {
+  ds = {
+    t: 0, eventIdx: 0, chosen: false, choiceTimer: 0,
+    landingBonus: false, done: false, doneT: 0
+  };
+  showRadio('Apollo, this is Houston. Long burn ahead — conserve your resources.');
+  phase = 'deepspace';
+}
+function updateDeepSpace(dt) {
+  ds.t += dt;
+  if (ds.done) { ds.doneT+=dt; if(ds.doneT>2.5) { nextTravelSub(); } return; }
+  if (ds.chosen) {
+    ds.choiceTimer += dt;
+    if (ds.choiceTimer > 1.8) {
+      if (ds.eventIdx < DS_EVENTS.length - 1) {
+        ds.eventIdx++; ds.chosen=false; ds.choiceTimer=0;
+        beep(440, 0.1, 0.15);
+      } else {
+        ds.done = true;
+        // Apply landing bonus by widening difficulty pad zone
+        chime(); showRadio('Systems nominal. Beginning powered descent approach.');
+      }
+    }
+  }
+}
+function drawDeepSpace() {
+  drect(0,0,W,H,'#03030e'); drawStars(0.8);
+  ctx.save(); ctx.globalAlpha=0.15; drawEarth(680, 430, 75); ctx.restore();
+  ctx.save(); ctx.globalAlpha=0.25; drawMoon(W-80, 80, 42); ctx.restore();
+  // Header
+  txt('DEEP SPACE — DAY 2',W/2,40,'#7799bb',18,'center','bold monospace');
+  var ev = DS_EVENTS[ds.eventIdx];
+  // Card
+  var bx=W/2-240, by=80, bw=480, bh=260;
+  rnd(bx,by,bw,bh,14,'rgba(0,12,30,0.9)','rgba(80,140,220,0.5)',2);
+  // Event number
+  txt('EVENT '+(ds.eventIdx+1)+' of '+DS_EVENTS.length, bx+bw-16, by+22, '#446688', 11, 'right', 'monospace');
+  // Title
+  txt(ev.title, W/2, by+46, '#ccddff', 16, 'center', 'bold Georgia');
+  // Body text (simple word-wrap)
+  var words=ev.body.split(' '), line='', cy=by+76, maxW=bw-40;
+  ctx.font='14px Georgia,serif'; ctx.fillStyle='#99aacc'; ctx.textAlign='center';
+  words.forEach(function(w){
+    var test=line+(line?' ':'')+w;
+    if(ctx.measureText(test).width>maxW&&line){ctx.fillText(line,W/2,cy);line=w;cy+=18;}
+    else line=test;
+  }); if(line) ctx.fillText(line,W/2,cy);
+  // Choices
+  ev.opts.forEach(function(opt, i) {
+    var btnY=by+152+i*56, btnH=48;
+    var chosen=ds.chosen&&ds.lastChoice===i;
+    var bhov=!ds.chosen&&mx>bx+20&&mx<bx+bw-20&&my>btnY&&my<btnY+btnH;
+    var fill=chosen?'#1a3a0a':bhov?'#0a1e3a':'#060e1e';
+    var border=chosen?'rgba(80,255,80,0.6)':bhov?'rgba(100,180,255,0.7)':'rgba(60,100,180,0.4)';
+    rnd(bx+20,btnY,bw-40,btnH,8,fill,border,chosen?2:1.5);
+    txt(opt.label, bx+40, btnY+20, chosen?'#88ff88':'#ccddff', 14, 'left', 'bold Georgia');
+    txt(opt.effect, bx+bw-36, btnY+20, chosen?'#aaffaa':'#7799bb', 11, 'right', 'italic Georgia');
+    if (!ds.chosen && (bhov&&mclk || (i===0&&eat('KeyW')) || (i===1&&eat('KeyS')))) {
+      if (bhov) mclk=false;
+      ds.chosen=true; ds.lastChoice=i; ds.choiceTimer=0;
+      opt.apply(); beep(660,0.15,0.2);
+    }
+  });
+  // Progress pips
+  for(var pi=0;pi<DS_EVENTS.length;pi++){
+    var pipX=W/2-20+pi*20, pipY=by+bh-18;
+    circ(pipX,pipY,5,pi<ds.eventIdx?'#4488cc':pi===ds.eventIdx?'#88ccff':'#1a2a3a',
+         pi===ds.eventIdx?'rgba(100,200,255,0.8)':null,1.5);
+  }
+  // Done overlay
+  if(ds.done){
+    var fa=Math.min(1,ds.doneT*2);
+    ctx.save(); ctx.globalAlpha=fa;
+    rnd(W/2-200,H/2+20,400,90,14,'rgba(0,10,30,0.92)','rgba(100,200,100,0.5)',2);
+    txt('SYSTEMS NOMINAL \u2014 APPROACH AUTHORIZED',W/2,H/2+52,'#88ffaa',15,'center','bold Georgia');
+    txt(ds.landingBonus?'Full diagnostic complete \u2014 expanded landing zone!':'Proceeding with standard approach.',
+        W/2,H/2+76,'#7799bb',12,'center','Georgia');
+    ctx.restore();
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
    PHASE: TITLE
    ══════════════════════════════════════════════════════════════════════════ */
 var titleT = 0;
@@ -1343,8 +1601,9 @@ function initMoonLand() {
     astroX: 0,        // astronaut X position
     flagPlanted: false,
     // Difficulty-scaled values (cached at init time)
+    // Apollo landing bonus: systems check widens the safe speed window
     dGravity: getDiff().gravity,
-    dMaxSafe: getDiff().maxSafe,
+    dMaxSafe: getDiff().maxSafe * (ds && ds.landingBonus ? 1.3 : 1),
     dFuelRate: getDiff().fuelRate
   };
   showRadio('Eagle, you are go for powered descent. Good luck!');
@@ -1602,10 +1861,11 @@ function drawMoonLand() {
     if (ml.walkPhase) fa = Math.max(0, 1 - ml.walkT*2); // fade during moonwalk
     if (fa > 0.01) {
       ctx.save(); ctx.globalAlpha=fa;
-      rnd(W/2-160,H/2-50,320,120,14,'rgba(0,10,30,0.9)','rgba(100,200,255,0.5)',2);
+      rnd(W/2-160,H/2-55,320,140,14,'rgba(0,10,30,0.9)','rgba(100,200,255,0.5)',2);
       if (ml.crashed) {
-        txt('CRASH!',W/2,H/2-16,'#ff4444',32,'center','bold Georgia');
-        txt(ml.crashReason||'No landing score',W/2,H/2+14,'#cc8888',13,'center','Georgia');
+        txt('CRASH!',W/2,H/2-22,'#ff4444',32,'center','bold Georgia');
+        txt(ml.crashReason||'No landing score',W/2,H/2+10,'#cc8888',13,'center','Georgia');
+        txt('Impact: '+Math.round(ml.landingSpeed)+' px/s  \u2014  Safe max: '+Math.round(ml.dMaxSafe)+' px/s',W/2,H/2+34,'#996666',11,'center','monospace');
       } else {
         txt(ml.onPad?'PERFECT LANDING!':'SAFE LANDING',W/2,H/2-10,
             ml.onPad?'#ffee44':'#88ffaa',ml.onPad?26:22,'center','bold Georgia');
@@ -1707,6 +1967,8 @@ function initReentry() {
     cx: W/2,        // capsule center X
     vy: 0,          // capsule descent (visual only)
     shields: 3 + shieldBonus,
+    maxShields: 3 + shieldBonus,
+    rocketsHit: 0,
     rockets: [],
     hitTimer: 0,    // flash on hit
     spawnTimer: 0,
@@ -1767,6 +2029,7 @@ function updateReentry(dt) {
         capY+14 >= r.y && capY-20 <= r.y+r.h) {
       r.hit = true;
       re.shields--;
+      re.rocketsHit++;
       re.hitTimer = 0.5;
       boom(0.3, 0.25);
       beep(300,0.25,0.2,'sawtooth');
@@ -1891,10 +2154,15 @@ function drawReentry() {
   if (re.done) {
     var fa=Math.min(1,re.doneTimer*2);
     ctx.save(); ctx.globalAlpha=fa;
-    rnd(W/2-180,H/2-60,360,120,14,'rgba(0,10,30,0.9)','rgba(100,200,255,0.5)',2);
-    txt(re.shields>0?'ATMOSPHERE CLEARED!':'SHIELDS DOWN!',W/2,H/2-20,
+    rnd(W/2-180,H/2-65,360,140,14,'rgba(0,10,30,0.9)','rgba(100,200,255,0.5)',2);
+    txt(re.shields>0?'ATMOSPHERE CLEARED!':'SHIELDS DOWN!',W/2,H/2-28,
         re.shields>0?'#88ffaa':'#ff6644',22,'center','bold Georgia');
-    txt('Reentry score: '+re.score,W/2,H/2+20,'#ccddff',18,'center','Georgia');
+    txt('Reentry score: '+re.score,W/2,H/2+5,'#ccddff',18,'center','Georgia');
+    if (re.shields <= 0) {
+      txt('Took '+re.rocketsHit+' of '+re.maxShields+' hits — shields exhausted',W/2,H/2+32,'#cc8866',12,'center','Georgia');
+    } else {
+      txt('Shields remaining: '+re.shields+' / '+re.maxShields,W/2,H/2+32,'#88ccaa',12,'center','Georgia');
+    }
     ctx.restore();
   }
 }
@@ -2081,9 +2349,13 @@ function drawChute() {
     else                                                    { resultTxt='NO PARACHUTE!'; resultCol='#ff4444'; }
     var fa=Math.min(1, ch.t*2);
     ctx.save(); ctx.globalAlpha=fa;
-    rnd(W/2-160,H/2-50,320,90,14,'rgba(0,10,30,0.9)','rgba(100,200,255,0.5)',2);
+    var chuteBoxH = (ra === 0) ? 120 : 90;
+    rnd(W/2-160,H/2-50,320,chuteBoxH,14,'rgba(0,10,30,0.9)','rgba(100,200,255,0.5)',2);
     txt(resultTxt, W/2, H/2-15, resultCol, 26, 'center', 'bold Georgia');
-    txt('Parachute score: '+runScore.chute, W/2, H/2+30, '#ccddff', 16, 'center', 'Georgia');
+    txt('Parachute score: '+runScore.chute, W/2, H/2+22, '#ccddff', 16, 'center', 'Georgia');
+    if (ra === 0) {
+      txt('Deploy between alt '+ch.goodLo+'\u2013'+ch.goodHi+' (perfect: '+ch.perfLo+'\u2013'+ch.perfHi+')',W/2,H/2+48,'#886644',11,'center','monospace');
+    }
     ctx.restore();
   }
 }
@@ -2382,8 +2654,10 @@ function loop(ts) {
     case 'title':    updateTitle(dt);    drawTitle();    break;
     case 'pad':      updatePad(dt);      drawPad();      break;
     case 'launch':   updateLaunch(dt);   drawLaunch();   break;
-    case 'travel':   updateTravel(dt);   drawTravel();   break;
-    case 'mining':   updateMining(dt);   drawMining();   break;
+    case 'travel':     updateTravel(dt);     drawTravel();     break;
+    case 'mining':     updateMining(dt);     drawMining();     break;
+    case 'solarflare': updateSolarFlare(dt); drawSolarFlare(); break;
+    case 'deepspace':  updateDeepSpace(dt);  drawDeepSpace();  break;
     case 'moonland': updateMoonLand(dt); drawMoonLand(); break;
     case 'moonasc':  updateMoonAsc(dt);  drawMoonAsc();  break;
     case 'reentry':  updateReentry(dt);  drawReentry();  break;

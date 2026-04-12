@@ -494,6 +494,10 @@ body {
       <input type="checkbox" id="o-blind">
       <span class="opt-label"><strong>Secret Mode 🙈</strong> — <em>All pieces are hidden until the game ends — can you remember what's where?</em></span>
     </label>
+    <label class="opt-row">
+      <input type="checkbox" id="o-tourney">
+      <span class="opt-label"><strong>Tournament Mode 🏆</strong> — <em>Best of 3 series — first to win 2 games takes the match!</em></span>
+    </label>
   </div>
 
   <button class="btn-play" onclick="startGame()">▶  PLAY!</button>
@@ -544,8 +548,9 @@ body {
     <div id="res-icon"></div>
     <div id="res-title"></div>
     <div id="res-sub"></div>
+    <div id="res-tourney" style="display:none;margin:8px 0 4px;font-size:0.95em;color:#d4a853;font-weight:bold;letter-spacing:0.04em;"></div>
     <div class="res-btns">
-      <button class="btn-game primary" onclick="newGame()">Play Again!</button>
+      <button class="btn-game primary" id="btn-again" onclick="newGame()">Play Again!</button>
       <button class="btn-game" onclick="showSetup()">Setup</button>
     </div>
   </div>
@@ -994,6 +999,7 @@ const G = {
   diff: 'medium',
   cpuFirst: false,
   hints: true, torus: false, gravity: false, blind: false,
+  tournament: false,
 
   board: [],
   turn: 1,
@@ -1003,6 +1009,8 @@ const G = {
 
   sc: {p1:0, p2:0, d:0},
   lines: [],
+
+  tourney: {active:false, goal:2, p1:0, p2:0, done:false},
 };
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -1603,8 +1611,19 @@ function showResult(winner, isDraw) {
   const icon=document.getElementById('res-icon');
   const title=document.getElementById('res-title');
   const sub=document.getElementById('res-sub');
+  const tourneyEl=document.getElementById('res-tourney');
+  const againBtn=document.getElementById('btn-again');
+
+  // Update tournament tally
+  const tn = G.tourney;
+  if (tn.active && !tn.done) {
+    if (!isDraw) { if (winner===1) tn.p1++; else tn.p2++; }
+    if (tn.p1 >= tn.goal || tn.p2 >= tn.goal) tn.done = true;
+  }
 
   if (isDraw) {
+    icon.innerHTML = '';
+    icon.style.cssText = 'font-size:3.2em;margin-bottom:6px;';
     icon.textContent = DRAW_EXCLAIMS[Math.floor(Math.random()*DRAW_EXCLAIMS.length)];
     title.textContent = "IT'S A DRAW!";
     sub.textContent = 'Nicely played — nobody wins this time.';
@@ -1612,8 +1631,28 @@ function showResult(winner, isDraw) {
     const sym = winner===1 ? G.p1 : G.p2;
     const sd = SYMS.find(x=>x.id===sym);
     const exclaim = WIN_EXCLAIMS[Math.floor(Math.random()*WIN_EXCLAIMS.length)];
-    icon.textContent = (sd?sd.disp:sym)+' '+exclaim;
-    if (G.mode==='pvc') {
+    icon.innerHTML = '';
+    if (sd && sd.drawFn) {
+      icon.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:6px;';
+      const charCanvas = createCharCanvas(sd.id, 80);
+      if (charCanvas) icon.appendChild(charCanvas);
+      const ex = document.createElement('span');
+      ex.style.fontSize = '1.8em';
+      ex.textContent = exclaim;
+      icon.appendChild(ex);
+      ensureAnim();
+    } else {
+      icon.style.cssText = 'font-size:3.2em;margin-bottom:6px;';
+      icon.textContent = (sd?sd.disp:sym)+' '+exclaim;
+    }
+    if (tn.active && tn.done) {
+      title.textContent = G.mode==='pvc'
+        ? (winner===1 ? 'MATCH WINNER! 🏆' : 'CPU WINS THE MATCH!')
+        : `PLAYER ${winner} WINS THE MATCH! 🏆`;
+      sub.textContent = G.mode==='pvc'
+        ? (winner===1 ? 'Best of 3 — you took the series!' : 'Best of 3 — CPU takes the series.')
+        : `Best of 3 — ${sd?sd.disp:sym} takes the series!`;
+    } else if (G.mode==='pvc') {
       title.textContent = winner===1 ? 'YOU WIN!' : 'CPU WINS!';
       sub.textContent = winner===1 ? 'You outsmarted the CPU! 🧠' : 'The CPU got you this time!';
     } else {
@@ -1621,6 +1660,24 @@ function showResult(winner, isDraw) {
       sub.textContent = `${sd?sd.disp:sym} takes the game!`;
     }
   }
+
+  // Tournament progress line
+  if (tn.active) {
+    const pips = (n, goal) => '●'.repeat(n) + '○'.repeat(goal-n);
+    if (tn.done) {
+      const champLabel = G.mode==='pvc' ? (tn.p1>=tn.goal?'YOU':'CPU') : (tn.p1>=tn.goal?'P1':'P2');
+      tourneyEl.textContent = `${champLabel} wins the match  ${pips(tn.p1,tn.goal)} — ${pips(tn.p2,tn.goal)}`;
+    } else {
+      const gamesLeft = tn.goal*2-1 - tn.p1 - tn.p2;
+      tourneyEl.textContent = `Series: P1 ${pips(tn.p1,tn.goal)} — ${pips(tn.p2,tn.goal)} P2  (${gamesLeft} game${gamesLeft!==1?'s':''} left)`;
+    }
+    tourneyEl.style.display = '';
+    againBtn.textContent = tn.done ? 'New Match!' : 'Next Game!';
+  } else {
+    tourneyEl.style.display = 'none';
+    againBtn.textContent = 'Play Again!';
+  }
+
   overlay.classList.add('show');
 }
 
@@ -1630,6 +1687,12 @@ function showResult(winner, isDraw) {
 
 function newGame() {
   document.getElementById('result-overlay').classList.remove('show');
+  // If a tournament match just concluded, start fresh
+  if (G.tourney.active && G.tourney.done) {
+    G.tourney = {active:true, goal:2, p1:0, p2:0, done:false};
+    G.sc = {p1:0, p2:0, d:0};
+    updateScores();
+  }
   G.board = new Array(G.size*G.size).fill(0);
   G.over=false; G.winLine=null; G.winner=0;
   G.turn = G.cpuFirst ? 2 : 1;
@@ -1639,10 +1702,12 @@ function newGame() {
 }
 
 function startGame() {
-  G.hints   = document.getElementById('o-hints').checked;
-  G.torus   = document.getElementById('o-torus').checked;
-  G.gravity = document.getElementById('o-grav').checked;
-  G.blind   = document.getElementById('o-blind').checked;
+  G.hints      = document.getElementById('o-hints').checked;
+  G.torus      = document.getElementById('o-torus').checked;
+  G.gravity    = document.getElementById('o-grav').checked;
+  G.blind      = document.getElementById('o-blind').checked;
+  G.tournament = document.getElementById('o-tourney').checked;
+  G.tourney    = {active: G.tournament, goal:2, p1:0, p2:0, done:false};
 
   G.lines = genLines(G.size, G.win, G.torus);
   G.sc = {p1:0, p2:0, d:0};
@@ -1653,6 +1718,7 @@ function startGame() {
   document.getElementById('sc-p2sym').textContent = p2d?p2d.disp:'';
 
   const tags=[];
+  if (G.tournament) tags.push('🏆 Tournament');
   if (G.torus)   tags.push('🍩 Torus');
   if (G.gravity) tags.push('⬇ Gravity');
   if (G.blind)   tags.push('🙈 Secret');
