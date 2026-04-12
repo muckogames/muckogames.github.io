@@ -308,6 +308,34 @@ function drawRadio() {
   ctx.restore();
 }
 
+/* ── DIFFICULTY ──────────────────────────────────────────────────────────── */
+var difficulty = 'gemini'; // 'mercury' | 'gemini' | 'apollo'
+var DIFF = {
+  mercury: {
+    // Lunar lander
+    gravity:12,   maxSafe:85,  fuelBase:200, fuelRate:3.0,
+    // Re-entry
+    reFreq:0.38,  reDur:18,    reSpdMul:0.72,
+    // Parachute zones
+    perfLo:330,   perfHi:670,  goodLo:190,   goodHi:810,
+    // Mining
+    asteroidSpd:0.68, spawnInt:2.1
+  },
+  gemini: {
+    gravity:16,   maxSafe:65,  fuelBase:150, fuelRate:3.5,
+    reFreq:0.60,  reDur:22,    reSpdMul:1.0,
+    perfLo:430,   perfHi:570,  goodLo:320,   goodHi:680,
+    asteroidSpd:1.0,  spawnInt:1.6
+  },
+  apollo: {
+    gravity:21,   maxSafe:48,  fuelBase:115, fuelRate:4.6,
+    reFreq:0.92,  reDur:27,    reSpdMul:1.35,
+    perfLo:462,   perfHi:538,  goodLo:398,   goodHi:602,
+    asteroidSpd:1.38, spawnInt:1.15
+  }
+};
+function getDiff() { return DIFF[difficulty]; }
+
 /* ── RANDOM EVENTS (Oregon Trail style) ─────────────────────────────────── */
 var EVENTS = [
   {txt:'Carbon-rich asteroid spotted nearby!',
@@ -577,9 +605,25 @@ function drawPad() {
     txt(checks[ci], W/2-88, 86+ci*22, checkCols[ci], 12, 'left', 'monospace');
   }
 
+  // ── Difficulty selector ───────────────────────────────────────────────────
+  txt('MISSION PROFILE', W/2-88, 162, '#8899bb', 11, 'left', 'monospace');
+  var diffs=['mercury','gemini','apollo'];
+  var dlabels=['MERCURY','GEMINI','APOLLO'];
+  var dcols=['#44cc88','#ffcc44','#ff7744'];
+  var dselBg=['rgba(10,50,25,0.9)','rgba(40,38,8,0.9)','rgba(50,16,5,0.9)'];
+  for (var di=0;di<3;di++) {
+    var dbx=W/2-136+di*91, dby=166, dbw=88, dbh=26;
+    var dsel=difficulty===diffs[di];
+    var dhov=mx>=dbx&&mx<=dbx+dbw&&my>=dby&&my<=dby+dbh;
+    rnd(dbx,dby,dbw,dbh,6,dsel?dselBg[di]:dhov?'#111820':'#080d14',
+        dsel?dcols[di]:'rgba(80,110,160,0.5)',dsel?2:1);
+    txt(dlabels[di],dbx+dbw/2,dby+18,dsel?dcols[di]:dhov?'#dde':'#7788aa',11,'center','bold monospace');
+    if (mclk && dhov) { difficulty=diffs[di]; mclk=false; }
+  }
+
   // Big red LAUNCH button
   var pulse = 1 + Math.sin(padT*2.5)*0.022;
-  var bx=W/2-155, by=192, bw=310, bh=64;
+  var bx=W/2-155, by=202, bw=310, bh=64;
   var bhov = mx>=bx&&mx<=bx+bw&&my>=by&&my<=by+bh;
   ctx.save();
   if (!bhov) { ctx.translate(W/2,by+bh/2); ctx.scale(pulse,pulse); ctx.translate(-W/2,-(by+bh/2)); }
@@ -787,7 +831,7 @@ var MINE_DUR = 30;
 function initMining() {
   mine = {
     t:0, asteroids:[], lasers:[], frags:[], gems:[],
-    minerals:0, spawnT:0, spawnInt:1.6,
+    minerals:0, spawnT:0, spawnInt:getDiff().spawnInt,
     done:false, doneT:0, cooldown:0,
     goldMsg: 0  // timer for gold asteroid hint
   };
@@ -799,7 +843,8 @@ function spawnAsteroid() {
   var side=Math.floor(Math.random()*3); // 0=top,1=left,2=right
   var isGold = Math.random() < 0.08; // 8% chance — rare gold asteroid!
   var r = isGold ? (12+Math.random()*10) : (13+Math.random()*22);
-  var spd = isGold ? (55+Math.random()*30) : (28+Math.random()*38);
+  var spdMul = getDiff().asteroidSpd;
+  var spd = (isGold ? (55+Math.random()*30) : (28+Math.random()*38)) * spdMul;
   var x,y,vx,vy;
   if (side===0)      { x=Math.random()*W; y=-r;   vx=(Math.random()-0.5)*24; vy=spd; }
   else if (side===1) { x=-r;  y=50+Math.random()*(H-180); vx=spd;  vy=(Math.random()-0.5)*18; }
@@ -855,7 +900,7 @@ function updateMining(dt) {
   if(mclk && !mine.done){ fireMiningLaser(mx,my); mclk=false; }
   // Spawn
   mine.spawnT+=dt;
-  if(mine.spawnT>=mine.spawnInt){ mine.spawnT=0; mine.spawnInt=Math.max(0.7,mine.spawnInt-0.04); spawnAsteroid(); }
+  if(mine.spawnT>=mine.spawnInt){ mine.spawnT=0; mine.spawnInt=Math.max(getDiff().spawnInt*0.45,mine.spawnInt-0.04); spawnAsteroid(); }
   // Update objects
   mine.asteroids=mine.asteroids.filter(function(a){
     a.x+=a.vx*dt;a.y+=a.vy*dt;a.rot+=a.rotV*dt;
@@ -1274,7 +1319,11 @@ function initMoonLand() {
     walkPhase: null,   // null|'walkout'|'plant'|'pose'|'walkin'
     walkT: 0,
     astroX: 0,        // astronaut X position
-    flagPlanted: false
+    flagPlanted: false,
+    // Difficulty-scaled values (cached at init time)
+    dGravity: getDiff().gravity,
+    dMaxSafe: getDiff().maxSafe,
+    dFuelRate: getDiff().fuelRate
   };
   showRadio('Eagle, you are go for powered descent. Good luck!');
   phase = 'moonland';
@@ -1327,19 +1376,19 @@ function updateMoonLand(dt) {
   var rcsRight  = held('ArrowRight')||held('KeyD');
   ml.thrustOn   = thrustOn;
 
-  // Apply physics
-  ml.vy += ML_GRAVITY * dt;
+  // Apply physics (gravity and fuel rate from difficulty)
+  ml.vy += ml.dGravity * dt;
   if (thrustOn && ml.fuel > 0) {
     ml.vy -= ML_THRUST * dt;
-    ml.fuel = Math.max(0, ml.fuel - ML_FUEL_RATE*dt);
+    ml.fuel = Math.max(0, ml.fuel - ml.dFuelRate*dt);
   }
   if (rcsLeft && ml.fuel > 0) {
     ml.vx -= ML_RCS * dt;
-    ml.fuel = Math.max(0, ml.fuel - ML_FUEL_RATE*0.4*dt);
+    ml.fuel = Math.max(0, ml.fuel - ml.dFuelRate*0.4*dt);
   }
   if (rcsRight && ml.fuel > 0) {
     ml.vx += ML_RCS * dt;
-    ml.fuel = Math.max(0, ml.fuel - ML_FUEL_RATE*0.4*dt);
+    ml.fuel = Math.max(0, ml.fuel - ml.dFuelRate*0.4*dt);
   }
 
   // Clamp vx
@@ -1358,7 +1407,7 @@ function updateMoonLand(dt) {
     ml.vy = Math.max(0, ml.vy);
     ml.landingSpeed = ml.vy;
     ml.onPad = Math.abs(ml.x - ml.padX) < 32;
-    if (ml.vy > ML_MAX_SAFE * 2) {
+    if (ml.vy > ml.dMaxSafe * 2) {
       ml.crashed = true;
       boom(0.5, 0.35);
       beep(150,0.4,0.2,'sawtooth');
@@ -1366,7 +1415,7 @@ function updateMoonLand(dt) {
     } else {
       ml.landed = true;
       // Score
-      var softness = Math.max(0, 1 - ml.vy/ML_MAX_SAFE);
+      var softness = Math.max(0, 1 - ml.vy/ml.dMaxSafe);
       var padBonus = ml.onPad ? 100 : 0;
       var fuelBonus = Math.round(ml.fuel/3);
       var timeBonus = Math.max(0, Math.round(30 - ml.t));
@@ -1465,7 +1514,7 @@ function drawMoonLand() {
   txt('ALT',22,235,'#99bbdd',10,'center','monospace');
 
   // Speed indicator
-  var vColor = ml.vy > ML_MAX_SAFE ? '#ff4444' : ml.vy > ML_MAX_SAFE*0.6 ? '#ffaa44' : '#44ff88';
+  var vColor = ml.vy > ml.dMaxSafe ? '#ff4444' : ml.vy > ml.dMaxSafe*0.6 ? '#ffaa44' : '#44ff88';
   rnd(8,260,62,20,4,'rgba(0,0,0,0.5)','rgba(255,255,255,0.2)',1);
   txt('V: '+Math.round(ml.vy),12,275,vColor,11,'left','monospace');
 
@@ -1585,6 +1634,7 @@ var RE_START_FREQ = 0.6; // rockets per second initially
 
 function initReentry() {
   var shieldBonus = Math.min(2, Math.floor(minerals / 5)); // 5 minerals → 1 extra shield
+  var d = getDiff();
   re = {
     t: 0,
     cx: W/2,        // capsule center X
@@ -1596,7 +1646,11 @@ function initReentry() {
     scrollY: 0,
     done: false,
     doneTimer: 0,
-    score: 0
+    score: 0,
+    // Difficulty-scaled
+    startFreq: d.reFreq,
+    duration:  d.reDur,
+    spdMul:    d.reSpdMul
   };
   showRadio('Columbia, you\'re go for re-entry. Watch those rockets!');
   phase = 'reentry';
@@ -1612,15 +1666,15 @@ function updateReentry(dt) {
   if (held('ArrowLeft')||held('KeyA'))  re.cx = Math.max(40,  re.cx - spd*dt);
   if (held('ArrowRight')||held('KeyD')) re.cx = Math.min(W-40, re.cx + spd*dt);
 
-  // Spawn enemy rockets
-  var freq = RE_START_FREQ + re.t*0.04;
+  // Spawn enemy rockets (difficulty scales starting frequency and speed)
+  var freq = re.startFreq + re.t*0.04;
   re.spawnTimer += dt;
   if (re.spawnTimer >= 1/freq) {
     re.spawnTimer = 0;
     re.rockets.push({
       x: 40+Math.random()*(W-80),
       y: H+20,
-      vy: -(160+re.t*8+Math.random()*80),
+      vy: -(160+re.t*8+Math.random()*80) * re.spdMul,
       w: 14, h: 50,
       hit: false
     });
@@ -1654,9 +1708,9 @@ function updateReentry(dt) {
   }
 
   // Time's up
-  if (re.t >= RE_DURATION) {
+  if (re.t >= re.duration) {
     re.done = true;
-    re.score = Math.round(RE_DURATION*12) + re.shields*60;
+    re.score = Math.round(re.duration*12) + re.shields*60;
     runScore.reentry = re.score;
     chime();
   }
@@ -1721,8 +1775,8 @@ function drawReentry() {
   txt('SHIELD', W-90, 46, '#7799bb', 9, 'center', 'monospace');
 
   // Timer bar
-  var timeLeft = Math.max(0, RE_DURATION - re.t);
-  var tf = timeLeft/RE_DURATION;
+  var timeLeft = Math.max(0, re.duration - re.t);
+  var tf = timeLeft/re.duration;
   rnd(W/2-120,12,240,14,4,'rgba(0,0,0,0.5)','rgba(255,255,255,0.2)',1);
   rnd(W/2-120,12,Math.round(240*tf),14,4,tf>0.3?'#44aaff':'#ff4444',null,0);
   txt(Math.ceil(timeLeft)+'s',W/2,24,'#ccddff',10,'center','monospace');
@@ -1760,6 +1814,7 @@ var CHUTE_GOOD_LOW     = 320;
 var CHUTE_GOOD_HIGH    = 680;
 
 function initChute() {
+  var d = getDiff();
   ch = {
     t: 0,
     alt: CHUTE_ALT_START,  // altitude 1000→0
@@ -1771,7 +1826,10 @@ function initChute() {
     capsuleVy: 80,         // visual descent speed
     splashTimer: 0,
     done: false,
-    promptShown: false
+    promptShown: false,
+    // Difficulty-scaled zone bounds
+    perfLo: d.perfLo, perfHi: d.perfHi,
+    goodLo: d.goodLo, goodHi: d.goodHi
   };
   showRadio('Columbia, we see you on radar. Deploy chutes when ready!');
   phase = 'chute';
@@ -1801,9 +1859,9 @@ function updateChute(dt) {
       ch.deployAlt = ch.alt;
       // Score
       var a = ch.deployAlt;
-      if (a >= CHUTE_PERFECT_LOW && a <= CHUTE_PERFECT_HIGH) {
+      if (a >= ch.perfLo && a <= ch.perfHi) {
         runScore.chute = 200; chime();
-      } else if (a >= CHUTE_GOOD_LOW && a <= CHUTE_GOOD_HIGH) {
+      } else if (a >= ch.goodLo && a <= ch.goodHi) {
         runScore.chute = 100; beep(660,0.3,0.3); beep(784,0.4,0.3);
       } else {
         runScore.chute = 25; beep(440,0.2,0.2);
@@ -1881,11 +1939,11 @@ function drawChute() {
   var altH = 300, altX = W-45, altY = H/2-altH/2;
   rnd(altX, altY, 30, altH, 6, 'rgba(0,0,0,0.6)', 'rgba(200,220,255,0.3)', 1.5);
 
-  // Sweet zones
-  var pLow  = altY + altH*(1 - CHUTE_PERFECT_HIGH/CHUTE_ALT_START);
-  var pHigh = altY + altH*(1 - CHUTE_PERFECT_LOW/CHUTE_ALT_START);
-  var gLow  = altY + altH*(1 - CHUTE_GOOD_HIGH/CHUTE_ALT_START);
-  var gHigh = altY + altH*(1 - CHUTE_GOOD_LOW/CHUTE_ALT_START);
+  // Sweet zones (bounds from difficulty)
+  var pLow  = altY + altH*(1 - ch.perfHi/CHUTE_ALT_START);
+  var pHigh = altY + altH*(1 - ch.perfLo/CHUTE_ALT_START);
+  var gLow  = altY + altH*(1 - ch.goodHi/CHUTE_ALT_START);
+  var gHigh = altY + altH*(1 - ch.goodLo/CHUTE_ALT_START);
 
   rnd(altX, gLow, 30, gHigh-gLow, 0, 'rgba(100,200,100,0.35)', null, 0);
   rnd(altX, pLow, 30, pHigh-pLow, 0, 'rgba(80,255,80,0.5)', null, 0);
@@ -1905,7 +1963,7 @@ function drawChute() {
   // Center instructions / result
   if (!ch.deployed) {
     var a = ch.alt;
-    var inZone = a >= CHUTE_GOOD_LOW && a <= CHUTE_GOOD_HIGH;
+    var inZone = a >= ch.goodLo && a <= ch.goodHi;
     if (!ch.promptShown) {
       rnd(W/2-160, H-90, 320, 60, 10, 'rgba(0,0,20,0.75)', 'rgba(100,200,100,0.5)', 2);
       txt('PRESS SPACE / TAP TO', W/2, H-65, '#ccffcc', 15, 'center', 'bold monospace');
@@ -1921,8 +1979,8 @@ function drawChute() {
     // Show zone result
     var ra = ch.deployAlt;
     var resultTxt = '', resultCol = '#ffcc44';
-    if (ra >= CHUTE_PERFECT_LOW && ra <= CHUTE_PERFECT_HIGH)      { resultTxt='PERFECT!'; resultCol='#88ff88'; }
-    else if (ra >= CHUTE_GOOD_LOW && ra <= CHUTE_GOOD_HIGH) { resultTxt='GOOD!';    resultCol='#aaddff'; }
+    if (ra >= ch.perfLo && ra <= ch.perfHi)      { resultTxt='PERFECT!'; resultCol='#88ff88'; }
+    else if (ra >= ch.goodLo && ra <= ch.goodHi) { resultTxt='GOOD!';    resultCol='#aaddff'; }
     else if (ra > 0)                                        { resultTxt='TOO EARLY/LATE'; resultCol='#ffaa44'; }
     else                                                    { resultTxt='NO PARACHUTE!'; resultCol='#ff4444'; }
     var fa=Math.min(1, ch.t*2);
@@ -1941,7 +1999,18 @@ var vic = null;
 function initVictory() {
   var total = runScore.landing + runScore.reentry + runScore.chute;
   var stars = total >= 600 ? 3 : total >= 350 ? 2 : 1;
-  vic = { t:0, total:total, wave:0, stars:stars };
+  // Splash particles — burst on entry
+  var splashParts = [];
+  for (var si=0;si<40;si++) {
+    var ang = Math.PI*(0.9+Math.random()*1.2); // upward fan
+    var spd = 60+Math.random()*180;
+    splashParts.push({
+      x:W/2+(Math.random()-0.5)*10, y:H*0.65,
+      vx:Math.cos(ang)*spd, vy:Math.sin(ang)*spd,
+      r:2+Math.random()*4, life:0, maxLife:0.6+Math.random()*0.8
+    });
+  }
+  vic = { t:0, total:total, wave:0, stars:stars, splash:splashParts };
   if (!scoreSaved) {
     scoreSaved = true;
     var d = new Date();
@@ -1976,6 +2045,29 @@ function drawVictory() {
   }
   ctx.restore();
 
+  // Splashdown spray (first ~1.5s)
+  if (vic.t < 1.6) {
+    var dt2 = 0.016; // approximate frame dt for update
+    vic.splash.forEach(function(p) {
+      p.x+=p.vx*dt2; p.y+=p.vy*dt2;
+      p.vy+=200*dt2; // gravity pulls drops back
+      p.life+=dt2;
+    });
+    vic.splash.forEach(function(p) {
+      var a=Math.max(0,1-p.life/p.maxLife);
+      if(a<0.01) return;
+      ctx.save(); ctx.globalAlpha=a*0.85;
+      circ(p.x,p.y,p.r*(1-p.life/p.maxLife*0.5),'rgba(150,210,255,0.9)');
+      ctx.restore();
+    });
+    // Central splash ring expanding outward
+    var ringR = vic.t*120;
+    ctx.save(); ctx.globalAlpha=Math.max(0,0.7-vic.t*0.55);
+    ctx.strokeStyle='rgba(180,230,255,0.8)'; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.ellipse(W/2,H*0.65,ringR,ringR*0.25,0,0,TAU); ctx.stroke();
+    ctx.restore();
+  }
+
   // Capsule floating
   var bob=Math.sin(vic.wave*1.2)*4;
   drawCapsule(W/2, H*0.55+bob, 0);
@@ -1993,6 +2085,10 @@ function drawVictory() {
   ctx.fillStyle='#ffffff';
   ctx.fillText('MISSION COMPLETE!', W/2, 80);
   ctx.shadowBlur=0;
+  // Difficulty badge
+  var dcLabel={'mercury':'MERCURY','gemini':'GEMINI','apollo':'APOLLO'}[difficulty];
+  var dcColor={'mercury':'#44cc88','gemini':'#ffcc44','apollo':'#ff7744'}[difficulty];
+  txt(dcLabel+' DIFFICULTY', W/2, 96, dcColor, 11, 'center', 'bold monospace');
   ctx.restore();
 
   // Star rating
@@ -2015,7 +2111,7 @@ function drawVictory() {
     rnd(W/2-200,118,400,178,14,'rgba(0,10,40,0.85)','rgba(100,180,255,0.4)',2);
     var rows=[
       ['\uD83C\uDF11 Moon Landing',  runScore.landing,  300],
-      ['\uD83D\uDD25 Re-entry',      runScore.reentry,  Math.round(RE_DURATION*12)+180],
+      ['\uD83D\uDD25 Re-entry',      runScore.reentry,  Math.round((re?re.duration:RE_DURATION)*12)+180],
       ['\uD83E\uDE82 Parachute',     runScore.chute,    200],
     ];
     rows.forEach(function(row,i) {
