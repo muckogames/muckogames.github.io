@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contraband Trail</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:#0d0b08;color:#d4c9a8;font-family:Georgia,serif;min-height:100vh;display:flex;align-items:center;justify-content:center;}
+#root{width:800px;max-width:100vw;min-height:560px;position:relative;overflow:hidden;}
+
+/* ── HTML SCREENS ─────────────────────────────────────────────────────────── */
+#app{width:800px;min-height:560px;padding:0;display:flex;flex-direction:column;background:#0d0b08;}
+#app.hidden{display:none;}
+
+.page{padding:24px 32px;flex:1;display:flex;flex-direction:column;gap:12px;max-width:800px;}
+.page-title{font-size:2.2em;color:#c8a84a;text-align:center;font-weight:bold;letter-spacing:0.08em;text-shadow:0 2px 12px rgba(180,140,40,0.5);}
+.page-sub{font-size:0.95em;color:#7a6840;text-align:center;font-style:italic;margin-top:-8px;}
+
+.card{background:rgba(30,24,12,0.9);border:1px solid rgba(160,130,60,0.35);border-radius:8px;padding:16px;margin:4px 0;}
+.card h3{color:#c8a84a;font-size:1em;margin-bottom:8px;letter-spacing:0.06em;}
+
+/* Resource bar */
+.sbar{display:flex;gap:6px;flex-wrap:wrap;background:rgba(20,16,8,0.95);border:1px solid rgba(140,110,40,0.4);border-radius:6px;padding:8px 12px;}
+.sbar-item{display:flex;flex-direction:column;align-items:center;flex:1;min-width:60px;}
+.sbar-label{font-size:0.65em;color:#7a6840;letter-spacing:0.05em;font-family:monospace;font-weight:bold;}
+.sbar-val{font-size:1em;font-weight:bold;font-family:monospace;}
+.sbar-val.ok{color:#88bb66;}
+.sbar-val.md{color:#d4a440;}
+.sbar-val.lo{color:#cc4444;}
+
+/* Route strip */
+.route{display:flex;align-items:flex-start;gap:0;margin:4px 0;}
+.rstop{display:flex;flex-direction:column;align-items:center;flex:1;font-size:0.7em;color:#6a5830;text-align:center;gap:4px;}
+.rstop-line{flex:1;height:3px;background:rgba(100,80,30,0.3);margin-top:8px;}
+.rdot{width:14px;height:14px;border-radius:50%;border:2px solid #443820;background:#1a1408;}
+.rdot.done{background:#7a5820;border-color:#c8a84a;}
+.rdot.now{background:#c8a84a;border-color:#f0d060;box-shadow:0 0 8px rgba(200,168,74,0.8);}
+.rname{font-size:0.75em;color:#7a6840;text-align:center;}
+.pbar-wrap{background:rgba(30,24,12,0.9);border-radius:4px;height:8px;overflow:hidden;border:1px solid rgba(100,80,30,0.4);}
+.pbar{height:8px;background:linear-gradient(90deg,#5a4010,#c8a84a);border-radius:4px;transition:width 0.3s;}
+
+/* Buttons */
+.btn{background:rgba(30,24,8,0.95);border:1.5px solid rgba(160,130,60,0.6);color:#c8a84a;padding:10px 22px;border-radius:6px;font-size:0.95em;font-family:Georgia,serif;cursor:pointer;letter-spacing:0.04em;transition:background 0.15s,border-color 0.15s;}
+.btn:hover{background:rgba(50,40,12,0.95);border-color:#c8a84a;}
+.btn.primary{background:rgba(60,44,8,0.95);border-color:#c8a84a;font-weight:bold;}
+.btn.primary:hover{background:rgba(80,60,12,0.95);}
+.btn.danger{border-color:#884422;color:#cc8855;}
+.btn.danger:hover{background:rgba(60,20,5,0.95);}
+.btn-row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;}
+
+/* Events */
+.ev-box{background:rgba(25,20,8,0.95);border:2px solid rgba(160,130,60,0.45);border-radius:10px;padding:20px;margin:8px 0;}
+.ev-title{font-size:1.15em;color:#d4b858;font-weight:bold;margin-bottom:8px;}
+.ev-text{font-size:0.9em;color:#b8aa88;font-style:italic;line-height:1.55;margin-bottom:14px;}
+.ev-choices{display:flex;flex-direction:column;gap:8px;}
+.ev-choice{background:rgba(30,24,8,0.9);border:1px solid rgba(130,100,40,0.5);color:#c8b888;padding:10px 16px;border-radius:6px;cursor:pointer;font-family:Georgia,serif;font-size:0.88em;text-align:left;transition:background 0.15s,border-color 0.15s;}
+.ev-choice:hover{background:rgba(50,38,10,0.95);border-color:#c8a84a;}
+
+/* Port shop */
+.shop-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:6px 0;}
+.shop-item{background:rgba(25,20,8,0.85);border:1px solid rgba(110,85,30,0.4);border-radius:6px;padding:10px 14px;cursor:pointer;transition:background 0.15s;font-size:0.85em;}
+.shop-item:hover{background:rgba(45,35,10,0.9);border-color:#c8a84a;}
+.shop-item .item-name{color:#c8a84a;font-weight:bold;margin-bottom:2px;}
+.shop-item .item-cost{color:#8a7040;font-size:0.8em;}
+.shop-item .item-eff{color:#8aaa68;font-size:0.8em;}
+.shop-item.disabled{opacity:0.4;cursor:not-allowed;}
+
+/* Message bar */
+.msg-bar{background:rgba(20,15,5,0.9);border:1px solid rgba(100,80,30,0.35);border-radius:6px;padding:8px 14px;font-size:0.85em;color:#b8a878;font-style:italic;text-align:center;min-height:36px;}
+
+/* ── CANVAS STEALTH ──────────────────────────────────────────────────────── */
+#port-canvas{display:none;position:absolute;top:0;left:0;}
+#port-canvas.active{display:block;}
+#stage{position:relative;width:800px;height:560px;transition:box-shadow 0.6s;}
+@keyframes heatPulse{0%,100%{opacity:1;}50%{opacity:0.45;}}
+.heat-warn{animation:heatPulse 0.9s infinite;}
+.heat-crit{animation:heatPulse 0.45s infinite;}
+</style>
+</head>
+<body>
+<div id="root">
+  <div id="stage">
+    <div id="app"></div>
+    <canvas id="port-canvas" width="800" height="560"></canvas>
+  </div>
+</div>
+
+<script src="../mucko-engine.js"></script>
+<script>
+'use strict';
+const W=800,H=560;
+const TAU=Math.PI*2;
+
+/* ── CANVAS SETUP ─────────────────────────────────────────────────────────── */
+const canvas=document.getElementById('port-canvas');
+const ctx=canvas.getContext('2d');
+const DPR=Math.min(window.devicePixelRatio||1,2);
+canvas.width=W*DPR; canvas.height=H*DPR;
+canvas.style.width=W+'px'; canvas.style.height=H+'px';
+ctx.scale(DPR,DPR);
+
+function resize(){
+  const s=Math.min(window.innerWidth/W,window.innerHeight/H,1);
+  const stage=document.getElementById('stage');
+  stage.style.transform='scale('+s+')';
+  stage.style.transformOrigin='top left';
+  // Center the scaled stage in the viewport
+  // Center within the root container (root is min(viewport, W) wide due to max-width:100vw)
+  stage.style.marginLeft=Math.max(0,(Math.min(window.innerWidth,W)-W*s)/2)+'px';
+}
+window.addEventListener('resize',resize); resize();
+
+/* ── INPUT ───────────────────────────────────────────────────────────────── */
+const {K, JP, eat, held} = MuckoEngine.makeInput();
+var mclk=false,mx=0,my=0;
+canvas.addEventListener('click',function(e){
+  const r=canvas.getBoundingClientRect();
+  const s=parseFloat(canvas.style.width)/canvas.getBoundingClientRect().width;
+  mx=(e.clientX-r.left)*s; my=(e.clientY-r.top)*s; mclk=true;
+});
+
+/* ── AUDIO ───────────────────────────────────────────────────────────────── */
+const {beep, chime} = MuckoEngine.makeAudio();
+function bump(){beep(180,0.3,0.25,'square');}
+const _hs = MuckoEngine.makeStore('contraband_hs');
+
+/* ── SCREEN SHAKE ────────────────────────────────────────────────────────── */
+function shake(intensity,ms){
+  var el=document.getElementById('stage');
+  var base=el.style.transform; // preserve existing scale()
+  var start=performance.now();
+  (function tick(){
+    var p=1-(performance.now()-start)/ms;
+    if(p<=0){el.style.transform=base;return;}
+    var dx=(Math.random()-0.5)*intensity*p*2,dy=(Math.random()-0.5)*intensity*p*2;
+    el.style.transform=base+' translate('+dx+'px,'+dy+'px)';
+    requestAnimationFrame(tick);
+  })();
+}
+
+/* ── CLAMP ───────────────────────────────────────────────────────────────── */
+function c(v,lo,hi){return Math.max(lo,Math.min(hi,v));}
+function dist(a,b){var dx=a.x-b.x,dy=a.y-b.y;return Math.sqrt(dx*dx+dy*dy);}
+
+/* ── DATA ────────────────────────────────────────────────────────────────── */
+const CARGO_TYPES=[
+  {id:'books',name:'Banned Books',icon:'📚',baseValue:180,riskMod:0,desc:'Texts of reason and philosophy, outlawed by the state. Heavy, but essential.'},
+  {id:'jazz',name:'Jazz Records',icon:'🎷',baseValue:240,riskMod:15,desc:'Decadent American jazz — illegal, irresistible, and in high demand.'},
+  {id:'art',name:'Stolen Masterpiece',icon:'🖼️',baseValue:380,riskMod:30,desc:'A painting seized by the authorities. Worth a fortune to the right buyer.'},
+];
+
+const STOPS=[
+  {id:'basel',  name:'Basel',       flag:'🇨🇭', desc:'Where the Rhine bends north. Your warehouse, your barge, your contraband.'},
+  {id:'stras',  name:'Strasbourg',  flag:'🇫🇷', desc:'A border city — French in tongue but German in feeling. Customs here is... thorough.'},
+  {id:'mainz',  name:'Mainz',       flag:'🇩🇪', desc:'Wine city. The inspectors here are fond of a good Riesling. Keep that in mind.'},
+  {id:'cologne',name:'Cologne',     flag:'🇩🇪', desc:'Cathedral city. The inspector general operates from here. Extra caution.'},
+  {id:'rotter', name:'Rotterdam',   flag:'🇳🇱', desc:'The mouth of the Rhine. Your buyer waits. Do not be late.'},
+];
+
+const RIVER_EVENTS=[
+  {title:'🌫️ Rhine Fog',text:'A thick fog rolls in overnight. You cannot see ten meters from the bow. But then again — neither can anyone else.',
+   choices:[{t:'Push through (full speed)',out:'You navigate by instinct. Progress gained, but the hull scrapes a hidden sandbar.',fx:function(){G.coal=c(G.coal-8,0,100);G.progress+=15;G.integrity=c(G.integrity-12,0,100);}},
+            {t:'Anchor and wait',out:'You wait till dawn. Lost time, but the barge and her cargo are intact.',fx:function(){G.day++;G.msg='You lost a day to fog — but the Weimar fog was worse.'}}]},
+  {title:'🚓 River Police Patrol',text:'A police launch cuts across your bow. The officer shines a light. You have three options.',
+   choices:[{t:'Bribe (30 Marks)',out:'The officer pockets your note without a word. You sail on.',fx:function(){if(G.marks>=30){G.marks-=30;G.heat=c(G.heat-5,0,100);}else{G.heat=c(G.heat+25,0,100);G.msg='No money for bribes — they log your name.'}}},
+            {t:'Act innocent',out:'Your papers are in order. They let you pass — but something felt off.',fx:function(){G.heat=c(G.heat+10,0,100);}}]},
+  {title:'💨 Favorable Current',text:'The current shifts and carries you forward faster than the charts said. A gift from the river.',
+   choices:[{t:'Ride it (save coal)',out:'You cut the engines and drift. Twenty kilometers for free.',fx:function(){G.progress+=18;G.coal=c(G.coal+8,0,100);}},
+            {t:'Run engines too (go fast)',out:'You fly down the river. Progress, but the coal runs hot.',fx:function(){G.progress+=28;G.coal=c(G.coal-10,0,100);}}]},
+  {title:'⚙️ Engine Trouble',text:'A knock from below decks. The mechanic shrugs. "Probably nothing. Probably."',
+   choices:[{t:'Stop and fix (costs 20 Marks)',out:'Three hours of work. But she runs clean now.',fx:function(){if(G.marks>=20){G.marks-=20;G.coal=c(G.coal+15,0,100);}else{G.heat=c(G.heat+5,0,100);G.coal=c(G.coal-15,0,100);G.msg='Ran without repairs — efficiency suffered.'}}},
+            {t:'Keep moving, keep praying',out:'She holds... for now. The knocking stops. Mostly.',fx:function(){G.coal=c(G.coal-20,0,100);}}]},
+  {title:'🤝 Fellow Traveler',text:'A small boat pulls alongside. The skipper has the look of a man who moves things. He nods at your cargo.',
+   choices:[{t:'Ignore him',out:'He shrugs and peels away. Maybe a missed connection. Maybe not.',fx:function(){}},
+            {t:'Talk (he offers a tip)',out:'He names a contact in the next port. Your heat drops — someone smooth the way.',fx:function(){G.heat=c(G.heat-15,0,100);G.marks=c(G.marks+10,0,9999);}}]},
+  {title:'⛈️ Rhine Storm',text:'The sky goes dark in an hour. By midnight the waves are throwing spray across the deck.',
+   choices:[{t:'Shelter at river bank',out:'You tie off in a reed bed. Lost two days, but the cargo is dry.',fx:function(){G.day+=2;G.integrity=c(G.integrity+5,0,100);}},
+            {t:'Run for cover (full throttle)',out:'You make port but the cargo took water. Integrity is down.',fx:function(){G.coal=c(G.coal-18,0,100);G.integrity=c(G.integrity-20,0,100);}}]},
+  {title:'👂 Someone Is Listening',text:'At the tavern dock, you notice a man writing in a small notebook. He watches your barge too carefully.',
+   choices:[{t:'Change berth, move quietly',out:'You relocate before dawn. He does not follow.',fx:function(){G.marks=c(G.marks-15,0,9999);G.heat=c(G.heat-10,0,100);}},
+            {t:'Do nothing, stay calm',out:'He may be nothing. He may not. You sleep badly.',fx:function(){G.heat=c(G.heat+20,0,100);}}]},
+  {title:'💊 Sympathetic Custom Official',text:'An official flags you down, then leans in quietly. "I know what you carry. I know why. Here." He hands you a clearance stamp.',
+   choices:[{t:'Accept it gratefully',out:'The stamp gets you through three checkpoints without question.',fx:function(){G.heat=c(G.heat-25,0,100);G.marks=c(G.marks+20,0,9999);}},
+            {t:'Refuse — too risky',out:'You cannot trust gifts from officials. But you remember his face.',fx:function(){}}]},
+  {title:'🧱 Bridge Toll',text:'The toll keeper demands papers AND money. The bridge is the only crossing for forty kilometers.',
+   choices:[{t:'Pay the toll (25 Marks)',out:'You pay. You pass. No further complications.',fx:function(){G.marks=c(G.marks-25,0,9999);}},
+            {t:'Argue the charge',out:'You argue and lose. He charges double and notes your registration.',fx:function(){G.marks=c(G.marks-45,0,9999);G.heat=c(G.heat+10,0,100);}}]},
+  {title:'🎻 River Festival',text:'A village holds its summer festival on the banks. Lanterns float. An accordion plays. The police are busy with crowd control.',
+   choices:[{t:'Dock and blend in',out:'You spend the evening among farmers and river workers. Your cargo moves unmolested.',fx:function(){G.heat=c(G.heat-20,0,100);G.marks=c(G.marks+15,0,9999);}},
+            {t:'Keep moving — no time',out:'You push on through the music and lights.',fx:function(){G.progress+=12;}}]},
+  {title:'🔧 Coal Barge Alongside',text:'A passing coal barge offers to sell. The price is fair. The skipper does not ask questions.',
+   choices:[{t:'Buy coal (20 Marks)',out:'Your bunkers are full. The barge departs without a word.',fx:function(){G.marks=c(G.marks-20,0,9999);G.coal=c(G.coal+30,0,100);}},
+            {t:'Decline',out:'You wave him off. You have enough for now.',fx:function(){}}]},
+  {title:'🌙 Night Crossing',text:'You can make the next checkpoint tonight or wait until morning. Night crossings avoid the day shift — but they are technically illegal.',
+   choices:[{t:'Cross at night',out:'You cut engines and drift past without lights. No one sees you.',fx:function(){G.heat=c(G.heat-8,0,100);G.progress+=22;}},
+            {t:'Wait for morning',out:'You anchor. Prudent. Dull. Safe.',fx:function(){G.day++;}}]},
+  {title:'📦 Cargo Shift',text:'A hard turn and the cargo shifts below. You hear something that may or may not have been a crack.',
+   choices:[{t:'Stop and re-pack (lose time)',out:'You spend two hours restowing everything carefully.',fx:function(){G.day++;G.integrity=c(G.integrity+15,0,100);}},
+            {t:'Keep moving',out:'She rides different now. The cargo will survive — probably.',fx:function(){G.integrity=c(G.integrity-18,0,100);}}]},
+  {title:'🚢 Suspicious Barge',text:'A large cargo barge overtakes you and then slows. They match your speed for twenty minutes. Nobody waves.',
+   choices:[{t:'Duck into a side channel',out:'You lose them in the backwaters of the Rhine delta. Thirty minutes lost.',fx:function(){G.heat=c(G.heat-15,0,100);}},
+            {t:'Maintain course',out:'They eventually pull away. But you are shaken.',fx:function(){G.heat=c(G.heat+12,0,100);}}]},
+  {title:'📰 Headline at the Dock Kiosk',text:'The morning paper: CONTRABAND ARRESTS TRIPLE ON RHINE. Officers quoted saying they have "reliable information."',
+   choices:[{t:'Take the back channels (+1 day)',out:'Longer route but far fewer patrols.',fx:function(){G.day++;G.heat=c(G.heat-20,0,100);}},
+            {t:'Stick to the main river',out:'You read the article twice, then fold the paper carefully.',fx:function(){G.heat=c(G.heat+15,0,100);}}]},
+];
+
+/* ── GAME STATE ──────────────────────────────────────────────────────────── */
+var G={
+  screen:'title',
+  cargo:null,
+  marks:120,
+  coal:90,
+  integrity:100,
+  heat:0,
+  day:1,
+  leg:0,
+  progress:0,
+  throttle:'normal',
+  eventsThisLeg:0,
+  msg:'',
+  curEvent:null,
+};
+
+/* ── HTML RENDERING ──────────────────────────────────────────────────────── */
+function el(){return document.getElementById('app');}
+var _heatBeepTimer = null;
+function updateHeatFeedback(){
+  var stage = document.getElementById('stage');
+  if (!stage) return;
+  if (G.heat > 75) {
+    stage.style.boxShadow = '0 0 30px rgba(200,40,20,0.55), 0 0 80px rgba(200,40,20,0.18)';
+    if (!_heatBeepTimer) {
+      _heatBeepTimer = setInterval(function(){
+        if (G.heat > 75) { beep(110, 0.09, 0.18, 'sine'); }
+        else { clearInterval(_heatBeepTimer); _heatBeepTimer = null; }
+      }, 1400);
+    }
+  } else {
+    stage.style.boxShadow = G.heat > 50 ? '0 0 18px rgba(180,110,20,0.4)' : '';
+    if (_heatBeepTimer) { clearInterval(_heatBeepTimer); _heatBeepTimer = null; }
+  }
+}
+
+function render(){
+  canvas.classList.remove('active');
+  el().classList.remove('hidden');
+  switch(G.screen){
+    case 'title':    showTitle(); break;
+    case 'cargo':    showCargoSelect(); break;
+    case 'travel':   showTravel(); break;
+    case 'event':    showEvent(); break;
+    case 'port':     startPort(); break;
+    case 'shop':     showShop(); break;
+    case 'arrested': showArrested(); break;
+    case 'victory':  showVictory(); break;
+  }
+  updateHeatFeedback();
+}
+
+function statusBar(){
+  const mc=G.marks<30?'lo':G.marks<80?'md':'ok';
+  const cc=G.coal<20?'lo':G.coal<50?'md':'ok';
+  const ic=G.integrity<30?'lo':G.integrity<60?'md':'ok';
+  const hc=G.heat>75?'lo':G.heat>50?'md':'ok';
+  const hAnim=G.heat>75?' heat-crit':G.heat>50?' heat-warn':'';
+  return '<div class="sbar">'+
+    '<div class="sbar-item"><div class="sbar-label">💰 MARKS</div><div class="sbar-val '+mc+'">'+G.marks+'</div></div>'+
+    '<div class="sbar-item"><div class="sbar-label">⛽ COAL</div><div class="sbar-val '+cc+'">'+Math.round(G.coal)+'%</div></div>'+
+    '<div class="sbar-item"><div class="sbar-label">📦 CARGO</div><div class="sbar-val '+ic+'">'+Math.round(G.integrity)+'%</div></div>'+
+    '<div class="sbar-item'+hAnim+'"><div class="sbar-label">🔍 HEAT</div><div class="sbar-val '+hc+'">'+Math.round(G.heat)+'%</div></div>'+
+    '<div class="sbar-item"><div class="sbar-label">📅 DAY</div><div class="sbar-val ok">'+G.day+'</div></div>'+
+    '</div>';
+}
+
+function routeStrip(){
+  var s='<div class="route">';
+  STOPS.forEach(function(stop,i){
+    var cls=i<G.leg?'done':i===G.leg?'now':'';
+    s+='<div class="rstop"><div class="rdot '+cls+'"></div><div class="rname">'+stop.flag+'<br>'+stop.name+'</div></div>';
+    if(i<STOPS.length-1) s+='<div class="rstop-line"></div>';
+  });
+  s+='</div>';
+  var pct=Math.min(G.progress,100);
+  s+='<div class="pbar-wrap" style="margin:4px 0"><div class="pbar" style="width:'+pct+'%"></div></div>';
+  s+='<div style="font-size:0.75em;color:#7a6840;text-align:center">'+STOPS[G.leg].name+' → '+STOPS[Math.min(G.leg+1,4)].name+'</div>';
+  return s;
+}
+
+function showTitle(){
+  el().innerHTML='<div class="page" style="justify-content:center;align-items:center;text-align:center;gap:20px;">'+
+    '<div class="page-title" style="font-size:2.8em">CONTRABAND TRAIL</div>'+
+    '<div class="page-sub" style="font-size:1.1em">Rhine River, 1922 — Weimar Germany</div>'+
+    '<div class="card" style="max-width:460px;text-align:left;font-size:0.88em;color:#b8aa88;line-height:1.6;">'+
+    'The republic wobbles. The censors grow bold. Someone must move the books, the records, the art. '+
+    'Down the Rhine from Basel to Rotterdam — through checkpoints, fog, and the particular attention of the river police.<br><br>'+
+    'That someone is you.'+
+    '</div>'+
+    '<button class="btn primary" style="font-size:1.1em;padding:14px 40px" onclick="startNewGame()">⛵ Begin the Run</button>'+
+    '<a href="../index.html" style="color:#5a4a28;font-size:0.8em;text-decoration:none">← Back to Mucko\'s Games</a>'+
+    '</div>';
+}
+
+function startNewGame(){
+  G={screen:'cargo',cargo:null,marks:120,coal:90,integrity:100,heat:0,day:1,leg:0,progress:0,throttle:'normal',eventsThisLeg:0,msg:'',curEvent:null};
+  render();
+}
+
+function showCargoSelect(){
+  var items=CARGO_TYPES.map(function(ct){
+    return '<div class="card" style="cursor:pointer;transition:border-color 0.15s" onclick="selectCargo(\''+ct.id+'\')" onmouseover="this.style.borderColor=\'#c8a84a\'" onmouseout="this.style.borderColor=\'\'">'+
+      '<div style="font-size:1.6em;margin-bottom:6px">'+ct.icon+'</div>'+
+      '<div style="color:#c8a84a;font-weight:bold;margin-bottom:4px">'+ct.name+'</div>'+
+      '<div style="font-size:0.82em;color:#9a8a68;font-style:italic;margin-bottom:6px">'+ct.desc+'</div>'+
+      '<div style="font-size:0.78em;color:#7a6040;font-family:monospace">Base value: '+ct.baseValue+' Marks &nbsp;·&nbsp; Risk mod: +'+ct.riskMod+'% heat</div>'+
+      '</div>';
+  }).join('');
+  el().innerHTML='<div class="page">'+
+    statusBar()+
+    '<div class="page-title" style="font-size:1.6em">What Are You Carrying?</div>'+
+    '<div class="page-sub">Your buyer in Rotterdam will pay well. Choose carefully.</div>'+
+    items+'</div>';
+}
+
+function selectCargo(id){
+  G.cargo=CARGO_TYPES.find(function(ct){return ct.id===id;});
+  G.msg='Your cargo is loaded. The Rhine awaits.';
+  G.screen='travel'; render();
+}
+
+function showTravel(){
+  var th=G.throttle;
+  var btnStyle='padding:8px 16px;font-size:0.82em;margin:2px;';
+  var tBtns='<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin:6px 0">'+
+    '<button class="btn'+(th==='careful'?' primary':'')+'" style="'+btnStyle+'" onclick="setThrottle(\'careful\')">🐢 Careful</button>'+
+    '<button class="btn'+(th==='normal'?' primary':'')+'" style="'+btnStyle+'" onclick="setThrottle(\'normal\')">⛵ Normal</button>'+
+    '<button class="btn'+(th==='full'?' primary':'')+'" style="'+btnStyle+'" onclick="setThrottle(\'full\')">🔥 Full Speed</button>'+
+    '</div>';
+  var thDesc={'careful':'Less coal, slower progress, lower risk of events.','normal':'Balanced. The Rhine way.','full':'Burn coal hard — faster but more wear on everything.'};
+  el().innerHTML='<div class="page">'+
+    statusBar()+
+    routeStrip()+
+    tBtns+
+    '<div style="font-size:0.75em;color:#7a6040;text-align:center;margin:-4px 0 4px;font-style:italic">'+thDesc[th]+'</div>'+
+    (G.msg?'<div class="msg-bar">'+G.msg+'</div>':'')+
+    '<div class="btn-row">'+
+    '<button class="btn primary" style="font-size:1em;padding:12px 30px" onclick="sailDay()">⛵ Sail for a Day</button>'+
+    '</div>'+
+    '<div style="font-size:0.75em;color:#5a4828;text-align:center;margin-top:4px">'+
+    (G.cargo?G.cargo.icon+' '+G.cargo.name+' aboard':'')+' &nbsp;·&nbsp; Leg '+(G.leg+1)+' of 4'+
+    '</div>'+
+    '</div>';
+}
+
+function setThrottle(t){G.throttle=t;render();}
+
+function sailDay(){
+  G.day++;
+  G.msg='';
+  var tmul=G.throttle==='careful'?0.65:G.throttle==='full'?1.45:1.0;
+  // Resource consumption
+  G.coal=c(G.coal-(6*tmul),0,100);
+  if(G.coal<=0){G.screen='arrested';G.msg='You ran out of coal. Stranded on the Rhine, the river police found you — and your cargo.';shake(8,600);render();return;}
+  // Cargo degradation on full speed
+  if(G.throttle==='full') G.integrity=c(G.integrity-5,0,100);
+  // Progress
+  var adv=(22+Math.random()*12)*tmul;
+  G.progress=c(G.progress+adv,0,120);
+  // Passive heat increase (full speed attracts attention)
+  if(G.throttle==='full') G.heat=c(G.heat+4,0,100);
+  // Arrest check
+  if(G.heat>=100){G.screen='arrested';G.msg='Your heat reached 100. The authorities had been watching. At the next checkpoint, they were waiting.';shake(10,800);render();return;}
+  // Arrived at next stop?
+  if(G.progress>=100){
+    G.leg++;
+    G.progress=0;
+    G.eventsThisLeg=0;
+    if(G.leg>=STOPS.length-1){
+      // Final destination!
+      G.screen='victory'; render(); return;
+    }
+    G.screen='shop'; G.msg=''; render(); return;
+  }
+  // Random event (30% base, less if careful)
+  var evtChance=G.throttle==='careful'?0.20:G.throttle==='full'?0.40:0.30;
+  if(G.eventsThisLeg<3&&Math.random()<evtChance){
+    G.eventsThisLeg++;
+    G.curEvent=RIVER_EVENTS[Math.floor(Math.random()*RIVER_EVENTS.length)];
+    G.screen='event'; render(); return;
+  }
+  // Passive heat drift down slightly
+  G.heat=c(G.heat-1,0,100);
+  render();
+}
+
+function showEvent(){
+  var ev=G.curEvent;
+  var choices=ev.choices.map(function(ch,i){
+    return '<button class="ev-choice" onclick="resolveEvent('+i+')">'+
+      '<strong>'+(i+1)+'.</strong> '+ch.t+'</button>';
+  }).join('');
+  el().innerHTML='<div class="page">'+
+    statusBar()+
+    '<div class="ev-box">'+
+    '<div class="ev-title">'+ev.title+'</div>'+
+    '<div class="ev-text">'+ev.text+'</div>'+
+    '<div class="ev-choices">'+choices+'</div>'+
+    '</div></div>';
+}
+
+function resolveEvent(i){
+  var ch=G.curEvent.choices[i];
+  ch.fx();
+  if(G.heat>=100){G.screen='arrested';G.msg='Events conspired against you — your heat reached 100. The river police are waiting at the next bridge.';shake(10,800);render();return;}
+  if(G.coal<=0){G.screen='arrested';G.msg='You ran out of coal. Adrift on the Rhine.';shake(8,600);render();return;}
+  G.msg=ch.out||'';
+  G.curEvent=null;
+  G.screen='travel'; render();
+}
+
+function showShop(){
+  var stop=STOPS[G.leg];
+  var items=[
+    {icon:'⛽',name:'Coal (top up)',cost:18,eff:'+25% coal',canBuy:G.coal<90,fx:function(){G.marks-=18;G.coal=c(G.coal+25,0,100);}},
+    {icon:'🔧',name:'Cargo Re-packing',cost:12,eff:'+20% integrity',canBuy:G.integrity<90,fx:function(){G.marks-=12;G.integrity=c(G.integrity+20,0,100);}},
+    {icon:'🤐',name:'Bribe Local Official',cost:30,eff:'-25% heat',canBuy:G.heat>10,fx:function(){G.marks-=30;G.heat=c(G.heat-25,0,100);}},
+    {icon:'📋',name:'Forged Papers',cost:45,eff:'-35% heat + safer port',canBuy:G.marks>=45,fx:function(){G.marks-=45;G.heat=c(G.heat-35,0,100);}},
+    {icon:'💰',name:'Sell side cargo',cost:0,eff:'+40 Marks',canBuy:true,fx:function(){G.marks+=40;}},
+  ];
+  var grid=items.map(function(it){
+    var can=it.canBuy&&G.marks>=it.cost;
+    return '<div class="shop-item'+(can?'':' disabled')+'" '+(can?'onclick="shopBuy(\''+it.name+'\')"':'')+'>'+
+      '<div class="item-name">'+it.icon+' '+it.name+'</div>'+
+      '<div class="item-cost">'+(it.cost>0?it.cost+' Marks':'Free')+'</div>'+
+      '<div class="item-eff">'+it.eff+'</div>'+
+      '</div>';
+  }).join('');
+  window._shopItems=items;
+  var portBtn=G.cargo?'<button class="btn primary" onclick="startPort()">🚚 Attempt Port Customs</button>':'';
+  el().innerHTML='<div class="page">'+
+    statusBar()+
+    '<div class="card"><h3>'+stop.flag+' '+stop.name+'</h3>'+
+    '<div style="font-size:0.85em;color:#9a8a68;font-style:italic;line-height:1.5">'+stop.desc+'</div></div>'+
+    '<div class="shop-grid">'+grid+'</div>'+
+    (G.msg?'<div class="msg-bar">'+G.msg+'</div>':'')+
+    '<div class="btn-row">'+portBtn+
+    '<button class="btn" onclick="depart()">⛵ Depart Without Selling</button>'+
+    '</div></div>';
+}
+
+function shopBuy(name){
+  var item=window._shopItems.find(function(it){return it.name===name;});
+  if(item&&item.canBuy&&G.marks>=item.cost){item.fx();G.msg='Purchased: '+item.name;render();}
+}
+
+function depart(){
+  G.screen='travel';G.msg='You cast off from '+STOPS[G.leg].name+'. The Rhine runs north.';render();
+}
+
+/* ── PORT CUSTOMS (CANVAS STEALTH) ───────────────────────────────────────── */
+var PORT={};var portActive=false;var portRAF=null;
+var portLastTs=0;var portT=0;
+
+function startPort(){
+  el().classList.add('hidden');
+  canvas.classList.add('active');
+  portActive=true; portT=0; portLastTs=0;
+  // Initialize port state
+  var guardCount=G.leg<=1?2:3;
+  var guardSpeed=45+G.leg*6+G.heat*0.15; // harder as heat and leg increase
+  PORT={
+    player:{x:80,y:H/2,w:14,h:14},
+    cargo:{x:80,y:H/2+40,w:16,h:16,carried:false,delivered:false},
+    exit:{x:W-60,y:H/2,w:30,h:60},
+    guards:buildGuards(guardCount,guardSpeed),
+    walls:buildWalls(),
+    alert:false,alertTimer:0,
+    bribed:false,
+    caught:false,catchTimer:0,
+    done:false,doneTimer:0,
+    success:false,
+    t:0,
+    msg:'',msgTimer:0,
+    tooltip:true,tooltipTimer:4,
+  };
+  if(portRAF) cancelAnimationFrame(portRAF);
+  portRAF=requestAnimationFrame(portLoop);
+}
+
+function buildGuards(n,spd){
+  var guards=[];
+  var patterns=[
+    {x:320,y:160,pts:[{x:320,y:120},{x:500,y:120},{x:500,y:240},{x:320,y:240}],spd:spd},
+    {x:520,y:380,pts:[{x:450,y:340},{x:680,y:340},{x:680,y:420},{x:450,y:420}],spd:spd*0.85},
+    {x:200,y:300,pts:[{x:160,y:280},{x:380,y:280},{x:380,y:360},{x:160,y:360}],spd:spd*0.7},
+  ];
+  for(var i=0;i<n;i++){
+    var p=patterns[i];
+    guards.push({x:p.x,y:p.y,pts:p.pts,ptIdx:0,spd:p.spd,facing:0,visionRange:130,visionAngle:Math.PI/2.5,alert:false,alertT:0});
+  }
+  return guards;
+}
+
+function buildWalls(){
+  // Warehouse interior: corridors and crate obstacles
+  return [
+    {x:140,y:80,w:520,h:16},   // top wall
+    {x:140,y:464,w:520,h:16},  // bottom wall
+    {x:140,y:80,w:16,h:400},   // left interior wall
+    {x:644,y:80,w:16,h:400},   // right interior wall
+    // Crate obstacles
+    {x:240,y:140,w:60,h:60},
+    {x:380,y:200,w:80,h:40},
+    {x:260,y:310,w:50,h:50},
+    {x:500,y:300,w:60,h:70},
+    {x:420,y:390,w:70,h:40},
+  ];
+}
+
+function portLoop(ts){
+  if(!portActive){return;}
+  portRAF=requestAnimationFrame(portLoop);
+  var dt=portLastTs?Math.min((ts-portLastTs)/1000,0.05):0.016;
+  portLastTs=ts;
+  PORT.t+=dt;
+  // Clear per-frame input
+  updatePort(dt);
+  drawPort();
+  for(var k in JP)JP[k]=false;
+  mclk=false;
+}
+
+function updatePort(dt){
+  var p=PORT;
+  if(p.done){p.doneTimer+=dt;if(p.doneTimer>2.5)finishPort();return;}
+  if(p.alert&&!p.caught){
+    p.alertTimer+=dt;
+    if(p.alertTimer>1.5){p.caught=true;}
+    return;
+  }
+  if(p.caught){p.catchTimer+=dt;if(p.catchTimer>1.5)caughtInPort();return;}
+  if(p.msgTimer>0) p.msgTimer=Math.max(0,p.msgTimer-dt);
+  if(p.tooltipTimer>0) p.tooltipTimer=Math.max(0,p.tooltipTimer-dt);
+
+  // Player movement
+  var dx=0,dy=0;
+  if(held('ArrowLeft')||held('KeyA'))  dx=-1;
+  if(held('ArrowRight')||held('KeyD')) dx= 1;
+  if(held('ArrowUp')||held('KeyW'))    dy=-1;
+  if(held('ArrowDown')||held('KeyS'))  dy= 1;
+  if(dx&&dy){dx*=0.707;dy*=0.707;}
+  var spd=p.cargo.carried?75:110;
+  var nx=p.player.x+dx*spd*dt;
+  var ny=p.player.y+dy*spd*dt;
+  // Wall collision
+  var blocked=false;
+  PORT.walls.forEach(function(w){
+    if(nx+7>w.x&&nx-7<w.x+w.w&&ny+7>w.y&&ny-7<w.y+w.h)blocked=true;
+  });
+  if(!blocked){
+    p.player.x=c(nx,30,W-30);
+    p.player.y=c(ny,30,H-30);
+  } else {
+    // try x only
+    nx=p.player.x+dx*spd*dt; ny=p.player.y;
+    blocked=false;
+    PORT.walls.forEach(function(w){if(nx+7>w.x&&nx-7<w.x+w.w&&ny+7>w.y&&ny-7<w.y+w.h)blocked=true;});
+    if(!blocked)p.player.x=c(nx,30,W-30);
+    // try y only
+    nx=p.player.x; ny=p.player.y+dy*spd*dt;
+    blocked=false;
+    PORT.walls.forEach(function(w){if(nx+7>w.x&&nx-7<w.x+w.w&&ny+7>w.y&&ny-7<w.y+w.h)blocked=true;});
+    if(!blocked)p.player.y=c(ny,30,H-30);
+  }
+
+  // Pickup/drop cargo
+  if(!p.cargo.delivered){
+    if(!p.cargo.carried){
+      if(dist(p.player,{x:p.cargo.x+8,y:p.cargo.y+8})<28&&(eat('Space')||eat('KeyE'))){
+        p.cargo.carried=true;p.msg='Carrying cargo — move slow, stay hidden!';p.msgTimer=3;beep(660,0.1,0.15);
+      }
+    } else {
+      p.cargo.x=p.player.x-8;p.cargo.y=p.player.y+8;
+      if(eat('Space')||eat('KeyE')){
+        p.cargo.carried=false;p.msg='Cargo set down.';p.msgTimer=2;beep(440,0.1,0.1);
+      }
+    }
+    // Check delivery to exit
+    if(p.cargo.carried&&p.player.x>p.exit.x&&p.player.y>p.exit.y&&p.player.y<p.exit.y+p.exit.h){
+      p.cargo.delivered=true;p.done=true;p.success=true;p.doneTimer=0;
+      chime(); showPortMsg('CARGO DELIVERED!');
+    }
+  }
+
+  // Guard AI
+  PORT.guards.forEach(function(g){
+    // Move along patrol path
+    var target=g.pts[g.ptIdx];
+    var dd=dist(g,target);
+    if(dd<8){g.ptIdx=(g.ptIdx+1)%g.pts.length;}
+    else{
+      var fx2=(target.x-g.x)/dd,fy2=(target.y-g.y)/dd;
+      var blocked2=false;
+      PORT.walls.forEach(function(w){
+        var nx2=g.x+fx2*g.spd*dt,ny2=g.y+fy2*g.spd*dt;
+        if(nx2+8>w.x&&nx2-8<w.x+w.w&&ny2+8>w.y&&ny2-8<w.y+w.h)blocked2=true;
+      });
+      if(!blocked2){g.x+=fx2*g.spd*dt;g.y+=fy2*g.spd*dt;}
+      g.facing=Math.atan2(fy2,fx2);
+    }
+    // Vision cone check
+    if(!p.alert&&!p.caught){
+      var dd2=dist(g,p.player);
+      if(dd2<g.visionRange){
+        var angle=Math.atan2(p.player.y-g.y,p.player.x-g.x);
+        var diff=angle-g.facing;
+        while(diff>Math.PI)diff-=TAU;while(diff<-Math.PI)diff+=TAU;
+        if(Math.abs(diff)<g.visionAngle/2){
+          // Spotted!
+          p.alert=true;p.alertTimer=0;
+          beep(880,0.4,0.3,'sawtooth');bump();
+          showPortMsg('SPOTTED!');
+        }
+      }
+    }
+  });
+}
+
+function showPortMsg(msg){PORT.msg=msg;PORT.msgTimer=3;}
+
+function caughtInPort(){
+  // Guard caught player — lose cargo or pay bribe
+  portActive=false;
+  cancelAnimationFrame(portRAF);
+  canvas.classList.remove('active');
+  el().classList.remove('hidden');
+  G.heat=c(G.heat+30,0,100);
+  G.cargo=null;
+  G.msg='The customs officer seized your cargo and logged your name. Heat +30.';
+  shake(10, 600);
+  if(G.heat>=100){G.screen='arrested';render();return;}
+  G.screen='shop';render();
+}
+
+function finishPort(){
+  portActive=false;
+  cancelAnimationFrame(portRAF);
+  canvas.classList.remove('active');
+  el().classList.remove('hidden');
+  if(PORT.success&&G.cargo){
+    var sale=Math.round(G.cargo.baseValue*(G.integrity/100));
+    var riskMod=G.cargo.riskMod||0;
+    G.marks+=sale;
+    G.heat=c(G.heat+riskMod-5,0,100); // risk from cargo type, minus success bonus
+    G.cargo=null;
+    G.msg='Cargo delivered! Received '+sale+' Marks. The buyer asks no questions.';
+    chime();
+  }
+  G.screen='shop';render();
+}
+
+function drawPort(){
+  var p=PORT;
+  // Background
+  ctx.fillStyle='#14100a';ctx.fillRect(0,0,W,H);
+
+  // Ambient light — warehouse ceiling lamps
+  [[200,180],[400,180],[600,180],[200,380],[400,380],[600,380]].forEach(function(lp){
+    var lg=ctx.createRadialGradient(lp[0],lp[1],0,lp[0],lp[1],120);
+    lg.addColorStop(0,'rgba(220,200,140,0.12)');lg.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=lg;ctx.fillRect(0,0,W,H);
+  });
+
+  // Walls & crates
+  PORT.walls.forEach(function(w,i){
+    ctx.fillStyle=i<4?'#2a2018':'#3a2c18';
+    ctx.fillRect(w.x,w.y,w.w,w.h);
+    ctx.strokeStyle=i<4?'#4a3a22':'#5a4428';
+    ctx.lineWidth=1.5;ctx.strokeRect(w.x,w.y,w.w,w.h);
+  });
+
+  // Exit zone
+  var ex=PORT.exit;
+  ctx.fillStyle='rgba(60,160,60,0.18)';ctx.fillRect(ex.x,ex.y,ex.w,ex.h);
+  ctx.strokeStyle='rgba(80,200,80,0.5)';ctx.lineWidth=2;ctx.strokeRect(ex.x,ex.y,ex.w,ex.h);
+  ctx.fillStyle='#4aaa4a';ctx.font='bold 10px monospace';ctx.textAlign='center';
+  ctx.fillText('EXIT',ex.x+ex.w/2,ex.y-6);
+
+  // Guard vision cones
+  PORT.guards.forEach(function(g){
+    ctx.save();
+    ctx.translate(g.x,g.y);
+    ctx.rotate(g.facing);
+    var vg=ctx.createConicalGradient?null:null; // fallback
+    ctx.beginPath();
+    ctx.moveTo(0,0);
+    ctx.arc(0,0,g.visionRange,-g.visionAngle/2,g.visionAngle/2);
+    ctx.closePath();
+    ctx.fillStyle=g.alert?'rgba(255,80,0,0.25)':'rgba(255,220,60,0.12)';
+    ctx.fill();
+    ctx.strokeStyle=g.alert?'rgba(255,100,0,0.5)':'rgba(200,180,60,0.25)';
+    ctx.lineWidth=1;ctx.stroke();
+    ctx.restore();
+  });
+
+  // Cargo box
+  if(!p.cargo.delivered){
+    ctx.fillStyle=p.cargo.carried?'#a08040':'#6a5028';
+    ctx.fillRect(p.cargo.x,p.cargo.y,p.cargo.w,p.cargo.h);
+    ctx.strokeStyle='#d4aa50';ctx.lineWidth=1.5;ctx.strokeRect(p.cargo.x,p.cargo.y,p.cargo.w,p.cargo.h);
+    if(!p.cargo.carried&&dist(p.player,{x:p.cargo.x+8,y:p.cargo.y+8})<36){
+      ctx.fillStyle='#d4aa50';ctx.font='10px monospace';ctx.textAlign='center';
+      ctx.fillText('[E/SPACE] pick up',p.cargo.x+8,p.cargo.y-6);
+    }
+  }
+
+  // Guards
+  PORT.guards.forEach(function(g){
+    ctx.save();ctx.translate(g.x,g.y);
+    // Body
+    ctx.fillStyle=g.alert?'#cc4422':'#3a5a88';
+    ctx.beginPath();ctx.ellipse(0,0,10,10,0,0,TAU);ctx.fill();
+    ctx.strokeStyle=g.alert?'#ff6644':'#6688cc';ctx.lineWidth=1.5;ctx.stroke();
+    // Facing indicator
+    ctx.strokeStyle='#aabbdd';ctx.lineWidth=1.5;ctx.beginPath();
+    ctx.moveTo(0,0);ctx.lineTo(Math.cos(g.facing)*14,Math.sin(g.facing)*14);ctx.stroke();
+    ctx.restore();
+  });
+
+  // Player
+  ctx.save();ctx.translate(p.player.x,p.player.y);
+  ctx.fillStyle='#c8a84a';
+  ctx.beginPath();ctx.ellipse(0,0,8,8,0,0,TAU);ctx.fill();
+  ctx.strokeStyle='#f0d060';ctx.lineWidth=1.5;ctx.stroke();
+  ctx.restore();
+
+  // Alert flash
+  if(p.alert&&!p.caught){
+    ctx.save();ctx.globalAlpha=0.3+Math.sin(p.t*8)*0.2;
+    ctx.fillStyle='#ff4400';ctx.fillRect(0,0,W,H);ctx.restore();
+    ctx.fillStyle='#ff6644';ctx.font='bold 28px Georgia';ctx.textAlign='center';
+    ctx.fillText('SPOTTED! DON\'T MOVE!',W/2,H/2-20);
+    ctx.font='16px Georgia';ctx.fillStyle='#ff9966';
+    ctx.fillText(p.bribed?'':'Wait — or pay 40 Marks to bribe your way out...',W/2,H/2+10);
+  }
+
+  // Top HUD
+  ctx.fillStyle='rgba(0,0,0,0.7)';ctx.fillRect(0,0,W,36);
+  ctx.font='bold 12px monospace';ctx.textAlign='left';ctx.fillStyle='#c8a84a';
+  ctx.fillText('PORT CUSTOMS — '+STOPS[G.leg].name,14,22);
+  ctx.fillStyle='#7a6840';ctx.font='11px monospace';ctx.textAlign='right';
+  ctx.fillText('Deliver cargo to exit ▶',W-14,22);
+
+  // Message
+  if(p.msg&&p.msgTimer>0){
+    ctx.save();ctx.globalAlpha=Math.min(1,p.msgTimer);
+    ctx.fillStyle='rgba(0,0,0,0.75)';ctx.fillRect(W/2-160,H/2-20,320,36);
+    ctx.font='14px Georgia';ctx.fillStyle='#d4c9a8';ctx.textAlign='center';
+    ctx.fillText(p.msg,W/2,H/2+2);ctx.restore();
+  }
+
+  // Tooltip
+  if(p.tooltipTimer>0){
+    ctx.save();ctx.globalAlpha=Math.min(1,p.tooltipTimer);
+    ctx.fillStyle='rgba(0,0,0,0.8)';ctx.fillRect(20,H-52,W-40,36);
+    ctx.font='12px monospace';ctx.fillStyle='#aa9870';ctx.textAlign='center';
+    ctx.fillText('WASD / arrow keys = move  ·  SPACE / E = pick up cargo  ·  Reach the EXIT',W/2,H-29);
+    ctx.restore();
+  }
+
+  // Done overlay
+  if(p.done){
+    ctx.save();ctx.globalAlpha=Math.min(1,p.doneTimer*1.5);
+    ctx.fillStyle='rgba(0,0,0,0.8)';ctx.fillRect(W/2-200,H/2-50,400,100);
+    ctx.strokeStyle='rgba(60,200,60,0.7)';ctx.lineWidth=2;ctx.strokeRect(W/2-200,H/2-50,400,100);
+    ctx.font='bold 28px Georgia';ctx.fillStyle='#88ff88';ctx.textAlign='center';
+    ctx.fillText(p.success?'CARGO DELIVERED!':'MISSION FAILED',W/2,H/2-8);
+    ctx.font='14px Georgia';ctx.fillStyle='#aaffaa';
+    ctx.fillText(p.success?'Your buyer is very pleased.':'The cargo was lost.',W/2,H/2+24);
+    ctx.restore();
+  }
+}
+
+/* ── GAME OVER & VICTORY ─────────────────────────────────────────────────── */
+function showArrested(){
+  el().innerHTML='<div class="page" style="justify-content:center;align-items:center;text-align:center;gap:16px">'+
+    '<div style="font-size:4em">🚔</div>'+
+    '<div class="page-title" style="color:#cc4444">ARRESTED</div>'+
+    '<div class="card" style="max-width:480px;text-align:left">'+
+    '<div style="font-size:0.9em;color:#aa8888;line-height:1.6">'+G.msg+'</div>'+
+    '</div>'+
+    '<div style="font-size:0.85em;color:#7a5a40">Day '+G.day+' · '+STOPS[Math.min(G.leg,4)].name+'</div>'+
+    '<button class="btn primary" onclick="startNewGame()">Try Again</button>'+
+    '<a href="../index.html" style="color:#5a3a28;font-size:0.8em;text-decoration:none">← Back</a>'+
+    '</div>';
+}
+
+function showVictory(){
+  var final=Math.round(G.marks+(G.heat<30?80:G.heat<60?40:0));
+  var grade=final>500?'S':final>350?'A':final>220?'B':'C';
+  var gradeCol={'S':'#f0d060','A':'#88ff88','B':'#aaddff','C':'#cc9966'}[grade];
+  el().innerHTML='<div class="page" style="justify-content:center;align-items:center;text-align:center;gap:16px">'+
+    '<div style="font-size:3em">⛵</div>'+
+    '<div class="page-title">ROTTERDAM</div>'+
+    '<div class="page-sub">You made it. The Rhine is behind you. The buyer is pleased.</div>'+
+    '<div class="card" style="max-width:480px">'+
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;text-align:left">'+
+    '<div><span style="color:#7a6840;font-size:0.75em">DAYS AT SEA</span><br><span style="font-size:1.4em;color:#c8a84a">'+G.day+'</span></div>'+
+    '<div><span style="color:#7a6840;font-size:0.75em">FINAL MARKS</span><br><span style="font-size:1.4em;color:#c8a84a">'+G.marks+'</span></div>'+
+    '<div><span style="color:#7a6840;font-size:0.75em">HEAT AT END</span><br><span style="font-size:1.4em;color:'+(G.heat>60?'#cc4444':'#88bb66')+'">'+Math.round(G.heat)+'%</span></div>'+
+    '<div><span style="color:#7a6840;font-size:0.75em">GRADE</span><br><span style="font-size:2em;font-weight:bold;color:'+gradeCol+'">'+grade+'</span></div>'+
+    '</div>'+
+    '</div>'+
+    '<div class="btn-row">'+
+    '<button class="btn primary" onclick="startNewGame()">Run Again</button>'+
+    '<a href="../index.html" class="btn" style="text-decoration:none">← Mucko\'s Games</a>'+
+    '</div></div>';
+}
+
+/* ── START ───────────────────────────────────────────────────────────────── */
+render();
+</script>
+</body>
+</html>

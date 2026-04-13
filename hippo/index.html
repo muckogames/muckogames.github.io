@@ -289,7 +289,8 @@ function showCheatScroll(){
   phase='cheatscroll';
 }
 function updateCheatScroll(){
-  if(eat('Space')||eat('Enter')||eat('Escape')){
+  if(eat('Space')||eat('Enter')||eat('Escape')||mclk){
+    mclk=false;
     phase=cheatScrollPhase||'title';
   }
 }

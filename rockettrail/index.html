@@ -96,6 +96,20 @@ function chime() {
   });
 }
 
+/* ── SCREEN SHAKE ────────────────────────────────────────────────────────── */
+function shake(intensity, ms) {
+  var el = document.getElementById('stage');
+  var base = el.style.transform; // preserve existing scale()
+  var start = performance.now();
+  (function tick() {
+    var p = 1 - (performance.now() - start) / ms;
+    if (p <= 0) { el.style.transform = base; return; }
+    var dx = (Math.random()-0.5)*intensity*p*2, dy = (Math.random()-0.5)*intensity*p*2;
+    el.style.transform = base + ' translate(' + dx + 'px,' + dy + 'px)';
+    requestAnimationFrame(tick);
+  })();
+}
+
 /* ── INPUT ───────────────────────────────────────────────────────────────── */
 var K = {}, JP = {};
 document.addEventListener('keydown', function(e) {
@@ -472,6 +486,24 @@ function drawSaturnV(cx, baseY, stages, flameSz) {
   ctx.restore();
 }
 
+/* ── SATURN V OFFSCREEN CACHE ───────────────────────────────────────────── */
+// Pre-render the full 3-stage rocket (no flame) once at startup.
+// Saves ~96 ctx calls per frame on pad and title phases where rocket is static.
+var satVCache = (function() {
+  var CW = 40, CH = 220;
+  var cc = document.createElement('canvas');
+  cc.width = CW; cc.height = CH;
+  var saved = ctx;
+  ctx = cc.getContext('2d');
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  drawSaturnV(20, 218, 3, 0);
+  ctx = saved;
+  return cc;
+})();
+function drawSatVCached(cx, baseY) {
+  ctx.drawImage(satVCache, cx - 20, baseY - 218);
+}
+
 /* ── DRAWING: LEM ────────────────────────────────────────────────────────── */
 function drawLEM(cx,cy,thrustOn) {
   ctx.save(); ctx.translate(cx,cy);
@@ -591,7 +623,7 @@ function drawPad() {
   // Pad base
   drect(W/2-55,H-55,110,10,'#555'); drect(W/2-80,H-45,160,6,'#444');
   // Rocket on pad
-  drawSaturnV(W/2, H-55, 3, 0);
+  drawSatVCached(W/2, H-55);
   // Flood-light glow from below
   ctx.save(); ctx.globalAlpha=0.12;
   var lgr=ctx.createRadialGradient(W/2,H-55,0,W/2,H-55,250);
@@ -1080,8 +1112,9 @@ function updateSolarFlare(dt) {
   if (sf.done) {
     sf.doneT += dt;
     if (sf.doneT > 2.5) {
-      // After flare: proceed to mining
-      initMining();
+      // Advance sequence: solarflare → mining (nextTravelSub updates trav.sub
+      // so the later mining→sleep2 transition works correctly)
+      nextTravelSub();
     }
     return;
   }
@@ -1206,16 +1239,16 @@ var DS_EVENTS = [
     title: 'Fuel Cell C is running warm.',
     body:  'A micro-fracture may be developing. Do you throttle back to protect it?',
     opts: [
-      {label:'Throttle back (safe)',    effect:'Save 30 fuel',   apply:function(){minerals+=10;} },
-      {label:'Push through (efficient)',effect:'Risk nothing',   apply:function(){} }
+      {label:'Throttle back (safe)',    effect:'No resource cost',      apply:function(){} },
+      {label:'Push through (efficient)',effect:'-10 minerals if it fails', apply:function(){minerals=Math.max(0,minerals-10);} }
     ]
   },
   {
     title: 'Debris field detected ahead.',
     body:  'The nav computer found two routes — through or around?',
     opts: [
-      {label:'Burn around it',          effect:'-15 fuel, no risk', apply:function(){minerals=Math.max(0,minerals-5);} },
-      {label:'Fly through carefully',   effect:'Shield stress',     apply:function(){} }
+      {label:'Burn around it',          effect:'-5 minerals (detour burn)', apply:function(){minerals=Math.max(0,minerals-5);} },
+      {label:'Fly through carefully',   effect:'+5 minerals (time saved)',  apply:function(){minerals+=5;} }
     ]
   },
   {
@@ -1327,7 +1360,7 @@ function drawTitle() {
   ctx.restore();
   // Saturn V silhouette on pad
   ctx.save(); ctx.globalAlpha=0.4;
-  drawSaturnV(W/2, H-30, 3, 0);
+  drawSatVCached(W/2, H-30);
   // Launch pad
   drect(W/2-40, H-30, 80, 8, '#555');
   drect(W/2-60, H-22, 120, 5, '#444');
@@ -1706,9 +1739,12 @@ function updateMoonLand(dt) {
     ml.onPad = Math.abs(ml.x - ml.padX) < 32;
     if (ml.vy > ml.dMaxSafe * 2) {
       ml.crashed = true;
+      ml.crashVx = ml.vx;
+      ml.crashFuel = ml.fuel;
       ml.crashReason = ml.vy > Math.abs(ml.vx)*1.5 ? 'TOO FAST \u2014 use thrust next time!' : 'HARD IMPACT \u2014 slow down earlier!';
       boom(0.5, 0.35);
       beep(150,0.4,0.2,'sawtooth');
+      shake(12, 700);
       showRadio('Eagle, we lost signal. Search and rescue on standby.');
     } else {
       ml.landed = true;
@@ -1861,11 +1897,13 @@ function drawMoonLand() {
     if (ml.walkPhase) fa = Math.max(0, 1 - ml.walkT*2); // fade during moonwalk
     if (fa > 0.01) {
       ctx.save(); ctx.globalAlpha=fa;
-      rnd(W/2-160,H/2-55,320,140,14,'rgba(0,10,30,0.9)','rgba(100,200,255,0.5)',2);
+      rnd(W/2-160,H/2-55,320,160,14,'rgba(0,10,30,0.9)','rgba(100,200,255,0.5)',2);
       if (ml.crashed) {
         txt('CRASH!',W/2,H/2-22,'#ff4444',32,'center','bold Georgia');
         txt(ml.crashReason||'No landing score',W/2,H/2+10,'#cc8888',13,'center','Georgia');
         txt('Impact: '+Math.round(ml.landingSpeed)+' px/s  \u2014  Safe max: '+Math.round(ml.dMaxSafe)+' px/s',W/2,H/2+34,'#996666',11,'center','monospace');
+        txt('Horizontal drift: '+Math.round(Math.abs(ml.crashVx||0))+' px/s',W/2,H/2+51,'#996666',11,'center','monospace');
+        txt('Fuel remaining: '+Math.round(ml.crashFuel||0)+'%',W/2,H/2+68,'#996666',11,'center','monospace');
       } else {
         txt(ml.onPad?'PERFECT LANDING!':'SAFE LANDING',W/2,H/2-10,
             ml.onPad?'#ffee44':'#88ffaa',ml.onPad?26:22,'center','bold Georgia');

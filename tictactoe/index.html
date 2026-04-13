@@ -1633,11 +1633,12 @@ function showResult(winner, isDraw) {
     const exclaim = WIN_EXCLAIMS[Math.floor(Math.random()*WIN_EXCLAIMS.length)];
     icon.innerHTML = '';
     if (sd && sd.drawFn) {
-      icon.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:6px;';
+      // Reset font-size so it doesn't cascade into the exclaim span at 3.2× scale
+      icon.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:6px;font-size:16px;';
       const charCanvas = createCharCanvas(sd.id, 80);
       if (charCanvas) icon.appendChild(charCanvas);
       const ex = document.createElement('span');
-      ex.style.fontSize = '1.8em';
+      ex.style.fontSize = '40px';  // ~half the canvas height — harmonious proportion
       ex.textContent = exclaim;
       icon.appendChild(ex);
       ensureAnim();
