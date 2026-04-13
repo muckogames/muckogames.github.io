@@ -525,6 +525,7 @@ body {
       </div>
     </div>
     <div id="mode-tags"></div>
+    <div id="series-bar" style="display:none;font-size:0.82em;letter-spacing:1px;"></div>
     <div id="turn-bar"></div>
     <div id="near-win-bar"></div>
     <div id="hint-legend"></div>
@@ -1518,6 +1519,28 @@ function updateScores() {
   document.getElementById('sc-p1').textContent = G.sc.p1;
   document.getElementById('sc-p2').textContent = G.sc.p2;
   document.getElementById('sc-d').textContent  = G.sc.d;
+  updateSeriesBar();
+}
+
+function updateSeriesBar() {
+  const bar = document.getElementById('series-bar');
+  if (!bar) return;
+  const tn = G.tourney;
+  if (!tn.active) { bar.style.display = 'none'; return; }
+  const pip = (n, goal, col) => {
+    let s = '';
+    for (let i=0;i<goal;i++) s += `<span style="color:${i<n?col:'#2a3555'}">${i<n?'●':'○'}</span>`;
+    return s;
+  };
+  if (tn.done) {
+    const champ = G.mode==='pvc'?(tn.p1>=tn.goal?'YOU WIN THE MATCH':'CPU WINS THE MATCH'):(tn.p1>=tn.goal?'P1 WINS THE MATCH':'P2 WINS THE MATCH');
+    bar.innerHTML = `<span style="color:#ffd700;font-weight:bold;">🏆 ${champ} 🏆</span>`;
+  } else {
+    const p1l = G.mode==='pvc'?'You':G.mode==='pvp'?'P1':'P1';
+    const p2l = G.mode==='pvc'?'CPU':'P2';
+    bar.innerHTML = `<span style="color:#8b6914">Series: </span><span style="color:#c06060">${p1l}</span> ${pip(tn.p1,tn.goal,'#f07070')} — ${pip(tn.p2,tn.goal,'#70a0f0')} <span style="color:#6080c0">${p2l}</span>`;
+  }
+  bar.style.display = '';
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -1575,6 +1598,31 @@ function launchParticles(winLine) {
   animP();
 }
 
+function launchChampionshipBurst() {
+  resizePC();
+  const wc = G.winner===1 ? C1 : C2;
+  const champColors = [wc,'#ffd700','#ffdd00','#ff9944','#44ffbb','#ff66aa','#aaddff','#ffffff'];
+  // Three volleys from random positions, staggered
+  [0,300,600].forEach(delay => {
+    setTimeout(() => {
+      for (let k=0;k<140;k++) {
+        particles.push({
+          x: 0.1*pCanvas.width + Math.random()*0.8*pCanvas.width,
+          y: -8,
+          vx: (Math.random()-0.5)*9,
+          vy: 1.5+Math.random()*7,
+          r: 6+Math.random()*10,
+          col: champColors[Math.floor(Math.random()*champColors.length)],
+          life: 1, dec: 0.004+Math.random()*0.006, grav: 0.07,
+          square: true, rot: Math.random()*Math.PI*2, rotV: (Math.random()-0.5)*0.22,
+        });
+      }
+      if (pAnim) cancelAnimationFrame(pAnim);
+      animP();
+    }, delay);
+  });
+}
+
 function animP() {
   pCtx.clearRect(0,0,pCanvas.width,pCanvas.height);
   particles = particles.filter(p=>p.life>0);
@@ -1618,7 +1666,10 @@ function showResult(winner, isDraw) {
   const tn = G.tourney;
   if (tn.active && !tn.done) {
     if (!isDraw) { if (winner===1) tn.p1++; else tn.p2++; }
-    if (tn.p1 >= tn.goal || tn.p2 >= tn.goal) tn.done = true;
+    if (tn.p1 >= tn.goal || tn.p2 >= tn.goal) {
+      tn.done = true;
+      setTimeout(launchChampionshipBurst, 400);
+    }
   }
 
   if (isDraw) {
@@ -1712,7 +1763,7 @@ function startGame() {
 
   G.lines = genLines(G.size, G.win, G.torus);
   G.sc = {p1:0, p2:0, d:0};
-  updateScores();
+  updateScores(); // also calls updateSeriesBar
 
   const p1d=SYMS.find(x=>x.id===G.p1), p2d=SYMS.find(x=>x.id===G.p2);
   document.getElementById('sc-p1sym').textContent = p1d?p1d.disp:'';
