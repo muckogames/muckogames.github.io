@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lake House Math Mystery</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext x='50%25' y='50%25' dy='.35em' text-anchor='middle' font-size='82'%3E%F0%9F%94%A2%3C/text%3E%3C/svg%3E">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  min-height:100vh;
+  overflow:hidden;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:
+    radial-gradient(circle at top,#eef8ff 0%,#c7e0f5 24%,#82a7c7 52%,#26435d 100%);
+  font-family:Georgia,serif;
+  position:relative;
+}
+body::before{
+  content:'';
+  position:fixed;
+  inset:0;
+  pointer-events:none;
+  opacity:.3;
+  background:
+    linear-gradient(180deg,rgba(255,255,255,.22),transparent 32%),
+    repeating-linear-gradient(135deg,rgba(255,255,255,.08) 0 14px,rgba(0,0,0,.03) 14px 28px);
+}
+#shell{
+  position:relative;
+  z-index:1;
+}
+#stage{
+  position:relative;
+  width:800px;
+  height:560px;
+  border:4px solid #f2dea4;
+  border-radius:18px;
+  overflow:hidden;
+  background:#d9eef8;
+  box-shadow:
+    0 28px 90px rgba(15,28,45,.35),
+    inset 0 0 0 3px rgba(106,76,27,.28),
+    0 0 0 10px rgba(255,246,220,.12);
+}
+#game{
+  display:block;
+  width:100%;
+  height:100%;
+  touch-action:none;
+}
+#back-link{
+  position:fixed;
+  left:50%;
+  bottom:18px;
+  transform:translateX(-50%);
+  z-index:2;
+  color:#fff3c7;
+  text-decoration:none;
+  font-size:.82em;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  padding:8px 14px;
+  border-radius:999px;
+  border:1px solid rgba(255,243,199,.34);
+  background:rgba(27,49,69,.45);
+  backdrop-filter:blur(4px);
+}
+#back-link:hover{
+  background:rgba(44,76,104,.65);
+  border-color:rgba(255,243,199,.7);
+}
+</style>
+</head>
+<body>
+<div id="shell">
+  <div id="stage">
+    <canvas id="game"></canvas>
+  </div>
+</div>
+<a id="back-link" href="../index.html">Back to Mucko's Games</a>
+<script src="dialog-data.js"></script>
+<script src="../mucko-engine.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
