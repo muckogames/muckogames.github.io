@@ -263,6 +263,7 @@ var COLOR_FILLS = {
 
 // ── Game state ────────────────────────────────────────────────────────────────
 var phase = 'title';
+var easyMode = false;
 var energy = ENERGY_MAX;
 var jailCount = 0;
 var powerOff = false;
@@ -279,6 +280,7 @@ var alleySeeds = [];
 var numRooms = 2, currentRoom = 0;
 var rooms = [];          // [{papers:[{x,y,text,read}], seeds:[{x,y,collected}], code}]
 var returnPhase = 'alley'; // where to return after jail
+var houseTimer = 0; // countdown until owners return
 
 // Chase
 var chaseTimer = 0;
@@ -473,6 +475,7 @@ function initHouse() {
   }
   player.x = 90; player.y = H / 2; player.facing = 'right';
   popup.open = false;
+  houseTimer = easyMode ? 90 : 50;
 }
 
 function initChase() {
@@ -486,7 +489,7 @@ function initChase() {
 }
 
 function initEscape() {
-  escapeTimer = ESCAPE_DURATION;
+  escapeTimer = easyMode ? 25 : ESCAPE_DURATION;
   escapePolice = [
     { x: 720, y: 120 },
     { x: 720, y: 300 },
@@ -707,6 +710,14 @@ function drawHUD() {
     rndRect(bx - 2, by + 28, bw + 4, 16, 3, 'rgba(200,200,0,0.18)');
     txt('\u26A1 POWER OFF — 2-digit codes', bx + bw - 2, by + 40, '#ffff44', 10, 'right');
   }
+  // House: owners-return countdown
+  if (phase === 'house' || phase === 'jackpot') {
+    var ht = Math.ceil(houseTimer);
+    var htCol = ht <= 15 ? '#ff4444' : ht <= 30 ? '#ffaa44' : '#aaffaa';
+    var htBy = powerOff ? by + 56 : by + 28;
+    rndRect(bx - 2, htBy, bw + 4, 16, 3, 'rgba(0,0,0,0.45)');
+    txt('\uD83D\uDEAA Owners return: ' + ht + 's', bx + bw - 2, htBy + 12, htCol, 10, 'right');
+  }
 }
 
 // ── Popup (paper reading) ──────────────────────────────────────────────────
@@ -893,6 +904,15 @@ var DOOR_X = W - 52, DOOR_Y = H / 2;
 
 function updateHouse(dt) {
   if (popup.open || numpadOpen) { if (!numpadOpen) JP = {}; return; }
+  // Owners-return countdown
+  houseTimer -= dt;
+  if (houseTimer <= 0) {
+    returnPhase = 'alley';
+    initChase();
+    phase = 'chase';
+    showPopup('THE OWNERS CAME HOME!', 2);
+    return;
+  }
   movePlayer(dt, 68, W - 68, 68, H - 68);
 
   // Collect seeds
@@ -1391,9 +1411,15 @@ function renderTitle() {
 
   txt('Arrow keys / WASD to move  \u2022  E to interact', W / 2, 440, '#888', 12, 'center');
 
+  // Easy Mode toggle
+  var emx = W/2 - 80, emy = 448, emw = 160, emh = 28;
+  var emHov = mx >= emx && mx <= emx + emw && my >= emy && my <= emy + emh;
+  rndRect(emx, emy, emw, emh, 8, easyMode ? '#2a5020' : '#1a1a2a', easyMode ? '#88ff44' : '#555', 1.5);
+  txt((easyMode ? '\u2705' : '\u25A1') + ' Easy Mode', W / 2, emy + 19, easyMode ? '#88ff44' : '#888', 12, 'center', 'monospace');
+
   var bounce = Math.sin(Date.now() / 500) * 3;
-  var sb1x = W/2 - 140, sb1y = 454 + bounce, sb1w = 280, sb1h = 44;
-  var sb2x = W/2 - 110, sb2y = 508,          sb2w = 220, sb2h = 36;
+  var sb1x = W/2 - 140, sb1y = 484 + bounce, sb1w = 280, sb1h = 44;
+  var sb2x = W/2 - 110, sb2y = 538,          sb2w = 220, sb2h = 36;
   var hs1 = mx >= sb1x && mx <= sb1x + sb1w && my >= sb1y && my <= sb1y + sb1h;
   var hs2 = mx >= sb2x && mx <= sb2x + sb2w && my >= sb2y && my <= sb2y + sb2h;
   rndRect(sb1x, sb1y, sb1w, sb1h, 10, hs1 ? '#3a6a3a' : '#2a5a2a', '#ffd700', 2);
@@ -1403,8 +1429,13 @@ function renderTitle() {
 
   if (mclk) {
     mclk = false;
-    if (hs2) phase = 'highscores';
-    else     startGame();
+    if (mx >= emx && mx <= emx + emw && my >= emy && my <= emy + emh) {
+      easyMode = !easyMode;
+    } else if (hs2) {
+      phase = 'highscores';
+    } else {
+      startGame();
+    }
   }
   if (eat('Enter') || eat('Space')) startGame();
 }
