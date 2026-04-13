@@ -1097,8 +1097,8 @@ function updateHideout(dt){
     const ix=it.x*TILE+16,iy=it.y*TILE+16;
     const near=Math.hypot(h.player.x-ix,h.player.y-iy)<40;
     if(near&&(!it.hidden||action)){
-      if(!it.hidden){it.found=true;h.foundCount++;score+=it.pts;showHideoutMsg(`Found: ${it.name} (+${it.pts})`);if(h.foundCount>=h.totalCount&&!h.diebsHome&&!h.easyGraceActive){if(diff.id==='easy'){h.easyGraceActive=true;h.easyGraceTimer=12;showHideoutMsg('All found! 🏃 Diebs coming in 12s!');}else{triggerDiebsHome(h);}}}
-      else if(action){it.found=true;h.foundCount++;score+=it.pts;showHideoutMsg(`Found hidden: ${it.name} (+${it.pts})`);if(h.foundCount>=h.totalCount&&!h.diebsHome&&!h.easyGraceActive){if(diff.id==='easy'){h.easyGraceActive=true;h.easyGraceTimer=12;showHideoutMsg('All found! 🏃 Diebs coming in 12s!');}else{triggerDiebsHome(h);}}}
+      if(!it.hidden){it.found=true;h.foundCount++;score+=it.pts;showHideoutMsg(`Found: ${it.name} (+${it.pts})`);if(h.foundCount>=h.totalCount&&!h.diebsHome&&!h.easyGraceActive){if(diff.id==='easy'){h.easyGraceActive=true;h.easyGraceTimer=25;showHideoutMsg('All found! 🏃 Diebs coming in 25s!');}else{triggerDiebsHome(h);}}}
+      else if(action){it.found=true;h.foundCount++;score+=it.pts;showHideoutMsg(`Found hidden: ${it.name} (+${it.pts})`);if(h.foundCount>=h.totalCount&&!h.diebsHome&&!h.easyGraceActive){if(diff.id==='easy'){h.easyGraceActive=true;h.easyGraceTimer=25;showHideoutMsg('All found! 🏃 Diebs coming in 25s!');}else{triggerDiebsHome(h);}}}
     }
   });
   // laser collision (skip if raccoon cut power for this room)
