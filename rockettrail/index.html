@@ -489,16 +489,20 @@ function drawSaturnV(cx, baseY, stages, flameSz) {
 /* ── SATURN V OFFSCREEN CACHE ───────────────────────────────────────────── */
 // Pre-render the full 3-stage rocket (no flame) once at startup.
 // Saves ~96 ctx calls per frame on pad and title phases where rocket is static.
-var satVCache = (function() {
-  var CW = 40, CH = 220;
-  var cc = document.createElement('canvas');
-  cc.width = CW; cc.height = CH;
-  var saved = ctx;
-  ctx = cc.getContext('2d');
-  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-  drawSaturnV(20, 218, 3, 0);
-  ctx = saved;
-  return cc;
+var satVCache = null;
+(function() {
+  var _ctx = ctx; // captured before any swap so finally always restores correctly
+  try {
+    var CW = 40, CH = 220;
+    var cc = document.createElement('canvas');
+    cc.width = CW; cc.height = CH;
+    ctx = cc.getContext('2d');
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    drawSaturnV(20, 218, 3, 0);
+    satVCache = cc;
+  } catch(e) { /* fall back to live draw */ } finally {
+    ctx = _ctx;
+  }
 })();
 function drawSatVCached(cx, baseY) {
   ctx.drawImage(satVCache, cx - 20, baseY - 218);
@@ -2421,8 +2425,6 @@ function initVictory() {
       life: 0, maxLife: 2.0+Math.random()*2.0
     });
   }
-  vic.confetti = confetti;
-
   // Splash particles — burst on entry
   var splashParts = [];
   for (var si=0;si<40;si++) {
@@ -2434,7 +2436,7 @@ function initVictory() {
       r:2+Math.random()*4, life:0, maxLife:0.6+Math.random()*0.8
     });
   }
-  vic = { t:0, total:total, wave:0, stars:stars, splash:splashParts };
+  vic = { t:0, total:total, wave:0, stars:stars, splash:splashParts, confetti:confetti };
   if (!scoreSaved) {
     scoreSaved = true;
     var d = new Date();
