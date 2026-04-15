@@ -3,9 +3,13 @@
 const W = 800;
 const H = 560;
 const TAU = Math.PI * 2;
-const PLAYER_SPEED = 140;
-const NPC_SPEED = 24;
-const INTERACT_DIST = 56;
+const PLAYER_SPEED = 230;
+const NPC_SPEED = 54;
+const INTERACT_DIST = 74;
+const COLLECT_DIST = 42;
+const GAME_DURATION = 120;
+const DUAL_CLUE_WINDOW = 8;
+const QUIZ_FAST_TIME = 3.2;
 const canvas = document.getElementById('game');
 const ctx = MuckoEngine.initCanvas(canvas, W, H);
 ctx.lineJoin = 'round';
@@ -15,7 +19,6 @@ const { K, JP, eat, held } = MuckoEngine.makeInput();
 const { beep, chime } = MuckoEngine.makeAudio();
 const bestStore = MuckoEngine.makeStore('mucko_lakehousemath_scores');
 const TOUCH_UI = MuckoEngine.TOUCH_UI();
-const DIALOG = window.LAKEHOUSE_DIALOG;
 
 let mx = W / 2;
 let my = H / 2;
@@ -422,6 +425,8 @@ function buildQuestState(template) {
     solved: false,
     pair: [pair[0], pair[1]],
     cluesFound: [false, false],
+    firstClueTime: 0,
+    quizStartTime: 0,
     hintUsed: false,
     wrongGuesses: 0,
   };
@@ -457,13 +462,23 @@ function freshState() {
     player: { x: 92, y: 292, r: 15, facing: 'right', bob: 0 },
     quests: QUESTS.map(buildQuestState),
     areaNpcs: AREA_DEFS.map(cloneAreaNpcs),
-    dialog: null,
     quiz: null,
-    fireflies: 2,
-    maxFireflies: 3,
+    fireflies: 3,
+    maxFireflies: 5,
     stickers: 0,
     elapsed: 0,
+    timeLeft: GAME_DURATION,
+    score: 0,
+    combo: 0,
     toast: null,
+    particles: [],
+    popups: [],
+    shake: 0,
+    flash: null,
+    gateCooldown: 0,
+    finalScore: 0,
+    finalBreakdown: null,
+    endingSuccess: true,
     celebrationTime: 0,
     celebrationGuests: [],
     best: bestStore.get()[0] || null,
@@ -491,24 +506,18 @@ function currentAreaNpcs() {
 }
 
 function showToast(text, seconds) {
-  state.toast = { text: text, time: seconds || 2.6 };
+  state.toast = { text: text, time: seconds || 2.0 };
 }
 
 function startAdventure() {
   const next = freshState();
-  next.phase = 'dialog';
+  next.phase = 'explore';
   next.visited[0] = true;
   next.player.x = AREA_DEFS[0].entry.left.x;
   next.player.y = AREA_DEFS[0].entry.left.y;
-  next.dialog = {
-    lines: DIALOG.intro.slice(),
-    index: 0,
-    nextPhase: 'explore',
-    onClose: function() {
-      showToast(DIALOG.areaIntro.porch, 3.2);
-    },
-  };
   state = next;
+  showToast('Collect both clues, sprint to the gate!', 2.6);
+  beep(660, 0.12, 0.18, 'triangle');
 }
 
 function moveToArea(index, entrySide) {
@@ -518,38 +527,12 @@ function moveToArea(index, entrySide) {
   state.player.x = spawn.x;
   state.player.y = spawn.y;
   state.player.facing = entrySide === 'right' ? 'left' : 'right';
+  state.gateCooldown = 0.6;
   if (!state.visited[index]) {
     state.visited[index] = true;
-    showToast(DIALOG.areaIntro[area.id], 3);
-  } else {
-    showToast(area.name, 1.5);
+    showToast(area.name + ' — go go go!', 1.6);
   }
-}
-
-function openDialog(lines, nextPhase, onClose) {
-  state.phase = 'dialog';
-  state.dialog = {
-    lines: lines,
-    index: 0,
-    nextPhase: nextPhase || 'explore',
-    onClose: onClose || null,
-  };
-}
-
-function closeDialog() {
-  if (!state.dialog) return;
-  const dlg = state.dialog;
-  state.dialog = null;
-  state.phase = dlg.nextPhase || 'explore';
-  if (dlg.onClose) dlg.onClose();
-}
-
-function advanceDialog() {
-  if (!state.dialog) return;
-  state.dialog.index += 1;
-  if (state.dialog.index >= state.dialog.lines.length) {
-    closeDialog();
-  }
+  beep(520, 0.08, 0.12, 'triangle');
 }
 
 function choiceOptions(answer) {
@@ -565,6 +548,7 @@ function choiceOptions(answer) {
 function startQuiz(questIndex) {
   const q = state.quests[questIndex];
   const answer = q.pair[0] + q.pair[1];
+  q.quizStartTime = state.elapsed;
   state.phase = 'quiz';
   state.quiz = {
     questIndex: questIndex,
@@ -573,22 +557,37 @@ function startQuiz(questIndex) {
     feedback: '',
     hintShown: false,
     answer: answer,
+    openTime: state.elapsed,
   };
+  beep(440, 0.12, 0.14, 'square');
 }
 
 function awardBestIfNeeded() {
-  const score = state.stickers * 100 + state.fireflies * 10 + Math.max(0, 999 - Math.floor(state.elapsed));
+  const timeBonus = Math.max(0, Math.floor(state.timeLeft * 10));
+  const fireflyBonus = state.fireflies * 25;
+  const comboBonus = state.combo * 30;
+  const total = state.score + timeBonus + fireflyBonus + comboBonus;
   const entry = {
-    score: score,
+    score: total,
     fireflies: state.fireflies,
     stickers: state.stickers,
     seconds: Math.floor(state.elapsed),
+    combo: state.combo,
   };
   const saved = bestStore.save(entry);
   state.best = saved[0] || entry;
+  state.finalScore = total;
+  state.finalBreakdown = {
+    base: state.score,
+    timeBonus: timeBonus,
+    fireflyBonus: fireflyBonus,
+    comboBonus: comboBonus,
+    total: total,
+  };
 }
 
-function startEnding() {
+function startEnding(success) {
+  state.endingSuccess = success !== false;
   awardBestIfNeeded();
   state.phase = 'ending';
   state.celebrationTime = 0;
@@ -602,7 +601,14 @@ function startEnding() {
     { char: 'mucko', x: 640, y: 432, drift: rand(0, TAU) },
     { char: 'rocket', x: 712, y: 404, drift: rand(0, TAU) },
   ];
-  openDialog(DIALOG.ending.slice(), 'ending');
+  if (state.endingSuccess) {
+    burst(W / 2, H / 2, 70, '#ffd86f');
+    state.shake = 0.5;
+    state.flash = { color: '#fff4cf', time: 0.4, max: 0.4 };
+    chime();
+  } else {
+    beep(150, 0.3, 0.5, 'square');
+  }
 }
 
 function getQuestSideInfo(questIndex, clueIndex) {
@@ -618,60 +624,6 @@ function getQuestSideInfo(questIndex, clueIndex) {
   };
 }
 
-function npcDialog(npc) {
-  const info = getQuestSideInfo(npc.questIndex, npc.clueIndex);
-  const qState = state.quests[npc.questIndex];
-  const textSet = DIALOG.npcs[npc.char];
-  const values = {
-    n: info.number,
-    item: info.item,
-    other: info.otherCharName,
-  };
-  if (!qState.cluesFound[npc.clueIndex]) {
-    qState.cluesFound[npc.clueIndex] = true;
-    beep(610, 0.1, 0.12, 'triangle');
-    return [
-      {
-        speaker: CHARACTERS[npc.char].name,
-        speakerColor: CHARACTERS[npc.char].speakerColor,
-        text: fillTemplate(textSet.clue, values),
-      },
-      {
-        speaker: 'Clue Book',
-        speakerColor: '#ffeaa1',
-        text: 'Clue saved. Now find the second clue card.',
-      },
-    ];
-  }
-  if (qState.solved) {
-    return [{
-      speaker: CHARACTERS[npc.char].name,
-      speakerColor: CHARACTERS[npc.char].speakerColor,
-      text: textSet.after,
-    }];
-  }
-  return [{
-    speaker: CHARACTERS[npc.char].name,
-    speakerColor: CHARACTERS[npc.char].speakerColor,
-    text: fillTemplate(textSet.repeat, values),
-  }];
-}
-
-function gateDialog(area, quest, qState) {
-  if (qState.solved) {
-    showToast(DIALOG.gateSolved, 1.4);
-    return [];
-  }
-  if (!qState.cluesFound[0] || !qState.cluesFound[1]) {
-    return [{
-      speaker: quest.name,
-      speakerColor: '#ffeaa1',
-      text: DIALOG.gateNeedClues,
-    }];
-  }
-  return null;
-}
-
 function chooseQuizAnswer(value) {
   const quiz = state.quiz;
   const qState = state.quests[quiz.questIndex];
@@ -680,32 +632,39 @@ function chooseQuizAnswer(value) {
     qState.solved = true;
     qState.hintUsed = quiz.hintShown;
     state.stickers += 1;
-    const lines = [
-      {
-        speaker: quest.name,
-        speakerColor: '#ffeaa1',
-        text: qState.pair[0] + ' + ' + qState.pair[1] + ' = ' + quiz.answer + '. ' + quest.success,
-      },
-    ];
-    if (!quiz.hintShown && state.fireflies < state.maxFireflies) {
-      state.fireflies += 1;
-      lines.push({
-        speaker: 'Firefly Jar',
-        speakerColor: '#ffeaa1',
-        text: DIALOG.perfectBonus,
-      });
+    state.score += 100;
+    const elapsed = state.elapsed - qState.quizStartTime;
+    const fast = !quiz.hintShown && elapsed <= QUIZ_FAST_TIME;
+    if (fast) {
+      state.score += 75;
+      state.combo += 1;
+      if (state.fireflies < state.maxFireflies) state.fireflies += 1;
+      addPopup(400, 260, 'QUICK SOLVE +75', '#ff8e39', 26);
+      beep(1040, 0.15, 0.2, 'triangle');
+    } else {
+      addPopup(400, 260, 'SOLVED +100', '#ffd86f', 26);
     }
+    state.timeLeft = Math.min(GAME_DURATION, state.timeLeft + 15);
+    burst(400, 280, 42, '#ffd86f');
+    if (fast) burst(400, 280, 22, '#ff8e39');
+    state.shake = 0.4;
+    state.flash = { color: '#fff4cf', time: 0.25, max: 0.25 };
     chime();
     state.quiz = null;
     state.phase = 'explore';
-    openDialog(lines, 'explore', function() {
-      if (quest.gateType === 'final') startEnding();
-    });
+    state.gateCooldown = 0.7;
+    if (quest.gateType === 'final') {
+      startEnding(true);
+    }
     return;
   }
   qState.wrongGuesses += 1;
-  quiz.feedback = 'Not yet. Try again, or use a firefly for the counting frame.';
-  beep(220, 0.14, 0.2, 'square');
+  state.combo = 0;
+  state.timeLeft = Math.max(0, state.timeLeft - 3);
+  state.shake = 0.25;
+  state.flash = { color: '#d64040', time: 0.2, max: 0.2 };
+  quiz.feedback = 'Not yet! -3s';
+  beep(180, 0.18, 0.22, 'square');
 }
 
 function quizHitTest() {
@@ -719,23 +678,20 @@ function quizHitTest() {
 
 function useQuizHint() {
   if (!state.quiz) return;
-  if (state.quiz.hintShown) {
-    state.quiz.feedback = 'Counting frame already on. Count the gold ones, then the blue ones.';
-    return;
-  }
+  if (state.quiz.hintShown) return;
   if (state.fireflies <= 0) {
-    state.quiz.feedback = DIALOG.hintEmpty;
+    state.quiz.feedback = 'No fireflies left!';
     beep(180, 0.1, 0.15, 'square');
     return;
   }
   state.fireflies -= 1;
   state.quiz.hintShown = true;
-  state.quiz.feedback = 'Count the lit boxes: first gold, then blue.';
+  state.quiz.feedback = 'Count gold first, then blue.';
   beep(520, 0.08, 0.14, 'sine');
 }
 
 function updateNpc(npc, dt) {
-  npc.bob += dt * 5;
+  npc.bob += dt * 7;
   if (npc.wait > 0) {
     npc.wait -= dt;
     if (npc.wait <= 0) {
@@ -748,12 +704,123 @@ function updateNpc(npc, dt) {
   const dy = npc.ty - npc.y;
   const d = Math.hypot(dx, dy);
   if (d < 2) {
-    npc.wait = rand(0.8, 1.8);
+    npc.wait = rand(0.3, 1.0);
     return;
   }
   npc.x += dx / d * NPC_SPEED * dt;
   npc.y += dy / d * NPC_SPEED * dt;
   if (Math.abs(dx) > Math.abs(dy)) npc.face = dx < 0 ? 'left' : 'right';
+}
+
+function burst(x, y, n, color) {
+  const count = n || 18;
+  for (let i = 0; i < count; i++) {
+    const a = Math.random() * TAU;
+    const s = rand(70, 200);
+    state.particles.push({
+      x: x, y: y,
+      vx: Math.cos(a) * s,
+      vy: Math.sin(a) * s - 40,
+      life: rand(0.45, 0.95),
+      maxLife: 0.95,
+      color: color || '#ffd86f',
+      size: rand(2, 4.5),
+    });
+  }
+}
+
+function addPopup(x, y, text, color, size) {
+  state.popups.push({
+    x: x, y: y, text: text,
+    color: color || '#fff4cf',
+    size: size || 18,
+    life: 1.3,
+    maxLife: 1.3,
+  });
+}
+
+function updateEffects(dt) {
+  for (let i = state.particles.length - 1; i >= 0; i--) {
+    const p = state.particles[i];
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.vy += 240 * dt;
+    p.vx *= 0.96;
+    p.life -= dt;
+    if (p.life <= 0) state.particles.splice(i, 1);
+  }
+  for (let i = state.popups.length - 1; i >= 0; i--) {
+    const p = state.popups[i];
+    p.y -= 34 * dt;
+    p.life -= dt;
+    if (p.life <= 0) state.popups.splice(i, 1);
+  }
+  if (state.shake > 0) state.shake = Math.max(0, state.shake - dt * 1.4);
+  if (state.flash) {
+    state.flash.time -= dt;
+    if (state.flash.time <= 0) state.flash = null;
+  }
+  if (state.gateCooldown > 0) state.gateCooldown = Math.max(0, state.gateCooldown - dt);
+}
+
+function drawEffects() {
+  for (let i = 0; i < state.particles.length; i++) {
+    const p = state.particles[i];
+    ctx.globalAlpha = Math.min(1, p.life * 1.6);
+    drawCircle(ctx, p.x, p.y, p.size, p.color);
+  }
+  ctx.globalAlpha = 1;
+  for (let i = 0; i < state.popups.length; i++) {
+    const p = state.popups[i];
+    ctx.globalAlpha = Math.min(1, p.life / (p.maxLife * 0.6));
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.font = 'bold ' + p.size + 'px Georgia,serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(p.text, p.x + 2, p.y + 2);
+    ctx.restore();
+    drawText(ctx, p.text, p.x, p.y, p.color, p.size, 'center', 'bold');
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawFlash() {
+  if (!state.flash) return;
+  ctx.save();
+  ctx.globalAlpha = Math.max(0, state.flash.time / state.flash.max) * 0.55;
+  ctx.fillStyle = state.flash.color;
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+}
+
+function collectClue(npc) {
+  const qs = state.quests[npc.questIndex];
+  if (qs.cluesFound[npc.clueIndex]) return;
+  qs.cluesFound[npc.clueIndex] = true;
+  const info = getQuestSideInfo(npc.questIndex, npc.clueIndex);
+  state.score += 25;
+  addPopup(npc.x, npc.y - 30, '+' + info.number, '#ffd86f', 22);
+  burst(npc.x, npc.y - 6, 16, '#ffd86f');
+  state.shake = Math.max(state.shake, 0.18);
+  state.timeLeft = Math.min(GAME_DURATION, state.timeLeft + 3);
+  beep(620 + info.number * 18, 0.12, 0.14, 'triangle');
+  const cluesNow = (qs.cluesFound[0] ? 1 : 0) + (qs.cluesFound[1] ? 1 : 0);
+  if (cluesNow === 1) {
+    qs.firstClueTime = state.elapsed;
+  } else if (cluesNow === 2) {
+    const dt = state.elapsed - qs.firstClueTime;
+    if (dt <= DUAL_CLUE_WINDOW) {
+      state.score += 50;
+      state.combo += 1;
+      addPopup(state.player.x, state.player.y - 50, 'DUAL COMBO +50', '#ff8e39', 18);
+      if (state.fireflies < state.maxFireflies) state.fireflies += 1;
+      burst(state.player.x, state.player.y - 10, 26, '#ff8e39');
+      state.shake = Math.max(state.shake, 0.3);
+      beep(880, 0.14, 0.16, 'triangle');
+    } else {
+      addPopup(state.player.x, state.player.y - 50, 'Clues ready!', '#ffd86f', 16);
+    }
+  }
 }
 
 function inputX() {
@@ -807,101 +874,91 @@ function movePlayer(dt) {
   }
 }
 
-function clickedWorldInteractable() {
-  const area = currentArea();
-  const gateRect = area.gateRect;
-  if (rectContains(gateRect, mx, my)) return { type: 'gate' };
-  const npcs = currentAreaNpcs();
-  for (let i = 0; i < npcs.length; i++) {
-    if (dist(mx, my, npcs[i].x, npcs[i].y) <= 26) return { type: 'npc', npc: npcs[i] };
-  }
-  return null;
-}
-
-function nearbyInteractable() {
-  const area = currentArea();
-  let best = null;
-  let bestDist = 999;
-  const npcs = currentAreaNpcs();
-  for (let i = 0; i < npcs.length; i++) {
-    const d = dist(state.player.x, state.player.y, npcs[i].x, npcs[i].y);
-    if (d < INTERACT_DIST && d < bestDist) {
-      best = { type: 'npc', npc: npcs[i], x: npcs[i].x, y: npcs[i].y };
-      bestDist = d;
-    }
-  }
-  const gateX = area.id === 'picnic' ? area.gateRect.x + area.gateRect.w / 2 : area.gateRect.x + 10;
-  const gateY = area.gateRect.y + area.gateRect.h / 2;
-  const gateD = dist(state.player.x, state.player.y, gateX, gateY);
-  if (gateD < INTERACT_DIST && gateD < bestDist) {
-    best = { type: 'gate', x: gateX, y: gateY };
-  }
-  return best;
-}
-
-function interact(target) {
-  if (!target) return;
-  if (target.type === 'npc') {
-    openDialog(npcDialog(target.npc), 'explore');
-    return;
-  }
-  if (target.type === 'gate') {
-    const questIndex = currentArea().questIndex;
-    const qState = state.quests[questIndex];
-    if (qState.solved) {
-      showToast(DIALOG.gateSolved, 1.4);
-      return;
-    }
-    const gateLines = gateDialog(currentArea(), QUESTS[questIndex], qState);
-    if (gateLines) {
-      openDialog(gateLines, 'explore');
-    } else {
-      startQuiz(questIndex);
-    }
-  }
-}
-
 function objectiveText() {
   const area = currentArea();
-  const quest = QUESTS[area.questIndex];
   const qState = state.quests[area.questIndex];
   const found = (qState.cluesFound[0] ? 1 : 0) + (qState.cluesFound[1] ? 1 : 0);
-  if (!qState.solved) {
-    if (found === 0) return 'Talk to ' + CHARACTERS[quest.sideA.char].name + ' and ' + CHARACTERS[quest.sideB.char].name + ' for clue cards.';
-    if (found === 1) return 'One clue found. Track down the second clue card.';
-    return 'Both clues are ready. Walk to ' + quest.name + ' and solve the total.';
+  if (qState.solved) {
+    if (area.id === 'picnic') return 'Picnic unlocked!';
+    return 'Path open — sprint right!';
   }
-  if (area.id === 'picnic') return 'The picnic chest is open. Enjoy the celebration.';
-  return 'Path open. Walk onward to the next lake house area.';
+  if (found === 0) return 'Grab both clue numbers!';
+  if (found === 1) return 'One more clue! Keep running!';
+  return 'Clues ready — dash to the gate!';
 }
 
 function updateTitle() {
   if (eat('Space') || eat('Enter') || mclk) startAdventure();
 }
 
-function updateDialogPhase() {
-  if (eat('Space') || eat('Enter') || eat('KeyE') || mclk) advanceDialog();
-}
-
 function updateExplore(dt) {
   state.elapsed += dt;
+  state.timeLeft -= dt;
+  if (state.timeLeft <= 0) {
+    state.timeLeft = 0;
+    startEnding(false);
+    return;
+  }
   const npcs = currentAreaNpcs();
   for (let i = 0; i < npcs.length; i++) updateNpc(npcs[i], dt);
   movePlayer(dt);
-  const clicked = mclk ? clickedWorldInteractable() : null;
-  const nearby = nearbyInteractable();
-  if (clicked && dist(state.player.x, state.player.y, clicked.type === 'npc' ? clicked.npc.x : currentArea().gateRect.x + currentArea().gateRect.w / 2, clicked.type === 'npc' ? clicked.npc.y : currentArea().gateRect.y + currentArea().gateRect.h / 2) < INTERACT_DIST + 14) {
-    interact(clicked);
-    return;
+
+  // Auto-collect clues when running past an NPC
+  for (let i = 0; i < npcs.length; i++) {
+    const npc = npcs[i];
+    const nqs = state.quests[npc.questIndex];
+    if (nqs.cluesFound[npc.clueIndex]) continue;
+    if (dist(state.player.x, state.player.y, npc.x, npc.y) < COLLECT_DIST) {
+      collectClue(npc);
+    }
   }
-  if (nearby && (eat('Space') || eat('Enter') || eat('KeyE'))) {
-    interact(nearby);
+
+  // Gate proximity auto-trigger
+  const area = currentArea();
+  const qs = currentQuestState();
+  if (!qs.solved && state.gateCooldown <= 0) {
+    const gate = area.gateRect;
+    const gx = gate.x + gate.w / 2;
+    const gy = gate.y + gate.h / 2;
+    if (dist(state.player.x, state.player.y, gx, gy) < INTERACT_DIST) {
+      if (qs.cluesFound[0] && qs.cluesFound[1]) {
+        startQuiz(area.questIndex);
+        return;
+      } else if (!state.toast || state.toast.time < 0.4) {
+        const missing = qs.cluesFound[0] ? 1 : 0;
+        const info = getQuestSideInfo(area.questIndex, missing);
+        showToast('Find ' + info.charName + '\'s clue first!', 1.4);
+        state.gateCooldown = 0.8;
+        beep(220, 0.1, 0.14, 'square');
+      }
+    }
+  }
+
+  // Action button as manual backup
+  if (eat('Space') || eat('Enter') || eat('KeyE')) {
+    if (!qs.solved) {
+      const gate = area.gateRect;
+      const gx = gate.x + gate.w / 2;
+      const gy = gate.y + gate.h / 2;
+      if (dist(state.player.x, state.player.y, gx, gy) < INTERACT_DIST) {
+        if (qs.cluesFound[0] && qs.cluesFound[1]) startQuiz(area.questIndex);
+      }
+    }
   }
 }
 
-function updateQuizPhase() {
+function updateQuizPhase(dt) {
   const quiz = state.quiz;
   if (!quiz) return;
+  state.elapsed += dt;
+  state.timeLeft -= dt;
+  if (state.timeLeft <= 0) {
+    state.timeLeft = 0;
+    state.quiz = null;
+    state.phase = 'explore';
+    startEnding(false);
+    return;
+  }
   if (eat('ArrowLeft') || eat('KeyA')) quiz.selected = (quiz.selected + quiz.options.length - 1) % quiz.options.length;
   if (eat('ArrowRight') || eat('KeyD')) quiz.selected = (quiz.selected + 1) % quiz.options.length;
   if (eat('ArrowUp')) quiz.selected = (quiz.selected + quiz.options.length - 1) % quiz.options.length;
@@ -917,8 +974,7 @@ function updateQuizPhase() {
 
 function updateEnding(dt) {
   state.celebrationTime += dt;
-  state.elapsed += dt;
-  if (eat('Space') || eat('Enter') || mclk) resetToTitle();
+  if (state.celebrationTime > 0.6 && (eat('Space') || eat('Enter') || mclk)) resetToTitle();
 }
 
 function update(dt) {
@@ -927,18 +983,16 @@ function update(dt) {
     if (state.toast.time <= 0) state.toast = null;
   }
   state.phaseTime += dt;
+  updateEffects(dt);
   switch (state.phase) {
     case 'title':
       updateTitle();
-      break;
-    case 'dialog':
-      updateDialogPhase();
       break;
     case 'explore':
       updateExplore(dt);
       break;
     case 'quiz':
-      updateQuizPhase();
+      updateQuizPhase(dt);
       break;
     case 'ending':
       updateEnding(dt);
@@ -1339,22 +1393,40 @@ function drawAreaDynamics(area) {
 }
 
 function drawHud() {
-  fillRoundRect(ctx, 18, 18, 764, 68, 18, 'rgba(252,247,233,.88)', 'rgba(119,82,34,.35)', 2);
-  drawText(ctx, currentArea().name, 38, 44, '#7d5621', 22, 'left', 'bold');
-  drawText(ctx, objectiveText(), 38, 70, '#584020', 14, 'left', 'bold');
+  fillRoundRect(ctx, 18, 14, 764, 74, 16, 'rgba(252,247,233,.9)', 'rgba(119,82,34,.35)', 2);
 
-  drawText(ctx, 'Fireflies', 612, 40, '#7d5621', 13, 'center', 'bold');
-  for (let i = 0; i < state.maxFireflies; i++) {
-    const lit = i < state.fireflies;
-    drawCircle(ctx, 566 + i * 24, 62, 8, lit ? '#ffd86f' : '#ddd0b0', lit ? '#a87a1e' : '#9b8d6a', 2);
-    drawCircle(ctx, 566 + i * 24 - 6, 58, 3, lit ? 'rgba(255,255,255,.85)' : 'rgba(255,255,255,.25)');
-    drawCircle(ctx, 566 + i * 24 + 6, 58, 3, lit ? 'rgba(255,255,255,.85)' : 'rgba(255,255,255,.25)');
+  // Timer bar
+  const pct = Math.max(0, state.timeLeft / GAME_DURATION);
+  const barX = 34, barY = 26, barW = 320, barH = 18;
+  fillRoundRect(ctx, barX, barY, barW, barH, 9, 'rgba(80,50,20,.28)');
+  const barColor = pct > 0.5 ? '#5ec867' : pct > 0.25 ? '#f2c85a' : '#e25757';
+  const flashBar = (pct < 0.25) && (Math.sin(state.elapsed * 12) > 0);
+  fillRoundRect(ctx, barX + 2, barY + 2, Math.max(0, (barW - 4) * pct), barH - 4, 7, flashBar ? '#ff8e39' : barColor);
+  drawText(ctx, Math.ceil(state.timeLeft) + 's', barX + barW + 14, barY + 15, '#7d5621', 15, 'left', 'bold');
+
+  // Area name + objective
+  drawText(ctx, currentArea().name, 34, 64, '#7d5621', 16, 'left', 'bold');
+  drawText(ctx, objectiveText(), 34, 82, '#584020', 12, 'left', 'bold');
+
+  // Score + combo
+  drawText(ctx, 'SCORE', 488, 30, '#7d5621', 11, 'center', 'bold');
+  drawText(ctx, String(state.score), 488, 52, '#3c2a0e', 22, 'center', 'bold');
+  if (state.combo > 0) {
+    drawText(ctx, 'x' + state.combo + ' COMBO', 488, 74, '#ff8e39', 12, 'center', 'bold');
   }
 
-  drawText(ctx, 'Stickers', 718, 40, '#7d5621', 13, 'center', 'bold');
+  // Fireflies
+  drawText(ctx, 'FIREFLIES', 612, 30, '#7d5621', 10, 'center', 'bold');
+  for (let i = 0; i < state.maxFireflies; i++) {
+    const lit = i < state.fireflies;
+    drawCircle(ctx, 578 + i * 14, 54, 5, lit ? '#ffd86f' : '#ddd0b0', lit ? '#a87a1e' : '#9b8d6a', 1.5);
+  }
+
+  // Stickers
+  drawText(ctx, 'STICKERS', 718, 30, '#7d5621', 10, 'center', 'bold');
   for (let i = 0; i < 4; i++) {
-    const x = 682 + i * 18;
-    const y = 62;
+    const x = 686 + i * 18;
+    const y = 54;
     const fill = i < state.stickers ? '#f2c85a' : '#eadbb4';
     ctx.save();
     ctx.translate(x, y);
@@ -1383,23 +1455,29 @@ function drawToast() {
   drawText(ctx, state.toast.text, 400, 118, '#fff4cf', 15, 'center', 'bold');
 }
 
-function drawPrompt(target) {
-  if (!target || state.phase !== 'explore') return;
-  const label = target.type === 'npc' ? 'Talk' : 'Solve';
-  const bx = target.x;
-  const by = target.y - 42;
-  fillRoundRect(ctx, bx - 34, by - 16, 68, 24, 12, 'rgba(30,43,55,.84)', 'rgba(255,239,201,.45)', 2);
-  drawText(ctx, label, bx, by + 1, '#fff4cf', 13, 'center', 'bold', 'middle');
-}
-
 function drawWorld() {
   const area = currentArea();
+  ctx.save();
+  if (state.shake > 0) {
+    const mag = state.shake * 14;
+    ctx.translate((Math.random() - 0.5) * mag, (Math.random() - 0.5) * mag);
+  }
   ctx.drawImage(areaBackdrops[state.areaIndex], 0, 0);
   drawAreaDynamics(area);
 
+  // Clue indicators above uncollected NPCs
+  const qs = currentQuestState();
   const npcs = currentAreaNpcs();
   for (let i = 0; i < npcs.length; i++) {
-    drawCharacter(ctx, npcs[i].char, npcs[i].x, npcs[i].y, npcs[i].face, npcs[i].bob, 1);
+    const npc = npcs[i];
+    drawCharacter(ctx, npc.char, npc.x, npc.y, npc.face, npc.bob, 1);
+    const npcQs = state.quests[npc.questIndex];
+    if (!npcQs.cluesFound[npc.clueIndex] && npc.questIndex === currentArea().questIndex) {
+      const pulse = 0.6 + 0.4 * Math.sin(state.phaseTime * 6 + i);
+      const by = npc.y - 32 - pulse * 3;
+      drawCircle(ctx, npc.x, by, 9, 'rgba(255,216,111,' + (0.55 + pulse * 0.3) + ')');
+      drawText(ctx, '!', npc.x, by + 4, '#4a2f10', 14, 'center', 'bold');
+    }
   }
 
   if (state.phase === 'ending') {
@@ -1410,9 +1488,16 @@ function drawWorld() {
   }
 
   drawPlayer(ctx);
+  ctx.restore();
+
+  // Effects only draw here for explore phase; quiz/ending phases
+  // layer their panels first and then draw effects/flash on top.
+  if (state.phase === 'explore') {
+    drawEffects();
+    drawFlash();
+  }
   drawHud();
   drawToast();
-  drawPrompt(nearbyInteractable());
   if (mobileControlsOn()) drawMobileControls();
 }
 
@@ -1439,35 +1524,21 @@ function drawTitle() {
   drawCharacter(ctx, 'hippo', 304, 430, 'right', state.phaseTime * 5 + 1.1, 1);
   drawCharacter(ctx, 'rocket', 648, 406, 'right', state.phaseTime * 5 + 1.8, 1);
 
-  fillRoundRect(ctx, 104, 88, 592, 290, 28, 'rgba(27,44,59,.82)', 'rgba(255,239,202,.52)', 2);
-  drawText(ctx, DIALOG.title.title, 400, 162, '#fff0b6', 42, 'center', 'bold');
-  drawText(ctx, DIALOG.title.subtitle, 400, 204, '#d9e6ef', 18, 'center', 'bold');
-  drawText(ctx, DIALOG.title.start, 400, 262, '#fff4cf', 20, 'center', 'bold');
-  drawText(ctx, DIALOG.title.controls, 400, 300, '#d9e6ef', 15, 'center', 'bold');
-  drawText(ctx, DIALOG.title.hint, 400, 332, '#d9e6ef', 15, 'center', 'bold');
+  fillRoundRect(ctx, 92, 72, 616, 316, 28, 'rgba(27,44,59,.86)', 'rgba(255,239,202,.52)', 2);
+  drawText(ctx, 'LAKE HOUSE', 400, 138, '#fff0b6', 46, 'center', 'bold');
+  drawText(ctx, 'MATH RUSH', 400, 184, '#ffd86f', 46, 'center', 'bold');
+  drawText(ctx, 'Run. Grab numbers. Sprint to the gates.', 400, 222, '#d9e6ef', 15, 'center', 'bold');
+
+  const pulse = 0.5 + 0.5 * Math.sin(state.phaseTime * 4);
+  drawText(ctx, 'PRESS SPACE / TAP TO START', 400, 276, '#fff4cf', 20 + pulse * 2, 'center', 'bold');
+  drawText(ctx, 'Arrows or on-screen pad to move', 400, 308, '#d9e6ef', 13, 'center', 'bold');
+  drawText(ctx, 'Fireflies = counting frame hints', 400, 328, '#d9e6ef', 13, 'center', 'bold');
+  drawText(ctx, '120 seconds. Beat the clock!', 400, 348, '#ffd86f', 13, 'center', 'bold');
 
   if (state.best) {
-    const bestLine = 'Best run: ' + state.best.stickers + ' stickers, ' + state.best.fireflies + ' fireflies saved, ' + state.best.seconds + 's';
-    drawText(ctx, bestLine, 400, 366, '#ffe3a2', 15, 'center', 'bold');
+    const bestLine = 'Best: ' + state.best.score + ' pts  (' + state.best.stickers + ' stickers, ' + state.best.seconds + 's)';
+    drawText(ctx, bestLine, 400, 380, '#ffe3a2', 13, 'center', 'bold');
   }
-}
-
-function drawDialogPhase() {
-  drawWorld();
-  const line = state.dialog.lines[state.dialog.index];
-  MuckoEngine.renderDialog(ctx, {
-    x: 48,
-    y: 384,
-    w: 704,
-    h: 126,
-    speaker: line.speaker,
-    speakerColor: line.speakerColor || '#ffeaa1',
-    text: line.text,
-    color: 'rgba(13,27,39,.92)',
-    border: 'rgba(255,241,204,.42)',
-    fontSize: 15,
-  });
-  drawText(ctx, 'Tap or press Space to continue', 726, 494, '#cfd9df', 12, 'right', 'bold');
 }
 
 function drawClueCard(rect, quest, questState, clueIndex) {
@@ -1484,42 +1555,79 @@ function drawQuizPhase() {
   const layout = questionLayout();
   const quest = QUESTS[state.quiz.questIndex];
   const questState = state.quests[state.quiz.questIndex];
-  fillRoundRect(ctx, layout.panel.x, layout.panel.y, layout.panel.w, layout.panel.h, 26, 'rgba(247,241,225,.96)', 'rgba(130,92,38,.52)', 3);
-  drawText(ctx, quest.name, 400, 100, '#815920', 28, 'center', 'bold');
-  drawText(ctx, quest.prompt, 400, 122, '#584020', 15, 'center', 'bold');
+  fillRoundRect(ctx, layout.panel.x, layout.panel.y, layout.panel.w, layout.panel.h, 26, 'rgba(247,241,225,.97)', 'rgba(130,92,38,.52)', 3);
+
+  // Quick-solve timer bar (fades as QUIZ_FAST_TIME elapses)
+  const quizElapsed = state.elapsed - questState.quizStartTime;
+  const fastPct = Math.max(0, 1 - quizElapsed / QUIZ_FAST_TIME);
+  fillRoundRect(ctx, 120, 68, 560, 10, 5, 'rgba(80,50,20,.22)');
+  if (fastPct > 0 && !state.quiz.hintShown) {
+    fillRoundRect(ctx, 122, 70, (560 - 4) * fastPct, 6, 3, '#ff8e39');
+  }
+  drawText(ctx, fastPct > 0 && !state.quiz.hintShown ? 'QUICK SOLVE WINDOW' : quest.name, 400, 92, '#815920', 16, 'center', 'bold');
+
+  drawText(ctx, quest.name, 400, 118, '#815920', 24, 'center', 'bold');
   drawClueCard(layout.cardA, quest, questState, 0);
   drawClueCard(layout.cardB, quest, questState, 1);
-  drawText(ctx, questState.pair[0] + ' + ' + questState.pair[1] + ' = ?', 400, layout.eqY, '#583f19', 38, 'center', 'bold');
+  drawText(ctx, questState.pair[0] + ' + ' + questState.pair[1] + ' = ?', 400, layout.eqY, '#583f19', 40, 'center', 'bold');
 
   for (let i = 0; i < layout.optionRects.length; i++) {
     const rect = layout.optionRects[i];
     const selected = i === state.quiz.selected;
     const hovered = rectContains(rect, mx, my);
     const fill = selected || hovered ? '#f2d788' : '#fff7e4';
-    fillRoundRect(ctx, rect.x, rect.y, rect.w, rect.h, 18, fill, selected ? '#b77d1f' : '#bca57a', selected ? 3 : 2);
-    drawText(ctx, String(state.quiz.options[i]), rect.x + rect.w / 2, rect.y + 46, '#5a3d16', 34, 'center', 'bold');
+    const bounce = selected ? Math.sin(state.elapsed * 10) * 2 : 0;
+    fillRoundRect(ctx, rect.x, rect.y - bounce, rect.w, rect.h, 18, fill, selected ? '#b77d1f' : '#bca57a', selected ? 3 : 2);
+    drawText(ctx, String(state.quiz.options[i]), rect.x + rect.w / 2, rect.y + 46 - bounce, '#5a3d16', 34, 'center', 'bold');
   }
 
   fillRoundRect(ctx, layout.hintRect.x, layout.hintRect.y, layout.hintRect.w, layout.hintRect.h, 14, '#e7f1f5', '#7a96a8', 2);
-  drawText(ctx, 'Use 1 firefly for a counting frame', layout.hintRect.x + layout.hintRect.w / 2, layout.hintRect.y + 24, '#39596c', 15, 'center', 'bold');
+  drawText(ctx, 'Tap for counting frame (1 firefly)', layout.hintRect.x + layout.hintRect.w / 2, layout.hintRect.y + 24, '#39596c', 13, 'center', 'bold');
 
   if (state.quiz.hintShown) {
-    drawTenFrame(ctx, 278, 314, quest, questState.pair[0], questState.pair[1]);
+    drawTenFrame(ctx, 278, 310, quest, questState.pair[0], questState.pair[1]);
   }
   if (state.quiz.feedback) {
-    drawText(ctx, state.quiz.feedback, 400, 436, '#8b4d27', 15, 'center', 'bold');
-  } else {
-    drawText(ctx, DIALOG.hintReady, 400, 436, '#6d5830', 15, 'center', 'bold');
+    drawText(ctx, state.quiz.feedback, 400, 498, '#8b4d27', 14, 'center', 'bold');
   }
+  drawEffects();
+  drawFlash();
 }
 
 function drawEnding() {
   drawWorld();
   const pulse = 0.5 + 0.5 * Math.sin(state.celebrationTime * 4);
-  fillRoundRect(ctx, 148, 110, 504, 198, 28, 'rgba(24,41,57,.78)', 'rgba(255,241,204,.58)', 2);
-  drawText(ctx, 'Picnic Complete', 400, 172, '#ffe9aa', 36, 'center', 'bold');
-  drawText(ctx, 'You opened all 4 puzzles and saved ' + state.fireflies + ' fireflies.', 400, 214, '#eef7ff', 18, 'center', 'bold');
-  drawText(ctx, 'Press Space or tap to play again.', 400, 248, '#ffe9aa', 17 + pulse, 'center', 'bold');
+  fillRoundRect(ctx, 116, 84, 568, 340, 28, 'rgba(24,41,57,.86)', 'rgba(255,241,204,.58)', 2);
+  const title = state.endingSuccess ? 'PICNIC UNLOCKED!' : 'TIME\'S UP!';
+  const titleColor = state.endingSuccess ? '#ffe9aa' : '#ffb36b';
+  drawText(ctx, title, 400, 142, titleColor, 36, 'center', 'bold');
+
+  const bd = state.finalBreakdown || { base: 0, timeBonus: 0, fireflyBonus: 0, comboBonus: 0, total: state.finalScore };
+  let y = 194;
+  drawText(ctx, 'Base score', 236, y, '#d9e6ef', 16, 'left', 'bold');
+  drawText(ctx, String(bd.base), 564, y, '#fff4cf', 16, 'right', 'bold');
+  y += 28;
+  drawText(ctx, 'Time bonus (+10/sec)', 236, y, '#d9e6ef', 16, 'left', 'bold');
+  drawText(ctx, '+' + bd.timeBonus, 564, y, '#fff4cf', 16, 'right', 'bold');
+  y += 28;
+  drawText(ctx, 'Firefly jar (+25 ea)', 236, y, '#d9e6ef', 16, 'left', 'bold');
+  drawText(ctx, '+' + bd.fireflyBonus, 564, y, '#fff4cf', 16, 'right', 'bold');
+  y += 28;
+  drawText(ctx, 'Combo streak (x' + state.combo + ')', 236, y, '#d9e6ef', 16, 'left', 'bold');
+  drawText(ctx, '+' + bd.comboBonus, 564, y, '#fff4cf', 16, 'right', 'bold');
+  y += 8;
+  drawLine(ctx, 220, y, 580, y, 'rgba(255,241,204,.4)', 2);
+  y += 28;
+  drawText(ctx, 'TOTAL', 236, y, '#ffe9aa', 20, 'left', 'bold');
+  drawText(ctx, String(bd.total), 564, y, '#ffe9aa', 22, 'right', 'bold');
+
+  if (state.best && state.best.score === bd.total && state.endingSuccess) {
+    drawText(ctx, 'NEW BEST!', 400, y + 32, '#ff8e39', 18, 'center', 'bold');
+  }
+
+  drawText(ctx, 'Press Space or tap to play again', 400, 404, '#ffe9aa', 15 + pulse, 'center', 'bold');
+  drawEffects();
+  drawFlash();
 }
 
 function draw() {
@@ -1527,9 +1635,6 @@ function draw() {
   switch (state.phase) {
     case 'title':
       drawTitle();
-      break;
-    case 'dialog':
-      drawDialogPhase();
       break;
     case 'explore':
       drawWorld();
