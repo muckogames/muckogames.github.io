@@ -23,14 +23,30 @@ function initCanvas(canvasEl, W, H) {
   const ctx = canvasEl.getContext('2d');
   ctx.scale(DPR, DPR);
 
+  // Use fixed positioning + transform from top-left so the scaled stage
+  // is placed precisely inside the visible viewport (fixes Android/iOS
+  // browser chrome cutoffs and flex-centering bugs with transform:scale).
+  stage.style.position = 'fixed';
+  stage.style.width  = W + 'px';
+  stage.style.height = H + 'px';
+  stage.style.transformOrigin = 'top left';
+  stage.style.left = '0px';
+  stage.style.top  = '0px';
+  function viewW(){ return (window.visualViewport && window.visualViewport.width)  || window.innerWidth;  }
+  function viewH(){ return (window.visualViewport && window.visualViewport.height) || window.innerHeight; }
   function resize() {
-    const s = Math.min(window.innerWidth / W, window.innerHeight / H);
+    const vw = viewW(), vh = viewH();
+    const s = Math.min(vw / W, vh / H);
+    const sw = W * s, sh = H * s;
     stage.style.transform = 'scale(' + s + ')';
-    stage.style.transformOrigin = 'top center';
-    stage.style.width  = W + 'px';
-    stage.style.height = H + 'px';
+    stage.style.left = Math.round((vw - sw) / 2) + 'px';
+    stage.style.top  = Math.round((vh - sh) / 2) + 'px';
   }
   window.addEventListener('resize', resize);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', resize);
+    window.visualViewport.addEventListener('scroll', resize);
+  }
   resize();
   return ctx;
 }
