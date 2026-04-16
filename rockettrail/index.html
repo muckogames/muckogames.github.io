@@ -766,29 +766,33 @@ function updateTravel(dt) {
 }
 /* ── STIR THE TANKS? dialog (drawn on top of travel background) ─────────── */
 function drawStirTanksPanel() {
-  // NOTE: stars/planets/ship already drawn by drawTravel; we just draw the dialog box
-  rnd(W/2-255, H/2-122, 510, 256, 14, 'rgba(5,8,20,0.93)', 'rgba(255,155,20,0.6)', 2);
+  // Dark overlay — makes dialog impossible to miss on mobile
+  ctx.save(); ctx.globalAlpha=0.65; drect(0,0,W,H,'#000'); ctx.restore();
+  // Pulsing border for extra attention
+  var pulse = 0.5 + Math.sin(gT * 0.09) * 0.5;
+  var bClr = 'rgba(255,'+Math.round(120+pulse*55)+',20,'+(0.55+pulse*0.4)+')';
+  rnd(W/2-360, H/2-130, 720, 270, 16, 'rgba(5,8,20,0.97)', bClr, 2+pulse*2);
   // Header bar
-  ctx.save(); ctx.globalAlpha=0.35;
-  rnd(W/2-255, H/2-122, 510, 40, 14, 'rgba(200,80,0,1)', null, 0);
+  ctx.save(); ctx.globalAlpha=0.45;
+  rnd(W/2-360, H/2-130, 720, 44, 16, 'rgba(200,80,0,1)', null, 0);
   ctx.restore();
-  txt('\u26A1  MISSION CONTROL REQUEST', W/2, H/2-97, '#ffcc44', 14, 'center', 'bold monospace');
+  txt('\u26A1  MISSION CONTROL REQUEST', W/2, H/2-103, '#ffcc44', 15, 'center', 'bold monospace');
   // Body text
-  txt('"Can you stir the cryogenic O2 tanks?', W/2, H/2-62, '#ccddff', 14, 'center', 'Georgia');
-  txt('Just flip the switch \u2014 should be routine."', W/2, H/2-40, '#ccddff', 14, 'center', 'Georgia');
-  txt('— Houston, Mission Control', W/2, H/2-16, '#8899bb', 11, 'center', 'italic Georgia');
-  // YES button (ominous orange)
-  var hYes = mx>W/2-235&&mx<W/2-15&&my>H/2+4&&my<H/2+58;
-  rnd(W/2-235, H/2+4, 220, 54, 10, hYes?'#401500':'#220900',
-      hYes?'rgba(255,130,30,1)':'rgba(255,100,20,0.6)', hYes?2.5:1.5);
-  txt('YES, STIR THEM!', W/2-125, H/2+36, hYes?'#ffee88':'#ffaa44', 14, 'center', 'bold monospace');
-  // NO button (safe blue)
-  var hNo = mx>W/2+15&&mx<W/2+235&&my>H/2+4&&my<H/2+58;
-  rnd(W/2+15, H/2+4, 220, 54, 10, hNo?'#0a1e3a':'#060e1e',
-      hNo?'rgba(100,190,255,1)':'rgba(60,140,210,0.55)', hNo?2.5:1.5);
-  txt('NO THANKS', W/2+125, H/2+36, hNo?'#ccf0ff':'#88aacc', 14, 'center', 'bold monospace');
+  txt('"Can you stir the cryogenic O2 tanks?', W/2, H/2-66, '#ccddff', 15, 'center', 'Georgia');
+  txt('Just flip the switch \u2014 should be routine."', W/2, H/2-44, '#ccddff', 15, 'center', 'Georgia');
+  txt('— Houston, Mission Control', W/2, H/2-18, '#8899bb', 12, 'center', 'italic Georgia');
+  // YES button (ominous orange) — wide touch target
+  var hYes = mx>W/2-348&&mx<W/2-15&&my>H/2+4&&my<H/2+72;
+  rnd(W/2-348, H/2+4, 333, 68, 12, hYes?'#401500':'#220900',
+      hYes?'rgba(255,130,30,1)':'rgba(255,100,20,0.65)', hYes?3:2);
+  txt('YES, STIR THEM!', W/2-181, H/2+50, hYes?'#ffee88':'#ffaa44', 15, 'center', 'bold monospace');
+  // NO button (safe blue) — wide touch target
+  var hNo = mx>W/2+15&&mx<W/2+348&&my>H/2+4&&my<H/2+72;
+  rnd(W/2+15, H/2+4, 333, 68, 12, hNo?'#0a1e3a':'#060e1e',
+      hNo?'rgba(100,190,255,1)':'rgba(60,140,210,0.6)', hNo?3:2);
+  txt('NO THANKS', W/2+181, H/2+50, hNo?'#ccf0ff':'#88aacc', 15, 'center', 'bold monospace');
   // Subtle flavour hint
-  txt('Choose wisely...', W/2, H/2+76, 'rgba(180,140,70,0.4)', 11, 'center', 'italic Georgia');
+  txt('Choose wisely...', W/2, H/2+92, 'rgba(180,140,70,0.5)', 12, 'center', 'italic Georgia');
   // Handle clicks (keyboard not supported — this choice deserves a deliberate tap)
   if (mclk) {
     mclk = false;
