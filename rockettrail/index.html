@@ -1411,7 +1411,7 @@ function initApollo13() {
       col: Math.random()<0.6?'#ff8800':'#ff3300'
     });
   }
-  a13 = { t:0, sub:'explosion', explParts:explParts, slingT:0 };
+  a13 = { t:0, sub:'explosion', explParts:explParts, slingT:0, ventParts:[] };
   boom(0.95, 0.55);
   beep(120, 1.2, 0.3, 'sawtooth');
   beep(80,  0.7, 0.2, 'square');
@@ -1424,6 +1424,23 @@ function updateApollo13(dt) {
   a13.explParts.forEach(function(p) {
     p.x += p.vx*dt; p.y += p.vy*dt; p.life += dt;
     p.vx *= Math.max(0, 1 - 2.5*dt); p.vy *= Math.max(0, 1 - 2.5*dt);
+  });
+  // O2 vent cloud — gas drifting from the damaged tank after the blast
+  var ventX = W/2+8, ventY = a13.sub==='explosion' ? H/2-2 : H/2+7;
+  var doSpawn = (a13.sub==='explosion' && a13.t>0.7) || a13.sub==='comms';
+  if (doSpawn && Math.random() < 15*dt) {
+    var va = -0.15 + (Math.random()-0.5)*1.0;
+    var vs = 14 + Math.random()*22;
+    a13.ventParts.push({
+      x: ventX+(Math.random()-0.5)*6, y: ventY+(Math.random()-0.5)*6,
+      vx: Math.cos(va)*vs, vy: Math.sin(va)*vs-3,
+      r: 2+Math.random()*3, life:0, maxLife:1.8+Math.random()*1.4
+    });
+  }
+  a13.ventParts = a13.ventParts.filter(function(p) {
+    p.x += p.vx*dt; p.y += p.vy*dt;
+    p.vx *= Math.max(0, 1-0.9*dt); p.vy *= Math.max(0, 1-0.9*dt);
+    p.life += dt; return p.life < p.maxLife;
   });
   if (a13.sub === 'explosion') {
     if (a13.t > 3.5) {
@@ -1444,6 +1461,21 @@ function updateApollo13(dt) {
     }
   }
 }
+function drawVentCloud() {
+  a13.ventParts.forEach(function(p) {
+    var frac = p.life/p.maxLife;
+    var al = Math.max(0, 1-frac)*0.5;
+    if (al < 0.02) return;
+    var rr = Math.max(1, p.r*(1+frac*1.4));
+    ctx.save(); ctx.globalAlpha=al;
+    var gr = ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,rr);
+    gr.addColorStop(0,'rgba(215,242,255,1)');
+    gr.addColorStop(0.5,'rgba(155,215,245,0.5)');
+    gr.addColorStop(1,'rgba(100,185,240,0)');
+    ctx.fillStyle=gr; ctx.beginPath(); ctx.arc(p.x,p.y,rr,0,TAU); ctx.fill();
+    ctx.restore();
+  });
+}
 function drawApollo13() {
   if (a13.sub === 'explosion') {
     var fl = Math.max(0, 1 - a13.t * 0.8);
@@ -1458,6 +1490,7 @@ function drawApollo13() {
       circ(p.x, p.y, Math.max(0.5, p.r*(1-p.life/p.maxLife*0.7)), p.col);
       ctx.restore();
     });
+    drawVentCloud();
     var ta = Math.min(1, a13.t*2.5);
     ctx.save(); ctx.globalAlpha=ta;
     ctx.font='bold 60px Georgia'; ctx.textAlign='center'; ctx.textBaseline='middle';
@@ -1484,6 +1517,7 @@ function drawApollo13() {
     dglow.addColorStop(0,'rgba(255,110,0,0.85)'); dglow.addColorStop(1,'rgba(255,50,0,0)');
     ctx.fillStyle=dglow; ctx.beginPath(); ctx.arc(7,-1,20,0,TAU); ctx.fill();
     ctx.restore();
+    drawVentCloud();
     var fa = Math.min(1, a13.t*2.2);
     ctx.save(); ctx.globalAlpha=fa;
     rnd(W/2-266, H/2-120, 532, 242, 14, 'rgba(20,5,0,0.93)', 'rgba(255,100,20,0.6)', 2);
@@ -1526,6 +1560,7 @@ function drawApollo13() {
       ctx.restore();
     }
     ctx.restore();
+    drawVentCloud(); // lingering O2 cloud from comms phase fades out
     // HUD
     txt('FREE-RETURN TRAJECTORY', W/2, 36, '#88aaff', 17, 'center', 'bold monospace');
     txt('Slingshotting around the Moon...', W/2, 58, '#5577aa', 13, 'center', 'italic Georgia');
