@@ -42,13 +42,17 @@ var ctx    = canvas.getContext('2d');
 canvas.width = W; canvas.height = H;
 ctx.lineJoin = 'round'; ctx.lineCap = 'round';
 
+function viewW() { var vv = window.visualViewport; return vv ? vv.width  : window.innerWidth;  }
+function viewH() { var vv = window.visualViewport; return vv ? vv.height : window.innerHeight; }
 function resize() {
-  var s = Math.min(window.innerWidth / W, window.innerHeight / H);
+  var vw = viewW(), vh = viewH();
+  var s = Math.min(vw / W, vh / H);
   stage.style.transform = 'scale(' + s + ')';
-  stage.style.left = Math.round((window.innerWidth  - W*s) / 2) + 'px';
-  stage.style.top  = Math.round((window.innerHeight - H*s) / 2) + 'px';
+  stage.style.left = Math.round((vw - W*s) / 2) + 'px';
+  stage.style.top  = Math.round((vh - H*s) / 2) + 'px';
 }
 window.addEventListener('resize', resize);
+if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
 resize();
 
 /* ── AUDIO ───────────────────────────────────────────────────────────────── */
@@ -381,6 +385,8 @@ var scoreSaved = false;
 var minerals = 0;   // collected during asteroid mining
 var trav = null;    // travel phase state
 var mine = null;    // mining phase state
+var apollo13Mode = false;  // O2 tank explosion triggered — free-return trajectory
+var a13 = null;            // apollo13 phase state
 
 /* ══════════════════════════════════════════════════════════════════════════
    DRAWING: SATURN V
@@ -610,7 +616,7 @@ function drawMoonSurface(groundY, padX) {
 var padT = 0;
 function initPad() {
   runScore = {landing:0, reentry:0, chute:0};
-  scoreSaved = false; minerals = 0;
+  scoreSaved = false; minerals = 0; apollo13Mode = false;
   padT = 0;
   phase = 'pad';
 }
@@ -715,9 +721,9 @@ function initTravel(dest) {
 // Sequence of sub-phases for each trip direction (varies by difficulty)
 var SEQ_BACK = ['intro','sleep1','wake1','sleep2','wake2','done'];
 function getSeqOut() {
-  if (difficulty === 'mercury') return ['intro','sleep1','wake1','solarflare','mining','sleep2','wake2','done'];
-  if (difficulty === 'apollo')  return ['intro','sleep1','wake1','deepspace','sleep2','wake2','done'];
-  return ['intro','sleep1','wake1','mining','sleep2','wake2','done']; // gemini default
+  if (difficulty === 'mercury') return ['intro','sleep1','wake1','solarflare','mining','sleep2','wake2','stirtanks','done'];
+  if (difficulty === 'apollo')  return ['intro','sleep1','wake1','deepspace','sleep2','wake2','stirtanks','done'];
+  return ['intro','sleep1','wake1','mining','sleep2','wake2','stirtanks','done']; // gemini default
 }
 
 function nextTravelSub() {
@@ -736,7 +742,9 @@ function nextTravelSub() {
   if (trav.sub === 'deepspace')  { initDeepSpace();  return; }
   if (trav.sub === 'done') {
     if (trav.dest === 'moonland') initMoonLand(); else initReentry();
+    return;
   }
+  phase = 'travel'; // restore travel rendering for sleep/wake/stirtanks sub-phases
 }
 function updateTravel(dt) {
   trav.t += dt; trav.subT += dt;
@@ -748,13 +756,47 @@ function updateTravel(dt) {
   trav.zzz = trav.zzz.filter(function(z){z.y+=z.vy*dt; z.life+=dt; return z.life<3.5;});
   // Ship moves toward destination
   var prog = sub==='intro'?0:sub==='sleep1'?0.15:sub==='wake1'?0.32:
-             sub==='mining'?0.45:sub==='sleep2'?0.62:sub==='wake2'?0.82:1;
+             sub==='mining'?0.45:sub==='sleep2'?0.62:sub==='wake2'?0.82:
+             sub==='stirtanks'?0.92:1;
   var targetX = trav.dest==='moonland' ? (90+prog*(W-200)) : ((W-90)-prog*(W-200));
   trav.shipX += (targetX - trav.shipX) * Math.min(1, dt*1.8);
   // Auto-advance sleep after 2.5s, wake2 after 3s
   if ((sub==='sleep1'||sub==='sleep2') && trav.subT>2.5) nextTravelSub();
   if (sub==='wake2' && trav.subT>3) nextTravelSub();
 }
+/* ── STIR THE TANKS? dialog (drawn on top of travel background) ─────────── */
+function drawStirTanksPanel() {
+  // NOTE: stars/planets/ship already drawn by drawTravel; we just draw the dialog box
+  rnd(W/2-255, H/2-122, 510, 256, 14, 'rgba(5,8,20,0.93)', 'rgba(255,155,20,0.6)', 2);
+  // Header bar
+  ctx.save(); ctx.globalAlpha=0.35;
+  rnd(W/2-255, H/2-122, 510, 40, 14, 'rgba(200,80,0,1)', null, 0);
+  ctx.restore();
+  txt('\u26A1  MISSION CONTROL REQUEST', W/2, H/2-97, '#ffcc44', 14, 'center', 'bold monospace');
+  // Body text
+  txt('"Can you stir the cryogenic O2 tanks?', W/2, H/2-62, '#ccddff', 14, 'center', 'Georgia');
+  txt('Just flip the switch \u2014 should be routine."', W/2, H/2-40, '#ccddff', 14, 'center', 'Georgia');
+  txt('— Houston, Mission Control', W/2, H/2-16, '#8899bb', 11, 'center', 'italic Georgia');
+  // YES button (ominous orange)
+  var hYes = mx>W/2-235&&mx<W/2-15&&my>H/2+4&&my<H/2+58;
+  rnd(W/2-235, H/2+4, 220, 54, 10, hYes?'#401500':'#220900',
+      hYes?'rgba(255,130,30,1)':'rgba(255,100,20,0.6)', hYes?2.5:1.5);
+  txt('YES, STIR THEM!', W/2-125, H/2+36, hYes?'#ffee88':'#ffaa44', 14, 'center', 'bold monospace');
+  // NO button (safe blue)
+  var hNo = mx>W/2+15&&mx<W/2+235&&my>H/2+4&&my<H/2+58;
+  rnd(W/2+15, H/2+4, 220, 54, 10, hNo?'#0a1e3a':'#060e1e',
+      hNo?'rgba(100,190,255,1)':'rgba(60,140,210,0.55)', hNo?2.5:1.5);
+  txt('NO THANKS', W/2+125, H/2+36, hNo?'#ccf0ff':'#88aacc', 14, 'center', 'bold monospace');
+  // Subtle flavour hint
+  txt('Choose wisely...', W/2, H/2+76, 'rgba(180,140,70,0.4)', 11, 'center', 'italic Georgia');
+  // Handle clicks (keyboard not supported — this choice deserves a deliberate tap)
+  if (mclk) {
+    mclk = false;
+    if (hYes) { initApollo13(); return; }
+    if (hNo)  { nextTravelSub(); }       // → 'done' → initMoonLand()
+  }
+}
+
 function drawTravel() {
   var isNight = trav.sub==='sleep1'||trav.sub==='sleep2';
   // Space background
@@ -796,6 +838,8 @@ function drawTravel() {
 
   // Day panel
   var sub=trav.sub;
+  // Apollo 13 "Stir the tanks?" sub-phase — draw dialog over travel background and return
+  if (sub === 'stirtanks') { drawStirTanksPanel(); return; }
   var hdg = sub==='intro' ?
       (trav.dest==='moonland'?'DAY 1 \u2014 HEADING TO THE MOON! \uD83C\uDF15':'DAY 1 \u2014 HEADING HOME! \uD83C\uDF0D') :
     sub==='wake1' ? 'DAY 2 \u2014 HALFWAY THERE!' :
@@ -1342,6 +1386,155 @@ function drawDeepSpace() {
     txt(ds.landingBonus?'Full diagnostic complete \u2014 expanded landing zone!':'Proceeding with standard approach.',
         W/2,H/2+76,'#7799bb',12,'center','Georgia');
     ctx.restore();
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PHASE: APOLLO 13  (O2 tank explosion → slingshot around moon → re-entry)
+   ══════════════════════════════════════════════════════════════════════════ */
+function initApollo13() {
+  apollo13Mode = true;
+  runScore.landing = 0;
+  // Explosion particle burst
+  var explParts = [];
+  for (var i=0; i<44; i++) {
+    var ang = Math.random()*TAU;
+    var spd = 80 + Math.random()*180;
+    explParts.push({
+      x: W/2+(Math.random()-0.5)*22, y: H/2+(Math.random()-0.5)*22,
+      vx: Math.cos(ang)*spd, vy: Math.sin(ang)*spd,
+      r: 4+Math.random()*9, life:0, maxLife:0.5+Math.random()*1.1,
+      col: Math.random()<0.6?'#ff8800':'#ff3300'
+    });
+  }
+  a13 = { t:0, sub:'explosion', explParts:explParts, slingT:0 };
+  boom(0.95, 0.55);
+  beep(120, 1.2, 0.3, 'sawtooth');
+  beep(80,  0.7, 0.2, 'square');
+  shake(24, 1500);
+  showRadio('Columbia \u2014 Houston. We have a problem. Stand by.');
+  phase = 'apollo13';
+}
+function updateApollo13(dt) {
+  a13.t += dt;
+  a13.explParts.forEach(function(p) {
+    p.x += p.vx*dt; p.y += p.vy*dt; p.life += dt;
+    p.vx *= Math.max(0, 1 - 2.5*dt); p.vy *= Math.max(0, 1 - 2.5*dt);
+  });
+  if (a13.sub === 'explosion') {
+    if (a13.t > 3.5) {
+      a13.sub = 'comms'; a13.t = 0;
+      showRadio('O2 tank 2 has failed. Free-return trajectory confirmed.');
+    }
+  } else if (a13.sub === 'comms') {
+    if (a13.t > 1.5 && (mclk || eat('Space') || eat('Enter'))) {
+      if (mclk) mclk = false;
+      a13.sub = 'slingshot'; a13.t = 0;
+      showRadio('Apollo 13, begin lunar slingshot. We are bringing you home!');
+    }
+  } else if (a13.sub === 'slingshot') {
+    a13.slingT = Math.min(1, a13.t / 4.2);
+    if (a13.t > 5.0 || (a13.t > 2.0 && (eat('Space') || eat('Enter') || mclk))) {
+      if (mclk) mclk = false;
+      initReentry();
+    }
+  }
+}
+function drawApollo13() {
+  if (a13.sub === 'explosion') {
+    var fl = Math.max(0, 1 - a13.t * 0.8);
+    var bg = Math.round(8 + fl*55);
+    drect(0,0,W,H,'rgb('+bg+','+Math.round(bg*0.12)+',0)');
+    if (fl > 0) {
+      ctx.save(); ctx.globalAlpha=fl*0.9; drect(0,0,W,H,'#ff5500'); ctx.restore();
+    }
+    a13.explParts.forEach(function(p) {
+      var a = Math.max(0, 1 - p.life/p.maxLife); if (a<0.01) return;
+      ctx.save(); ctx.globalAlpha=a;
+      circ(p.x, p.y, Math.max(0.5, p.r*(1-p.life/p.maxLife*0.7)), p.col);
+      ctx.restore();
+    });
+    var ta = Math.min(1, a13.t*2.5);
+    ctx.save(); ctx.globalAlpha=ta;
+    ctx.font='bold 60px Georgia'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.shadowColor='rgba(255,140,0,0.9)'; ctx.shadowBlur=36;
+    ctx.fillStyle='#ffffff'; ctx.fillText('BOOM!', W/2, H/2-44);
+    ctx.shadowBlur=0; ctx.restore();
+    txt('O2 TANK EXPLOSION!', W/2, H/2+18, '#ffaa44', 20, 'center', 'bold monospace');
+    if (a13.t > 1.4) {
+      var wa = Math.min(1, (a13.t-1.4)*2.5);
+      ctx.save(); ctx.globalAlpha=wa;
+      rnd(W/2-195, H/2+48, 390, 52, 8, 'rgba(100,0,0,0.88)', 'rgba(255,70,0,0.75)', 2);
+      txt('OXYGEN PRESSURE: CRITICAL', W/2, H/2+68, '#ffcc88', 13, 'center', 'bold monospace');
+      txt('O2 TANK 2 \u2014 CATASTROPHIC FAILURE', W/2, H/2+86, '#ff8844', 11, 'center', 'monospace');
+      ctx.restore();
+    }
+  } else if (a13.sub === 'comms') {
+    drect(0,0,W,H,'#03030e'); drawStars(0.6);
+    ctx.save(); ctx.globalAlpha=0.22; drawMoon(W*0.72, H*0.38, 52); ctx.restore();
+    ctx.save(); ctx.globalAlpha=0.15; drawEarth(65, H*0.62, 50); ctx.restore();
+    // Damaged ship (glowing wound on side)
+    ctx.save(); ctx.translate(W/2, H/2+8);
+    poly([[0,-7],[-5,6],[5,6]],'#d8d8d0','#888',1);
+    var dglow = ctx.createRadialGradient(7,-1,0,7,-1,20);
+    dglow.addColorStop(0,'rgba(255,110,0,0.85)'); dglow.addColorStop(1,'rgba(255,50,0,0)');
+    ctx.fillStyle=dglow; ctx.beginPath(); ctx.arc(7,-1,20,0,TAU); ctx.fill();
+    ctx.restore();
+    var fa = Math.min(1, a13.t*2.2);
+    ctx.save(); ctx.globalAlpha=fa;
+    rnd(W/2-266, H/2-120, 532, 242, 14, 'rgba(20,5,0,0.93)', 'rgba(255,100,20,0.6)', 2);
+    txt('HOUSTON, WE HAVE A PROBLEM', W/2, H/2-82, '#ff8844', 18, 'center', 'bold monospace');
+    txt('O2 tank 2 has exploded. Moon landing is impossible.', W/2, H/2-52, '#ffbb88', 13, 'center', 'Georgia');
+    txt('You will use the Moon\'s gravity to slingshot', W/2, H/2-28, '#ccaa88', 13, 'center', 'Georgia');
+    txt('back toward Earth \u2014 Apollo 13 style.', W/2, H/2-8, '#ccaa88', 13, 'center', 'Georgia');
+    if (a13.t > 1.5) {
+      var bh = mx>W/2-130&&mx<W/2+130&&my>H/2+30&&my<H/2+74;
+      rnd(W/2-130, H/2+30, 260, 44, 8, bh?'#3a1800':'#1e0900', bh?'rgba(255,120,30,0.85)':'rgba(255,100,20,0.5)', bh?2:1.5);
+      txt('INITIATE SLINGSHOT  \u25BA', W/2, H/2+57, bh?'#ffdd88':'#ff9944', 14, 'center', 'bold monospace');
+    }
+    ctx.restore();
+  } else if (a13.sub === 'slingshot') {
+    drect(0,0,W,H,'#02020c'); drawStars(0.88);
+    var moonX=W*0.72, moonY=H*0.42;
+    drawMoon(moonX, moonY, 60);
+    ctx.save(); ctx.globalAlpha=0.32; drawEarth(52, H*0.6, 52); ctx.restore();
+    // Trajectory arc (quadratic bezier, dashed)
+    var P0x=34, P0y=H*0.43;
+    var P1x=moonX+18, P1y=moonY+138;   // control: below the moon
+    var P2x=W*0.28,   P2y=H*0.17;      // exit: upper-center, heading home
+    ctx.save(); ctx.globalAlpha=0.28; ctx.setLineDash([6,9]);
+    ctx.strokeStyle='#8899cc'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(P0x,P0y);
+    ctx.quadraticCurveTo(P1x,P1y,P2x,P2y);
+    ctx.stroke(); ctx.setLineDash([]); ctx.restore();
+    // Capsule along the bezier
+    var t2=a13.slingT;
+    var cx=(1-t2)*(1-t2)*P0x + 2*t2*(1-t2)*P1x + t2*t2*P2x;
+    var cy=(1-t2)*(1-t2)*P0y + 2*t2*(1-t2)*P1y + t2*t2*P2y;
+    ctx.save(); ctx.translate(cx, cy);
+    poly([[0,-7],[-5,6],[5,6]],'#d8d8d0','#888',1);
+    // Intermittent thruster puff (correction burns)
+    if (Math.sin(gT*0.14) > 0.25) {
+      ctx.save(); ctx.globalAlpha=0.65;
+      var tg=ctx.createRadialGradient(0,6,0,0,6,11);
+      tg.addColorStop(0,'rgba(180,220,255,0.9)'); tg.addColorStop(1,'rgba(50,100,255,0)');
+      ctx.fillStyle=tg; ctx.beginPath(); ctx.arc(0,6,11,0,TAU); ctx.fill();
+      ctx.restore();
+    }
+    ctx.restore();
+    // HUD
+    txt('FREE-RETURN TRAJECTORY', W/2, 36, '#88aaff', 17, 'center', 'bold monospace');
+    txt('Slingshotting around the Moon...', W/2, 58, '#5577aa', 13, 'center', 'italic Georgia');
+    var ba=Math.min(1, a13.t*1.8);
+    ctx.save(); ctx.globalAlpha=ba;
+    rnd(W/2-148, H-78, 296, 50, 10, 'rgba(80,40,0,0.88)', 'rgba(255,145,30,0.68)', 2);
+    txt('APOLLO 13', W/2, H-56, '#ffaa44', 16, 'center', 'bold monospace');
+    txt('April 1970 \u2014 failure is not an option.', W/2, H-36, '#cc8844', 11, 'center', 'italic Georgia');
+    ctx.restore();
+    if (a13.t > 2) {
+      rnd(W-120,H-42,112,34,6,'rgba(0,0,0,0.5)','rgba(100,150,200,0.4)',1);
+      txt('SPACE=skip',W-64,H-20,'rgba(150,180,220,0.7)',11,'center','monospace');
+    }
   }
 }
 
@@ -2408,7 +2601,10 @@ function drawChute() {
 var vic = null;
 function initVictory() {
   var total = runScore.landing + runScore.reentry + runScore.chute;
-  var stars = total >= 600 ? 3 : total >= 350 ? 2 : 1;
+  // Apollo 13 mode: no moon landing, so lower thresholds
+  var stars = apollo13Mode ?
+    (total >= 350 ? 3 : total >= 180 ? 2 : 1) :
+    (total >= 600 ? 3 : total >= 350 ? 2 : 1);
   // Confetti
   var confettiCols = ['#ff4444','#ff8800','#ffee00','#44ff44','#44aaff','#cc44ff','#ff44cc'];
   var confetti = [];
@@ -2449,7 +2645,9 @@ function initVictory() {
     });
     chime();
   }
-  if (stars===3) showRadio('Incredible mission! Perfect score across the board!');
+  if (apollo13Mode) {
+    showRadio('Columbia, you brought those astronauts home. Greatest rescue in space history!');
+  } else if (stars===3) showRadio('Incredible mission! Perfect score across the board!');
   else if (stars===2) showRadio('Great mission crew! The whole world is watching!');
   else showRadio('Welcome home, Columbia. Recovery team is en route!');
   phase = 'victory';
@@ -2527,12 +2725,13 @@ function drawVictory() {
   ctx.font='bold 42px Georgia'; ctx.textAlign='center'; ctx.textBaseline='alphabetic';
   ctx.shadowColor='rgba(100,200,255,0.8)'; ctx.shadowBlur=20;
   ctx.fillStyle='#ffffff';
-  ctx.fillText('MISSION COMPLETE!', W/2, 80);
+  ctx.fillText(apollo13Mode ? 'WE MADE IT HOME!' : 'MISSION COMPLETE!', W/2, 80);
   ctx.shadowBlur=0;
-  // Difficulty badge
+  // Difficulty badge (+ Apollo 13 marker)
   var dcLabel={'mercury':'MERCURY','gemini':'GEMINI','apollo':'APOLLO'}[difficulty];
   var dcColor={'mercury':'#44cc88','gemini':'#ffcc44','apollo':'#ff7744'}[difficulty];
-  txt(dcLabel+' DIFFICULTY', W/2, 96, dcColor, 11, 'center', 'bold monospace');
+  txt((apollo13Mode ? '\uD83D\uDCA5 APOLLO 13 \u2014 ' : '') + dcLabel + ' DIFFICULTY',
+      W/2, 96, apollo13Mode ? '#ffaa44' : dcColor, 11, 'center', 'bold monospace');
   ctx.restore();
 
   // Star rating
@@ -2554,7 +2753,8 @@ function drawVictory() {
     ctx.save(); ctx.globalAlpha=ba;
     rnd(W/2-200,118,400,178,14,'rgba(0,10,40,0.85)','rgba(100,180,255,0.4)',2);
     var rows=[
-      ['\uD83C\uDF11 Moon Landing',  runScore.landing,  300],
+      [apollo13Mode ? '\uD83D\uDCA5 O2 Tank Explosion' : '\uD83C\uDF11 Moon Landing',
+       runScore.landing, apollo13Mode ? 1 : 300],
       ['\uD83D\uDD25 Re-entry',      runScore.reentry,  Math.round((re?re.duration:RE_DURATION)*12)+180],
       ['\uD83E\uDE82 Parachute',     runScore.chute,    200],
     ];
@@ -2569,6 +2769,11 @@ function drawVictory() {
     ln(W/2-190,265,W/2+190,265,'rgba(100,150,200,0.4)',1);
     txt('TOTAL', W/2-80, 288, '#ccddff', 18, 'left', 'bold Georgia');
     txt(vic.total+' pts', W/2+80, 288, '#ffee44', 20, 'right', 'bold monospace');
+    // Apollo 13 survivor badge
+    if (apollo13Mode) {
+      rnd(W/2-140, 296, 280, 28, 6, 'rgba(80,35,0,0.75)', 'rgba(255,130,20,0.6)', 1.5);
+      txt('\uD83D\uDCA5 APOLLO 13 SURVIVOR \uD83D\uDCA5', W/2, 314, '#ffcc66', 12, 'center', 'bold monospace');
+    }
     ctx.restore();
   }
 
@@ -2698,6 +2903,7 @@ function loop(ts) {
     case 'mining':     updateMining(dt);     drawMining();     break;
     case 'solarflare': updateSolarFlare(dt); drawSolarFlare(); break;
     case 'deepspace':  updateDeepSpace(dt);  drawDeepSpace();  break;
+    case 'apollo13':   updateApollo13(dt);   drawApollo13();   break;
     case 'moonland': updateMoonLand(dt); drawMoonLand(); break;
     case 'moonasc':  updateMoonAsc(dt);  drawMoonAsc();  break;
     case 'reentry':  updateReentry(dt);  drawReentry();  break;

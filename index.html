@@ -21,7 +21,7 @@ body {
 
 /* ── PIN gate ─────────────────────────────────────────────────────────────── */
 #pin-gate {
-  position: fixed; inset: 0;
+  position: fixed; top: 0; right: 0; bottom: 0; left: 0;
   background: #0a0d14;
   display: flex; align-items: center; justify-content: center;
   z-index: 9999;
@@ -43,9 +43,10 @@ body {
   color: #8b6914; font-size: 0.85em; margin-bottom: 28px;
 }
 #pin-dots {
-  display: flex; justify-content: center; gap: 14px;
+  display: flex; justify-content: center;
   margin-bottom: 24px; min-height: 20px;
 }
+#pin-dots > * + * { margin-left: 14px; }
 .pin-dot {
   width: 16px; height: 16px; border-radius: 50%;
   border: 2px solid #8b6914; background: transparent;
@@ -96,9 +97,9 @@ h1 {
 }
 .games {
   display: flex;
-  gap: 30px;
   flex-wrap: wrap;
   justify-content: center;
+  margin: -15px; /* pulls back the per-card margins */
 }
 .game-card {
   background: #0d1520;
@@ -109,6 +110,7 @@ h1 {
   text-decoration: none;
   color: inherit;
   width: 260px;
+  margin: 15px;
   transition: border-color 0.2s, transform 0.2s;
 }
 .game-card:hover {

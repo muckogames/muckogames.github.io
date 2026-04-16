@@ -44,7 +44,7 @@ button.btn-large  { font-size: 16px; padding: 10px 26px; }
 button.btn-big    { font-size: 14px; padding: 8px 20px; }
 
 #modal-overlay {
-  position: fixed; inset: 0;
+  position: fixed; top: 0; right: 0; bottom: 0; left: 0;
   background: rgba(0,0,0,0.75);
   display: flex; align-items: center; justify-content: center;
   z-index: 100;
@@ -285,15 +285,19 @@ function saveHS(key, entry, limit = 10) {
 }
 
 // ── Viewport scaling ───────────────────────────────────────────────────────
+function viewW() { var vv = window.visualViewport; return vv ? vv.width  : window.innerWidth;  }
+function viewH() { var vv = window.visualViewport; return vv ? vv.height : window.innerHeight; }
 function scaleToViewport() {
   const app = document.getElementById('app');
   if (!app) return;
-  const s = Math.min(window.innerWidth / W, window.innerHeight / H);
+  const vw = viewW(), vh = viewH();
+  const s = Math.min(vw / W, vh / H);
   app.style.transform = `scale(${s})`;
-  app.style.left = `${(window.innerWidth  - W*s)/2}px`;
-  app.style.top  = `${(window.innerHeight - H*s)/2}px`;
+  app.style.left = `${(vw - W*s)/2}px`;
+  app.style.top  = `${(vh - H*s)/2}px`;
 }
 window.addEventListener('resize', scaleToViewport);
+if (window.visualViewport) window.visualViewport.addEventListener('resize', scaleToViewport);
 
 // ── Screen manager ─────────────────────────────────────────────────────────
 let _cleanup = null;

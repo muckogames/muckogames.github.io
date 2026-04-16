@@ -115,13 +115,18 @@ var ctx    = canvas.getContext('2d');
 canvas.width = W; canvas.height = H;
 ctx.lineJoin = 'round'; ctx.lineCap = 'round';
 
+function viewW() { var vv = window.visualViewport; return vv ? vv.width  : window.innerWidth;  }
+function viewH() { var vv = window.visualViewport; return vv ? vv.height : window.innerHeight; }
 function resize() {
-  var s = Math.min(window.innerWidth / W, window.innerHeight / H);
+  var vw = viewW(), vh = viewH();
+  var s = Math.min(vw / W, vh / H);
   stage.style.transform = 'scale(' + s + ')';
-  stage.style.left = Math.round((window.innerWidth  - W * s) / 2) + 'px';
-  stage.style.top  = Math.round((window.innerHeight - H * s) / 2) + 'px';
+  stage.style.left = Math.round((vw - W * s) / 2) + 'px';
+  stage.style.top  = Math.round((vh - H * s) / 2) + 'px';
 }
-window.addEventListener('resize', resize); resize();
+window.addEventListener('resize', resize);
+if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
+resize();
 
 // ── High scores ──────────────────────────────────────────────────────────────
 var HS_KEY = 'mucko_hs_duckdieb';
