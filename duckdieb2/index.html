@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Duck Dieb 2 🦆</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext x='50%25' y='50%25' dy='.35em' text-anchor='middle' font-size='82'%3E%F0%9F%A6%86%3C/text%3E%3C/svg%3E">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  background:#0a120a;overflow:hidden;touch-action:none;
+  user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;
+}
+#stage{
+  position:absolute;
+  width:800px;height:560px;
+  overflow:hidden;
+  transform-origin:0 0;
+  border:3px solid #3a5a2a;border-radius:12px;
+  box-shadow:0 20px 60px rgba(0,0,0,0.7);
+  background:#111;
+}
+#stage canvas{
+  position:absolute;left:0;top:0;
+  width:800px;height:560px;
+  display:block;
+}
+#bgc{pointer-events:none;}
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="bgc"></canvas>
+  <canvas id="gc"></canvas>
+</div>
+<script src="../mucko-engine.js"></script>
+<script>
+'use strict';
+
+/* ════════════════════════════════════════════════════════
+   DUCK DIEB 2  —  Second Edition
+   Checkpoint 0: skeleton (title → play → gameover, walk in empty room)
+   ════════════════════════════════════════════════════════ */
+
+// Polyfill ctx.roundRect for Safari < 15.4
+if (!CanvasRenderingContext2D.prototype.roundRect) {
+  CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
+    r = Math.min(r || 0, Math.abs(w) / 2, Math.abs(h) / 2);
+    this.moveTo(x + r, y);
+    this.lineTo(x + w - r, y);    this.quadraticCurveTo(x + w, y,     x + w, y + r);
+    this.lineTo(x + w, y + h - r); this.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    this.lineTo(x + r, y + h);    this.quadraticCurveTo(x,     y + h, x,     y + h - r);
+    this.lineTo(x, y + r);        this.quadraticCurveTo(x,     y,     x + r, y);
+    this.closePath();
+  };
+}
+
+var W = 800, H = 560, TAU = Math.PI * 2;
+var MAX_RENDER_DPR = 1.5;
+
+// ── Dual-canvas setup with DPR cap ───────────────────────────────────────────
+var stage = document.getElementById('stage');
+var bgcEl = document.getElementById('bgc');
+var gcEl  = document.getElementById('gc');
+var bgctx = bgcEl.getContext('2d');
+var ctx   = gcEl.getContext('2d');
+
+function applyDPR() {
+  var DPR = Math.min(window.devicePixelRatio || 1, MAX_RENDER_DPR);
+  [bgcEl, gcEl].forEach(function(c) {
+    c.width  = W * DPR;
+    c.height = H * DPR;
+    c.style.width  = W + 'px';
+    c.style.height = H + 'px';
+    var cc = c.getContext('2d');
+    cc.setTransform(1, 0, 0, 1, 0, 0);
+    cc.scale(DPR, DPR);
+  });
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  clearBackdropCache();
+}
+
+function viewW() { var vv = window.visualViewport; return vv ? vv.width  : window.innerWidth;  }
+function viewH() { var vv = window.visualViewport; return vv ? vv.height : window.innerHeight; }
+
+function resize() {
+  var vw = viewW(), vh = viewH();
+  var s = Math.min(vw / W, vh / H);
+  stage.style.transform = 'scale(' + s + ')';
+  stage.style.left = Math.round((vw - W * s) / 2) + 'px';
+  stage.style.top  = Math.round((vh - H * s) / 2) + 'px';
+}
+window.addEventListener('resize', function(){ applyDPR(); resize(); });
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', resize);
+  window.visualViewport.addEventListener('scroll', resize);
+}
+applyDPR();
+resize();
+
+// ── Backdrop cache (dual-canvas pattern) ─────────────────────────────────────
+var backdropCache = {};
+function clearBackdropCache() { backdropCache = {}; }
+function drawCachedBackdrop(key, drawFn) {
+  if (!backdropCache[key]) {
+    var DPR = Math.min(window.devicePixelRatio || 1, MAX_RENDER_DPR);
+    var off = document.createElement('canvas');
+    off.width = W * DPR; off.height = H * DPR;
+    var octx = off.getContext('2d');
+    octx.scale(DPR, DPR);
+    drawFn(octx);
+    backdropCache[key] = off;
+  }
+  bgctx.clearRect(0, 0, W, H);
+  bgctx.drawImage(backdropCache[key], 0, 0, W, H);
+}
+
+// ── Input via engine ─────────────────────────────────────────────────────────
+var input = MuckoEngine.makeInput();
+var K = input.K, JP = input.JP, eat = input.eat;
+function eatAction() { return eat('KeyE') || eat('Space') || eat('Enter'); }
+
+var TOUCH_UI = MuckoEngine.TOUCH_UI();
+
+// ── Touch controls: larger D-pad (r=72) + action button (r=54) ───────────────
+var touchDirs = { up:false, down:false, left:false, right:false };
+var touchActionFired = false;
+
+// Positions (in canvas coords)
+var DPAD_CX = 108, DPAD_CY = H - 108, DPAD_R = 72;
+var ACT_CX  = W - 88, ACT_CY = H - 108, ACT_R = 54;
+
+var mx = W / 2, my = H / 2, mclk = false;
+
+function inMovablePhase() {
+  return phase === 'play';
+}
+
+function getDpadDir(px, py) {
+  var dx = px - DPAD_CX, dy = py - DPAD_CY;
+  var d = Math.sqrt(dx*dx + dy*dy);
+  if (d < 14 || d > DPAD_R * 2.4) return null;
+  if (Math.abs(dx) >= Math.abs(dy)) return dx < 0 ? 'left' : 'right';
+  return dy < 0 ? 'up' : 'down';
+}
+
+function syncTouch(e) {
+  if (!inMovablePhase()) {
+    touchDirs = { up:false, down:false, left:false, right:false };
+    return;
+  }
+  var r = gcEl.getBoundingClientRect();
+  var sx = W / r.width, sy = H / r.height;
+  var dirs = { up:false, down:false, left:false, right:false };
+  var actHit = false;
+  for (var i = 0; i < e.touches.length; i++) {
+    var t = e.touches[i];
+    var px = (t.clientX - r.left) * sx;
+    var py = (t.clientY - r.top)  * sy;
+    var dir = getDpadDir(px, py);
+    if (dir) dirs[dir] = true;
+    var adx = px - ACT_CX, ady = py - ACT_CY;
+    if (Math.sqrt(adx*adx + ady*ady) < ACT_R * 1.2) actHit = true;
+  }
+  touchDirs = dirs;
+  if (actHit && !touchActionFired) { JP.KeyE = true; touchActionFired = true; }
+  if (!actHit) touchActionFired = false;
+}
+
+gcEl.addEventListener('touchstart', function(e) {
+  if (e.changedTouches.length) {
+    var r = gcEl.getBoundingClientRect();
+    mx = (e.changedTouches[0].clientX - r.left) * (W / r.width);
+    my = (e.changedTouches[0].clientY - r.top)  * (H / r.height);
+    mclk = true;
+  }
+  syncTouch(e); e.preventDefault();
+}, { passive:false });
+gcEl.addEventListener('touchmove',   function(e) { syncTouch(e); e.preventDefault(); }, { passive:false });
+gcEl.addEventListener('touchend',    function(e) { syncTouch(e); e.preventDefault(); }, { passive:false });
+gcEl.addEventListener('touchcancel', function(e) { syncTouch(e); e.preventDefault(); }, { passive:false });
+window.addEventListener('blur', function() {
+  touchDirs = { up:false, down:false, left:false, right:false };
+});
+
+gcEl.addEventListener('mousemove', function(e) {
+  var r = gcEl.getBoundingClientRect();
+  mx = (e.clientX - r.left) * (W / r.width);
+  my = (e.clientY - r.top)  * (H / r.height);
+});
+gcEl.addEventListener('click', function(e) {
+  var r = gcEl.getBoundingClientRect();
+  mx = (e.clientX - r.left) * (W / r.width);
+  my = (e.clientY - r.top)  * (H / r.height);
+  mclk = true;
+});
+
+function isUp()    { return K.ArrowUp    || K.KeyW || touchDirs.up; }
+function isDown()  { return K.ArrowDown  || K.KeyS || touchDirs.down; }
+function isLeft()  { return K.ArrowLeft  || K.KeyA || touchDirs.left; }
+function isRight() { return K.ArrowRight || K.KeyD || touchDirs.right; }
+
+// ── Game state ───────────────────────────────────────────────────────────────
+var phase = 'title';
+var LOW_FPS_PHASES = { title:1, gameover:1 };
+
+var player = { x: W/2, y: H/2, facing: 'down', speed: 180 };
+
+function setPhase(p) { phase = p; }
+function startGame() {
+  player.x = W/2; player.y = H/2; player.facing = 'down';
+  setPhase('play');
+}
+
+// ── Draw helpers ─────────────────────────────────────────────────────────────
+function rect(x, y, w, h, fill) { ctx.fillStyle = fill; ctx.fillRect(x, y, w, h); }
+function circ(x, y, r, fill, stroke, sw) {
+  ctx.beginPath(); ctx.arc(x, y, r, 0, TAU);
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = sw || 2; ctx.stroke(); }
+}
+function ell(x, y, rx, ry, fill) {
+  ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, TAU);
+  ctx.fillStyle = fill; ctx.fill();
+}
+function rndRect(x, y, w, h, r, fill, stroke, sw) {
+  ctx.beginPath(); ctx.roundRect(x, y, w, h, r || 0);
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = sw || 2; ctx.stroke(); }
+}
+function txt(s, x, y, col, size, align, font) {
+  ctx.fillStyle = col || '#fff';
+  ctx.font = font || ('bold ' + (size || 14) + 'px Georgia,serif');
+  ctx.textAlign = align || 'left';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText(s, x, y);
+}
+
+// ── Duck sprite (ported from duckdieb/index.html:565-611) ────────────────────
+function drawDuck(x, y, facing) {
+  ctx.save();
+  ctx.translate(x, y);
+
+  ctx.globalAlpha = 0.18;
+  ell(3, 6, 14, 8, '#000');
+  ctx.globalAlpha = 1;
+
+  ell(0, 2, 13, 9, '#8b6030');
+  ell(0, 3, 10, 6, '#7a5020');
+
+  var hx = 0, hy = 0;
+  if (facing === 'up')    hy = -14;
+  else if (facing === 'down')  hy = 14;
+  else if (facing === 'left')  hx = -14;
+  else                         hx = 14;
+
+  circ(hx, hy, 8, '#2a7a38');
+  ctx.fillStyle = 'rgba(0,200,160,0.28)';
+  ctx.beginPath(); ctx.arc(hx - 2, hy - 2, 4, 0, TAU); ctx.fill();
+
+  ctx.fillStyle = '#111';
+  ctx.fillRect(hx - 7, hy - 5, 14, 5);
+  circ(hx - 3, hy - 2, 1.5, '#fff');
+  circ(hx + 3, hy - 2, 1.5, '#fff');
+
+  ctx.fillStyle = '#e8b800';
+  if (facing === 'up') {
+    ctx.beginPath(); ctx.ellipse(hx, hy - 10, 3, 4, 0, 0, TAU); ctx.fill();
+  } else if (facing === 'down') {
+    ctx.beginPath(); ctx.ellipse(hx, hy + 10, 3, 4, 0, 0, TAU); ctx.fill();
+  } else if (facing === 'left') {
+    ctx.beginPath(); ctx.ellipse(hx - 10, hy, 4, 3, 0, 0, TAU); ctx.fill();
+  } else {
+    ctx.beginPath(); ctx.ellipse(hx + 10, hy, 4, 3, 0, 0, TAU); ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+// ── Mobile controls (larger, context-aware, with sublabels) ──────────────────
+function drawMobileControls() {
+  if (!TOUCH_UI || !inMovablePhase()) return;
+  ctx.save();
+  ctx.globalAlpha = 0.55;
+
+  // D-pad base
+  circ(DPAD_CX, DPAD_CY, DPAD_R + 10, '#111');
+  circ(DPAD_CX, DPAD_CY, DPAD_R, '#1a1a28', '#555', 2);
+
+  var arm = DPAD_R - 14;
+  var dirs = [
+    { lbl:'\u25B2', dx:0,    dy:-arm, k:'up'    },
+    { lbl:'\u25BC', dx:0,    dy: arm, k:'down'  },
+    { lbl:'\u25C4', dx:-arm, dy:0,    k:'left'  },
+    { lbl:'\u25BA', dx: arm, dy:0,    k:'right' },
+  ];
+  for (var i = 0; i < dirs.length; i++) {
+    var d = dirs[i];
+    var active = touchDirs[d.k];
+    rndRect(DPAD_CX + d.dx - 22, DPAD_CY + d.dy - 22, 44, 44, 8,
+            active ? '#5a8a5a' : '#2a2a2a', '#666', 1.5);
+    txt(d.lbl, DPAD_CX + d.dx, DPAD_CY + d.dy + 7, active ? '#fff' : '#aaa', 20, 'center');
+  }
+
+  // Action button
+  circ(ACT_CX, ACT_CY, ACT_R + 6, '#111');
+  circ(ACT_CX, ACT_CY, ACT_R, touchActionFired ? '#6a9a3a' : '#2a4a2a', '#5a8a4a', 2);
+  txt('E', ACT_CX, ACT_CY + 8, '#fff', 26, 'center', 'bold monospace');
+  // Sublabel
+  ctx.globalAlpha = 0.75;
+  txt('action', ACT_CX, ACT_CY + ACT_R + 18, '#cde', 11, 'center', 'bold monospace');
+
+  ctx.restore();
+}
+
+// ── Phase: title ─────────────────────────────────────────────────────────────
+function drawTitleBackdrop(c) {
+  c.fillStyle = '#0e1a0e'; c.fillRect(0, 0, W, H);
+  // Faint brick pattern on left quarter
+  c.fillStyle = '#1a2a1a';
+  for (var r = 0; r < 12; r++) {
+    for (var col = 0; col < 4; col++) {
+      var bx = col * 48 + ((r % 2) ? 24 : 0);
+      c.fillRect(bx, r * 48, 44, 44);
+    }
+  }
+  // Streetlamp glow right
+  var grd = c.createRadialGradient(W - 120, 180, 20, W - 120, 180, 260);
+  grd.addColorStop(0, 'rgba(255,220,140,0.35)');
+  grd.addColorStop(1, 'rgba(255,220,140,0)');
+  c.fillStyle = grd; c.fillRect(0, 0, W, H);
+}
+
+function renderTitle() {
+  drawCachedBackdrop('title', drawTitleBackdrop);
+  ctx.clearRect(0, 0, W, H);
+  txt('Duck Dieb 2', W/2, 170, '#ffd700', 56, 'center', 'bold 56px Georgia,serif');
+  txt('Second Edition', W/2, 210, '#cde', 18, 'center', 'italic 18px Georgia,serif');
+  txt('Checkpoint 0 — Skeleton', W/2, 240, '#7a9', 13, 'center', 'bold 13px monospace');
+
+  // Start button
+  var bx = W/2 - 110, by = 310, bw = 220, bh = 60;
+  var over = mx >= bx && mx <= bx+bw && my >= by && my <= by+bh;
+  rndRect(bx, by, bw, bh, 10, over ? '#3a5a2a' : '#2a3a1a', '#ffd700', 3);
+  txt('Start', W/2, by + 40, '#ffd700', 28, 'center', 'bold 28px Georgia,serif');
+  if (over && mclk) { mclk = false; startGame(); }
+
+  txt(TOUCH_UI ? 'Tap Start' : 'Click Start or press Enter',
+      W/2, 430, '#8a9', 14, 'center', 'bold 14px monospace');
+
+  if (eat('Enter') || eat('Space')) startGame();
+}
+
+// ── Phase: play (empty room, walk around) ────────────────────────────────────
+function drawPlayBackdrop(c) {
+  // Wooden floor
+  c.fillStyle = '#6a4a2a'; c.fillRect(0, 0, W, H);
+  c.strokeStyle = 'rgba(0,0,0,0.18)'; c.lineWidth = 1;
+  for (var y = 0; y < H; y += 40) {
+    c.beginPath(); c.moveTo(0, y); c.lineTo(W, y); c.stroke();
+  }
+  for (var x = 0; x < W; x += 120) {
+    var ox = ((x / 120) % 2) ? 60 : 0;
+    for (var yy = 0; yy < H; yy += 40) {
+      c.beginPath(); c.moveTo(x + ox, yy); c.lineTo(x + ox, yy + 40); c.stroke();
+    }
+  }
+  // Wall border
+  c.fillStyle = '#3a2a1a';
+  c.fillRect(0, 0, W, 40);
+  c.fillRect(0, H - 40, W, 40);
+  c.fillRect(0, 0, 40, H);
+  c.fillRect(W - 40, 0, 40, H);
+  // Rug
+  c.fillStyle = '#3a2a6a';
+  c.fillRect(260, 180, 280, 200);
+  c.fillStyle = '#4a3a8a';
+  c.fillRect(276, 196, 248, 168);
+}
+
+function updatePlay(dt) {
+  var vx = 0, vy = 0;
+  if (isLeft())  vx -= 1;
+  if (isRight()) vx += 1;
+  if (isUp())    vy -= 1;
+  if (isDown())  vy += 1;
+  if (vx || vy) {
+    var len = Math.sqrt(vx*vx + vy*vy);
+    vx /= len; vy /= len;
+    player.x += vx * player.speed * dt;
+    player.y += vy * player.speed * dt;
+    if (Math.abs(vx) >= Math.abs(vy)) player.facing = vx < 0 ? 'left' : 'right';
+    else                              player.facing = vy < 0 ? 'up'   : 'down';
+  }
+  // Clamp to walls (40px border)
+  if (player.x < 56)     player.x = 56;
+  if (player.x > W - 56) player.x = W - 56;
+  if (player.y < 56)     player.y = 56;
+  if (player.y > H - 56) player.y = H - 56;
+
+  if (eatAction()) {
+    // Debug: quack on action
+    console.log('quack');
+  }
+  if (eat('Escape')) setPhase('gameover');
+}
+
+function renderPlay() {
+  drawCachedBackdrop('play-room', drawPlayBackdrop);
+  ctx.clearRect(0, 0, W, H);
+
+  drawDuck(player.x, player.y, player.facing);
+
+  // HUD
+  txt('Duck Dieb 2 — Checkpoint 0', 20, 28, '#ffd700', 14, 'left', 'bold 14px monospace');
+  txt(TOUCH_UI ? 'D-pad to walk • action to quack' : 'WASD/arrows • E/space to quack • Esc ends',
+      20, 48, '#cde', 12, 'left', 'bold 12px monospace');
+}
+
+// ── Phase: gameover ──────────────────────────────────────────────────────────
+function renderGameover() {
+  drawCachedBackdrop('title', drawTitleBackdrop);
+  ctx.clearRect(0, 0, W, H);
+  txt('End of Prototype', W/2, 200, '#ffd700', 40, 'center', 'bold 40px Georgia,serif');
+  txt('Skeleton verified. Stealth coming in Checkpoint 1.',
+      W/2, 240, '#cde', 14, 'center', 'bold 14px monospace');
+
+  var bx = W/2 - 110, by = 310, bw = 220, bh = 56;
+  var over = mx >= bx && mx <= bx+bw && my >= by && my <= by+bh;
+  rndRect(bx, by, bw, bh, 10, over ? '#3a5a2a' : '#2a3a1a', '#ffd700', 3);
+  txt('Title', W/2, by + 38, '#ffd700', 26, 'center', 'bold 26px Georgia,serif');
+  if ((over && mclk) || eat('Enter') || eat('Space')) {
+    mclk = false; setPhase('title');
+  }
+}
+
+// ── Fixed-timestep main loop ─────────────────────────────────────────────────
+var SIM_STEP = 1/60;
+var simDebt = 0, lastTs = 0;
+var lastDraw = 0;
+
+function stepSim(dt) {
+  switch (phase) {
+    case 'play': updatePlay(dt); break;
+  }
+}
+
+function renderPhase() {
+  switch (phase) {
+    case 'title':    renderTitle();    break;
+    case 'play':     renderPlay();     break;
+    case 'gameover': renderGameover(); break;
+  }
+  drawMobileControls();
+}
+
+function loop(ts) {
+  requestAnimationFrame(loop);
+  if (!lastTs) lastTs = ts;
+  var elapsed = Math.min((ts - lastTs) / 1000, SIM_STEP * 6);
+  lastTs = ts;
+  simDebt += elapsed;
+  while (simDebt >= SIM_STEP) {
+    stepSim(SIM_STEP);
+    simDebt -= SIM_STEP;
+  }
+  // Throttle draw in low-fps phases
+  var targetMs = LOW_FPS_PHASES[phase] ? (1000/30) : (1000/60);
+  if (ts - lastDraw < targetMs - 2) return;
+  lastDraw = ts;
+  renderPhase();
+  mclk = false;
+  Object.keys(JP).forEach(function(k) { JP[k] = false; });
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
+
