@@ -595,6 +595,7 @@ function drawFade(){
 /* ─── AUDIO SYSTEM (all synthesized, no samples) ─── */
 const sfx=(function(){
   let actx=null, master=null, muted=false, lastType=0;
+  try{ muted=(window.localStorage&&localStorage.getItem('hippo_mute')==='1'); }catch(e){}
   function ensure(){
     if(actx)return actx;
     try{
@@ -650,8 +651,9 @@ const sfx=(function(){
   }
   return {
     unlock:unlock,
-    setMute:function(m){muted=!!m;},
+    setMute:function(m){muted=!!m;try{if(window.localStorage)localStorage.setItem('hippo_mute',muted?'1':'0');}catch(e){}},
     isMuted:function(){return muted;},
+    toggleMute:function(){this.setMute(!muted);return muted;},
     ctx:function(){return ensure();},
     click:function(){tone({type:'square',freq:720,freq2:540,dur:0.06,vol:0.07});},
     confirm:function(){tone({type:'triangle',freq:523,dur:0.09,vol:0.13});setTimeout(function(){tone({type:'triangle',freq:784,dur:0.13,vol:0.11});},70);},
@@ -1680,11 +1682,37 @@ function drawTitle(){
   txt('🏆 High Scores',hsbx+hsbw/2,hsby+23,C.gold,13,'center','Georgia');
   if(hshov)canvas.style.cursor='pointer';
 
+  // Mute toggle (bottom-left)
+  const mbx=14,mby=H-52,mbw=46,mbh=38;
+  const mhov=mx>=mbx&&mx<=mbx+mbw&&my>=mby&&my<=mby+mbh;
+  const mgrad=ctx.createLinearGradient(mbx,mby,mbx,mby+mbh);
+  if(mhov){mgrad.addColorStop(0,'#553090');mgrad.addColorStop(1,'#2a1060');}
+  else{mgrad.addColorStop(0,'#332055');mgrad.addColorStop(1,'#180a38');}
+  rnd(mbx,mby,mbw,mbh,8,mgrad,'rgba(246,213,122,0.75)',1.8);
+  rnd(mbx+2,mby+2,mbw-4,mbh-4,6,null,'rgba(255,240,190,0.22)',1);
+  ctx.save();
+  ctx.translate(mbx+mbw/2,mby+mbh/2);
+  ctx.strokeStyle=C.gold;ctx.fillStyle=C.gold;ctx.lineWidth=1.6;ctx.lineCap='round';
+  ctx.beginPath();
+  ctx.moveTo(-9,-4);ctx.lineTo(-4,-4);ctx.lineTo(2,-9);ctx.lineTo(2,9);ctx.lineTo(-4,4);ctx.lineTo(-9,4);
+  ctx.closePath();ctx.fill();
+  if(sfx.isMuted()){
+    ctx.strokeStyle='#f08060';ctx.lineWidth=2.2;
+    ctx.beginPath();ctx.moveTo(5,-7);ctx.lineTo(13,7);ctx.moveTo(13,-7);ctx.lineTo(5,7);ctx.stroke();
+  } else {
+    ctx.strokeStyle=C.gold;ctx.lineWidth=1.6;
+    ctx.beginPath();ctx.arc(5,0,5,-Math.PI/4,Math.PI/4);ctx.stroke();
+    ctx.beginPath();ctx.arc(5,0,9,-Math.PI/4,Math.PI/4);ctx.stroke();
+  }
+  ctx.restore();
+  if(mhov)canvas.style.cursor='pointer';
+
   if(mclk){
     mclk=false;
+    if(mhov){ sfx.toggleMute(); if(!sfx.isMuted())sfx.click(); return; }
     if(hshov){ sfx.click(); phase='highscores'; }
-    else { sfx.confirm(); phase='diff'; }
-  } else if(eat('Space')){ sfx.confirm(); phase='diff'; }
+    else { sfx.confirm(); startFade(true,320,function(){phase='diff';startFade(false,360,null);}); }
+  } else if(eat('Space')){ sfx.confirm(); startFade(true,320,function(){phase='diff';startFade(false,360,null);}); }
 }
 
 /* ================================================================
@@ -1899,9 +1927,19 @@ function drawScene(scene){
     rnd(8,8,W-16,H-16,18,null,'rgba(82,61,59,0.18)',2.5);
   });
   drawBgOverlay(scene);
-  (scene.chars||[]).forEach(ch=>{
+  const activeSpeaker=(scene.speaker||'').toLowerCase();
+  (scene.chars||[]).forEach(function(ch){
     ctx.save();
-    const anim=t+(ch.animOff||0);
+    let anim=t+(ch.animOff||0);
+    // subtle breathing lift on the current speaker
+    const chMatch=ch.type?ch.type.replace('hippocool','hippo'):'';
+    const isSpeaker=activeSpeaker&&chMatch&&activeSpeaker.indexOf(chMatch)!==-1;
+    if(isSpeaker){
+      const bob=Math.sin(t*0.14)*1.4-0.8;
+      ctx.translate(0,bob);
+      // gentle spotlight under speaker
+      ellipse(ch.x,ch.y+56,36,10,'rgba(255,240,200,0.12)');
+    }
     if(ch.type==='pflueger')drawPflueger(ch.x,ch.y,ch.sc||1,ch.flip||false,anim);
     else if(ch.type==='hippo')drawHippoSide(ch.x,ch.y,ch.sc||1,ch.flip||false,anim);
     else if(ch.type==='hippocool')drawHippoCool(ch.x,ch.y,ch.sc||1,anim);
@@ -1993,12 +2031,12 @@ function handleStory(){
   if(mclk||eat('Space')){
     mclk=false;
     const act=scene.action;
-    if(act==='stealth'){initStealth();phase='stealth';return;}
-    if(act==='cleanup'){initCleanup();phase='cleanup';return;}
-    if(act==='closet_game'){initCloset();phase='closet_game';return;}
-    if(act==='escape'){initEscape();phase='escape';return;}
+    if(act==='stealth'){sfx.confirm();startFade(true,320,function(){initStealth();phase='stealth';startFade(false,360,null);});return;}
+    if(act==='cleanup'){sfx.confirm();startFade(true,320,function(){initCleanup();phase='cleanup';startFade(false,360,null);});return;}
+    if(act==='closet_game'){sfx.confirm();startFade(true,320,function(){initCloset();phase='closet_game';startFade(false,360,null);});return;}
+    if(act==='escape'){sfx.confirm();startFade(true,360,function(){initEscape();phase='escape';startFade(false,420,null);});return;}
     if(act==='epilogue_story'){sceneIdx=findScene('epilogue_start');return;}
-    if(act==='credits'){phase='credits';return;}
+    if(act==='credits'){sfx.confirm();startFade(true,420,function(){phase='credits';startFade(false,500,null);});return;}
     sceneIdx++;
     if(sceneIdx>=SCENES.length)phase='credits';
   }
@@ -2378,7 +2416,7 @@ function drawStealthWin(){
   rnd(bx,by,bw,bh,8,bhov?'#3a2060':'#2a1040',C.dialogBdr,2);
   txt('Continue \u2192',W/2,by+32,C.gold,18,'center','Georgia');
   if(bhov)canvas.style.cursor='pointer';
-  if((bhov&&mclk)||eat('Space')){mclk=false;sceneIdx=findScene('ch2_4');phase='story';}
+  if((bhov&&mclk)||eat('Space')){mclk=false;sfx.confirm();startFade(true,340,function(){sceneIdx=findScene('ch2_4');phase='story';startFade(false,360,null);});}
 }
 
 function drawStealthUI(){
@@ -2621,8 +2659,10 @@ function updateCleanup(dt){
     if(mclk||eat('Space')||eat('Enter')){
       mclk=false;
       sfx.confirm();
-      sceneIdx=findScene('closet_intro');
-      phase='story';
+      startFade(true,340,function(){
+        sceneIdx=findScene('closet_intro');phase='story';
+        startFade(false,360,null);
+      });
     }
     return;
   }
@@ -3211,7 +3251,7 @@ function drawClosetWin(){
   rnd(bx,bby,bw,bh,8,bhov?'#3a2060':'#2a1040',C.dialogBdr,2);
   txt('Continue \u2192',W/2,bby+32,C.gold,18,'center','Georgia');
   if(bhov)canvas.style.cursor='pointer';
-  if((bhov&&mclk)||eat('Space')){mclk=false;sceneIdx=findScene('epilogue_start');phase='story';}
+  if((bhov&&mclk)||eat('Space')){mclk=false;sfx.confirm();startFade(true,360,function(){sceneIdx=findScene('epilogue_start');phase='story';startFade(false,400,null);});}
 }
 
 /* ================================================================
@@ -3696,17 +3736,38 @@ function drawEscapeWin(){
   if(bhov)canvas.style.cursor='pointer';
   if((bhov&&mclk)||eat('Space')){
     mclk=false;
-    sceneIdx=findScene('decision_1');
-    phase='story';
+    sfx.confirm();
+    startFade(true,420,function(){
+      sceneIdx=findScene('decision_1');
+      phase='story';
+      startFade(false,480,null);
+    });
   }
 }
 
 function drawZ1Cutscene(){
   drawEscapeBackdrop(esc);
+  // Soft vignette + warm wash
+  ctx.save();
+  const vg=ctx.createRadialGradient(MAP_W/2,H*0.5,40,MAP_W/2,H*0.5,MAP_W*0.7);
+  vg.addColorStop(0,'rgba(255,235,190,0.08)');
+  vg.addColorStop(1,'rgba(20,10,30,0.42)');
+  ctx.fillStyle=vg;fillRect(0,0,MAP_W,H,vg);
+  ctx.restore();
+  // Light dust motes drifting
+  for(let i=0;i<8;i++){
+    const dx=(i*83+t*0.35)%MAP_W;
+    const dy=(i*47+t*0.15+Math.sin(t*0.03+i)*16)%(H-60)+40;
+    circ(dx,dy,1.2,'rgba(255,240,210,0.55)');
+  }
   ctx.save(); ctx.translate(MAP_W/2-80,H*0.55);
+  const lBob=Math.sin(t*0.09)*1.5;
+  ctx.translate(0,lBob);
   drawLekanTD(0,0,t);
   ctx.restore();
   ctx.save(); ctx.translate(MAP_W/2+80,H*0.6);
+  const hBob=Math.sin(t*0.1+0.6)*1.2;
+  ctx.translate(0,hBob);
   drawHippoTD(0,0,1,t,false);
   ctx.restore();
   drawDialog();
