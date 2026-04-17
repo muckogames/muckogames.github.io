@@ -2159,7 +2159,7 @@ function drawDiff(){
   rnd(sx,sy,sw,sh,10,sg,C.gold,2.5);
   ctx.restore();
   rnd(sx+3,sy+3,sw-6,sh-6,8,null,'rgba(255,240,190,0.25)',1);
-  glowText('Begin Adventure  →',W/2,sy+33,C.gold,18,'center','bold Georgia','rgba(246,213,122,0.7)',shov?12:6);
+  glowText('▶ Begin Adventure',W/2,sy+33,C.gold,18,'center','bold Georgia','rgba(246,213,122,0.7)',shov?12:6);
   if(shov)cursor='pointer';
   if((shov&&mclk)||eat('Space')){
     mclk=false;
