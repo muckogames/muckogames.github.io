@@ -783,24 +783,24 @@ function renderPlay() {
   drawDuck(player.x, player.y, player.facing);
 
   // HUD strip
-  ctx.fillStyle = 'rgba(0,0,0,0.55)';
-  ctx.fillRect(0, 0, W, 36);
-  txt('DUCK DIEB 2 · CP1', 12, 24, '#ffd700', 13, 'left', 'bold 13px monospace');
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(0, 0, W, 44);
+  txt('DUCK DIEB 2', 14, 28, '#ffd700', 16, 'left', 'bold 16px monospace');
 
   // Noise meter
-  var nLabel = noise < 30 ? '🕊 Calm' : noise < 70 ? '👂 Stirring' : '🚨 Alerted';
-  txt('noise', 220, 18, '#cde', 10, 'left', 'bold 10px monospace');
-  rndRect(220, 22, 140, 10, 3, '#111', '#555', 1);
+  var nLabel = noise < 30 ? 'Calm' : noise < 70 ? 'Stirring' : 'Alerted!';
+  txt('noise', 200, 18, '#cde', 12, 'left', 'bold 12px monospace');
+  rndRect(200, 22, 160, 14, 4, '#111', '#555', 1);
   var nCol = noise < 30 ? '#5a8a3a' : noise < 70 ? '#c8a040' : '#c85050';
-  ctx.fillStyle = nCol; ctx.fillRect(222, 24, Math.max(0, 136 * noise / 100), 6);
-  txt(nLabel, 370, 26, '#fff', 11, 'left', 'bold 11px monospace');
+  ctx.fillStyle = nCol; ctx.fillRect(202, 24, Math.max(0, 156 * noise / 100), 10);
+  txt(nLabel, 370, 32, '#fff', 14, 'left', 'bold 14px monospace');
 
   // Objective readout
   var obj = !knowsCode  ? 'find the code'
           : !vaultOpen  ? 'enter code on keypad'
           : !hasLoot    ? 'grab the trophy'
           :               'escape through the door';
-  txt('objective: ' + obj, 560, 24, '#ffe060', 12, 'left', 'bold 12px monospace');
+  txt(obj, W - 14, 28, '#ffe060', 15, 'right', 'bold 15px monospace');
 
   // Interaction prompt
   var ni = nearestInteract(player.x, player.y);
@@ -811,29 +811,33 @@ function renderPlay() {
               : ni.tile === T_DOOR   ? (hasLoot ? 'ESCAPE' : 'door locked')
               :                        '';
     if (label) {
-      var cx = ni.col * TILE + TILE/2, cy = ni.row * TILE - 4;
-      var w = label.length * 7 + 12;
-      rndRect(cx - w/2, cy - 18, w, 18, 4, 'rgba(0,0,0,0.75)', '#ffd700', 1.5);
-      txt(label, cx, cy - 4, '#ffd700', 11, 'center', 'bold 11px monospace');
+      var cx = ni.col * TILE + TILE/2, cy = ni.row * TILE - 6;
+      var w = label.length * 10 + 18;
+      rndRect(cx - w/2, cy - 24, w, 22, 5, 'rgba(0,0,0,0.8)', '#ffd700', 1.5);
+      txt(label, cx, cy - 8, '#ffd700', 14, 'center', 'bold 14px monospace');
     }
   }
 
   if (knowsCode && !vaultOpen) {
-    txt('code: ' + CODE, W/2, H - 18, '#ffd700', 13, 'center', 'bold 13px monospace');
+    rndRect(W/2 - 110, H - 36, 220, 26, 5, 'rgba(0,0,0,0.7)', '#ffd700', 1.5);
+    txt('code: ' + CODE, W/2, H - 18, '#ffd700', 17, 'center', 'bold 17px monospace');
   }
 }
 
 // ── Phase: keypad (in-world, canvas-drawn) ───────────────────────────────────
 var keypadEntry = '';
 var keypadError = 0; // shake timer after wrong entry
+// Panel geometry (shared by buttons + renderer so layout can't drift)
+var KEYPAD_PX = W/2 - 200, KEYPAD_PY = 30, KEYPAD_PW = 400, KEYPAD_PH = 500;
+var KEYPAD_GRID_Y = KEYPAD_PY + 160;  // top of the button grid
 
 function openKeypad() { keypadEntry = ''; keypadError = 0; setPhase('keypad'); }
 
 function keypadButtons() {
   // 3×4 grid: 1-9, ⌫, 0, OK
-  var bw = 64, bh = 54, gap = 10;
-  var gridW = 3 * bw + 2 * gap, gridH = 4 * bh + 3 * gap;
-  var x0 = (W - gridW) / 2, y0 = 160;
+  var bw = 74, bh = 60, gap = 10;
+  var gridW = 3 * bw + 2 * gap;
+  var x0 = (W - gridW) / 2, y0 = KEYPAD_GRID_Y;
   var labels = ['1','2','3','4','5','6','7','8','9','⌫','0','OK'];
   var btns = [];
   for (var i = 0; i < 12; i++) {
@@ -844,8 +848,8 @@ function keypadButtons() {
       value: labels[i] === '⌫' ? 'back' : labels[i] === 'OK' ? 'ok' : labels[i],
     });
   }
-  // Cancel below
-  btns.push({ x: W/2 - 60, y: y0 + 4 * (bh + gap) + 10, w: 120, h: 34,
+  // Cancel below the grid
+  btns.push({ x: W/2 - 70, y: y0 + 4 * (bh + gap) + 6, w: 140, h: 38,
               label: 'Cancel', value: 'cancel' });
   return btns;
 }
@@ -893,23 +897,21 @@ function updateKeypad(dt) {
 function renderKeypad() {
   drawCachedBackdrop('room-1', drawTileBackdrop);
   ctx.clearRect(0, 0, W, H);
-  // Dim underlying scene
   ctx.fillStyle = 'rgba(0,0,0,0.75)';
   ctx.fillRect(0, 0, W, H);
 
-  // Panel
-  var px = W/2 - 180, py = 70, pw = 360, ph = 460;
   var shakeX = keypadError > 0 ? (Math.sin(keypadError * 50) * 6) : 0;
   ctx.save(); ctx.translate(shakeX, 0);
-  rndRect(px, py, pw, ph, 14, '#12121e', '#ffd700', 3);
+  rndRect(KEYPAD_PX, KEYPAD_PY, KEYPAD_PW, KEYPAD_PH, 14, '#12121e', '#ffd700', 3);
 
-  txt('Vault Keypad', W/2, py + 32, '#ffd700', 22, 'center', 'bold 22px Georgia,serif');
-  txt('expected: 4 digits', W/2, py + 54, '#8aa', 11, 'center', 'bold 11px monospace');
+  txt('Vault Keypad', W/2, KEYPAD_PY + 42, '#ffd700', 26, 'center', 'bold 26px Georgia,serif');
+  txt('enter 4 digits', W/2, KEYPAD_PY + 68, '#8aa', 14, 'center', 'bold 14px monospace');
 
-  // Display
-  rndRect(W/2 - 110, py + 72, 220, 48, 6, '#0a0a14', '#3a3a5a', 2);
+  // Display: sits fully above the grid so it can't be covered
+  var dispY = KEYPAD_PY + 88;
+  rndRect(W/2 - 130, dispY, 260, 54, 6, '#0a0a14', '#3a3a5a', 2);
   var disp = keypadEntry + '_'.repeat(Math.max(0, 4 - keypadEntry.length));
-  txt(disp.split('').join(' '), W/2, py + 104, '#fff', 28, 'center', 'bold 28px monospace');
+  txt(disp.split('').join(' '), W/2, dispY + 38, '#fff', 32, 'center', 'bold 32px monospace');
 
   // Buttons
   var btns = keypadButtons();
@@ -921,13 +923,13 @@ function renderKeypad() {
              :                        (over ? '#2a2a44' : '#1e1e30');
     var stroke = b.value === 'ok' ? '#4dff4d' : b.value === 'cancel' ? '#ff6a6a' : '#3a3a5a';
     rndRect(b.x, b.y, b.w, b.h, 8, fill, stroke, 1.5);
-    txt(b.label, b.x + b.w/2, b.y + b.h/2 + 8, '#fff',
-        b.value === 'cancel' ? 13 : 22, 'center',
-        'bold ' + (b.value === 'cancel' ? 13 : 22) + 'px monospace');
+    var fs = b.value === 'cancel' ? 16 : 26;
+    txt(b.label, b.x + b.w/2, b.y + b.h/2 + fs/3, '#fff', fs, 'center',
+        'bold ' + fs + 'px monospace');
   }
 
   if (keypadError > 0) {
-    txt('wrong code', W/2, py + ph - 16, '#ff6666', 14, 'center', 'bold 14px monospace');
+    txt('wrong code', W/2, KEYPAD_PY + KEYPAD_PH - 14, '#ff6666', 16, 'center', 'bold 16px monospace');
   }
   ctx.restore();
 }
