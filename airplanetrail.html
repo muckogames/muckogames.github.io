@@ -57,10 +57,13 @@ button:disabled{opacity:.35;cursor:default;transform:none}
 .crew-hp{font-size:.7em}
 /* Event */
 .ev-box{background:rgba(10,5,0,.9);border:2px solid #8b6914;border-radius:8px;padding:20px;text-align:center}
+.ev-big{font-size:3.6em;line-height:1;margin-bottom:4px}
 .ev-title{color:#ffd700;font-size:1.2em;margin-bottom:10px}
 .ev-text{color:#c8a060;line-height:1.6;margin-bottom:18px}
 .ev-choices{display:flex;flex-direction:column;gap:7px;align-items:center}
-.ev-choices button{width:88%;text-align:left;padding:10px 14px}
+.ev-choices button{width:88%;text-align:left;padding:10px 14px;display:flex;align-items:center}
+.ev-choices .ch-icon{font-size:1.5em;margin-right:10px;line-height:1;flex-shrink:0}
+.ev-choices .ch-txt{flex:1}
 /* Store */
 .store-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .store-item{background:rgba(0,0,0,.35);border:1px solid #2a2010;border-radius:5px;padding:10px;display:flex;justify-content:space-between;align-items:center;gap:8px}
@@ -133,101 +136,101 @@ const EVENTS = [
   // ── GOOD ──────────────────────────────────────────────────────────────────
   {title:'💨 Magnificent Tailwind!', text:'A powerful sky-current has found the Mucko! The propellers barely need to spin.',
    choices:[
-    {t:'Ride it at full speed', out:'You race ahead, saving precious fuel!',        fx:G=>{G.fuel=c(G.fuel+20,0,100);G.progress+=12}},
-    {t:'Use it carefully',      out:'A steady push forward. Every bit helps.',      fx:G=>{G.fuel=c(G.fuel+10,0,100)}},
+    {i:'🔥',t:'Ride it at full speed', out:'You race ahead, saving precious fuel!',        fx:G=>{G.fuel=c(G.fuel+20,0,100);G.progress+=12}},
+    {i:'⏳',t:'Use it carefully',      out:'A steady push forward. Every bit helps.',      fx:G=>{G.fuel=c(G.fuel+10,0,100)}},
   ]},
   {title:'🎻 The Sky-Orchestra Plays', text:'Your ship\'s orchestra strikes up a cheerful ragtime tune in the steam-pipes. The music floats up to the bridge!',
    choices:[
-    {t:'Let them play all night!',        out:'Wonderful music! The crew dances. Morale soars.',  fx:G=>{G.morale=c(G.morale+18,0,100)}},
-    {t:'Thank them and send them to rest',out:'A brief but lovely concert. All feel refreshed.',  fx:G=>{G.morale=c(G.morale+7,0,100)}},
+    {i:'🎶',t:'Let them play all night!',        out:'Wonderful music! The crew dances. Morale soars.',  fx:G=>{G.morale=c(G.morale+18,0,100)}},
+    {i:'🌙',t:'Thank them and send them to rest',out:'A brief but lovely concert. All feel refreshed.',  fx:G=>{G.morale=c(G.morale+7,0,100)}},
   ]},
   {title:'🐋 A Sky-Whale Appears!', text:'A magnificent sky-whale drifts alongside the Mucko, its bioluminescent fins glowing in the moonlight. The crew watches in awe.',
    choices:[
-    {t:'Wave and fly alongside it', out:'The whale seems friendly! It breathes a mist of food-crystals onto the deck.',  fx:G=>{G.food=c(G.food+8,0,80);G.morale=c(G.morale+12,0,100)}},
-    {t:'Continue on course',        out:'The whale watches you go, then vanishes into the clouds.',                        fx:G=>{}},
+    {i:'👋',t:'Wave and fly alongside it', out:'The whale seems friendly! It breathes a mist of food-crystals onto the deck.',  fx:G=>{G.food=c(G.food+8,0,80);G.morale=c(G.morale+12,0,100)}},
+    {i:'➡️',t:'Continue on course',        out:'The whale watches you go, then vanishes into the clouds.',                        fx:G=>{}},
   ]},
   {title:'🫐 Cloud-Berry Patch!', text:'Hidden in a towering cumulus cloud: luminous azure sky-berries, growing only in the high atmosphere.',
    choices:[
-    {t:'Harvest them',         out:'Delicious! The crew feasts on the sweet berries.',     fx:G=>{G.food=c(G.food+15,0,80)}},
-    {t:'Leave them for others',out:'A kind choice. The sky-fairies will remember.',        fx:G=>{G.morale=c(G.morale+6,0,100)}},
+    {i:'🧺',t:'Harvest them',         out:'Delicious! The crew feasts on the sweet berries.',     fx:G=>{G.food=c(G.food+15,0,80)}},
+    {i:'🙏',t:'Leave them for others',out:'A kind choice. The sky-fairies will remember.',        fx:G=>{G.morale=c(G.morale+6,0,100)}},
   ]},
   {title:'📡 Helpful Radio Signal', text:'You pick up a weather broadcast from a distant sky-station. Clear skies ahead for the next 48 hours!',
    choices:[
-    {t:'Adjust course to take advantage', out:'The clear route saves fuel and time!',  fx:G=>{G.fuel=c(G.fuel+12,0,100);G.progress+=8}},
-    {t:'Maintain current heading',        out:'Good to know regardless.',               fx:G=>{G.morale=c(G.morale+4,0,100)}},
+    {i:'🧭',t:'Adjust course to take advantage', out:'The clear route saves fuel and time!',  fx:G=>{G.fuel=c(G.fuel+12,0,100);G.progress+=8}},
+    {i:'➡️',t:'Maintain current heading',        out:'Good to know regardless.',               fx:G=>{G.morale=c(G.morale+4,0,100)}},
   ]},
   // ── MIXED ─────────────────────────────────────────────────────────────────
   {title:'🧍 Stowaway Found!', text:'A small child is discovered hiding in the steam-pipes! She says her name is Trudy and she just wanted to see America.',
    choices:[
-    {t:'Welcome her as honorary crew', out:'Trudy proves useful with the boiler gauges! She does eat, though.',  fx:G=>{G.food=c(G.food-10,0,80);G.morale=c(G.morale+10,0,100)}},
-    {t:'Give her rations and a bed',   out:'She\'s grateful. A little less food, but your heart is full.',       fx:G=>{G.food=c(G.food-8,0,80)}},
-    {t:'Put her off at the next stop', out:'Poor Trudy. The crew is disheartened.',                              fx:G=>{G.morale=c(G.morale-15,0,100)}},
+    {i:'🤝',t:'Welcome her as honorary crew', out:'Trudy proves useful with the boiler gauges! She does eat, though.',  fx:G=>{G.food=c(G.food-10,0,80);G.morale=c(G.morale+10,0,100)}},
+    {i:'🛏️',t:'Give her rations and a bed',   out:'She\'s grateful. A little less food, but your heart is full.',       fx:G=>{G.food=c(G.food-8,0,80)}},
+    {i:'🚪',t:'Put her off at the next stop', out:'Poor Trudy. The crew is disheartened.',                              fx:G=>{G.morale=c(G.morale-15,0,100)}},
   ]},
   {title:'🎩 Mr. Guggenheim Demands Priority', text:'The wealthy passenger Benjamin Guggenheim — impeccably dressed, as always — demands exclusive use of the wireless for "urgent business."',
    choices:[
-    {t:'Agree (he\'s very important)', out:'He\'s pleased and tips you handsomely. But you miss a weather warning.', fx:G=>{G.gold=c(G.gold+22,0,999);G.hull=c(G.hull-10,0,100)}},
-    {t:'Politely decline',             out:'He huffs magnificently. But safety first!',                              fx:G=>{G.morale=c(G.morale-5,0,100)}},
-    {t:'Offer him tea instead',        out:'He grumbles, but the tea is excellent. Crisis averted.',                 fx:G=>{G.food=c(G.food-3,0,80);G.morale=c(G.morale+4,0,100)}},
+    {i:'💰',t:'Agree (he\'s very important)', out:'He\'s pleased and tips you handsomely. But you miss a weather warning.', fx:G=>{G.gold=c(G.gold+22,0,999);G.hull=c(G.hull-10,0,100)}},
+    {i:'🙅',t:'Politely decline',             out:'He huffs magnificently. But safety first!',                              fx:G=>{G.morale=c(G.morale-5,0,100)}},
+    {i:'🍵',t:'Offer him tea instead',        out:'He grumbles, but the tea is excellent. Crisis averted.',                 fx:G=>{G.food=c(G.food-3,0,80);G.morale=c(G.morale+4,0,100)}},
   ]},
   {title:'🍞 Ration Dispute!', text:'First Class passengers want more food. Third Class passengers want more food. The cook is hiding beneath his hat.',
    choices:[
-    {t:'Equal rations for all',          out:'Fair — but neither group is happy.',                        fx:G=>{G.food=c(G.food-10,0,80);G.morale=c(G.morale-5,0,100)}},
-    {t:'Cook a grand pot of sky-stew',   out:'Everyone gets extra! But the provisions take a hit.',      fx:G=>{G.food=c(G.food-20,0,80);G.morale=c(G.morale+15,0,100)}},
-    {t:'Announce rationing immediately', out:'Unpopular but necessary. Morale dips.',                     fx:G=>{G.morale=c(G.morale-10,0,100)}},
+    {i:'⚖️',t:'Equal rations for all',          out:'Fair — but neither group is happy.',                        fx:G=>{G.food=c(G.food-10,0,80);G.morale=c(G.morale-5,0,100)}},
+    {i:'🍲',t:'Cook a grand pot of sky-stew',   out:'Everyone gets extra! But the provisions take a hit.',      fx:G=>{G.food=c(G.food-20,0,80);G.morale=c(G.morale+15,0,100)}},
+    {i:'📋',t:'Announce rationing immediately', out:'Unpopular but necessary. Morale dips.',                     fx:G=>{G.morale=c(G.morale-10,0,100)}},
   ]},
   {title:'📡 SOS Signal Received!', text:'Your wireless crackles: "...SOS... sky-yacht Carpathia... engine failure..." Someone needs help!',
    choices:[
-    {t:'Divert to help them',             out:'You find the Carpathia! They give you supplies in gratitude.',  fx:G=>{G.fuel=c(G.fuel-20,0,100);G.food=c(G.food+14,0,80);G.morale=c(G.morale+20,0,100)}},
-    {t:'Radio their position to others',  out:'Another ship responds. You continue on course.',                fx:G=>{G.morale=c(G.morale+4,0,100)}},
-    {t:'Keep flying — you have problems', out:'You can\'t save everyone. The crew is troubled.',              fx:G=>{G.morale=c(G.morale-15,0,100)}},
+    {i:'🆘',t:'Divert to help them',             out:'You find the Carpathia! They give you supplies in gratitude.',  fx:G=>{G.fuel=c(G.fuel-20,0,100);G.food=c(G.food+14,0,80);G.morale=c(G.morale+20,0,100)}},
+    {i:'📡',t:'Radio their position to others',  out:'Another ship responds. You continue on course.',                fx:G=>{G.morale=c(G.morale+4,0,100)}},
+    {i:'➡️',t:'Keep flying — you have problems', out:'You can\'t save everyone. The crew is troubled.',              fx:G=>{G.morale=c(G.morale-15,0,100)}},
   ]},
   // ── BAD ───────────────────────────────────────────────────────────────────
   {title:'⛈️ Terrible Sky-Storm!', text:'Black clouds roll in without warning! Lightning crackles across the propeller blades and the hull groans under the gale.',
    choices:[
-    {t:'Fly through at full power',     out:'You push through — hull cracked but time saved!',           fx:G=>{G.hull=c(G.hull-22,0,100);G.fuel=c(G.fuel-15,0,100)}},
-    {t:'Drop altitude and go around',   out:'Safe but slow and fuel-hungry.',                            fx:G=>{G.fuel=c(G.fuel-25,0,100);G.progress=c(G.progress-8,0,100)}},
-    {t:'Anchor to a cloud and wait',    out:'A clever trick! You ride it out with minor hull scrapes.',  fx:G=>{G.hull=c(G.hull-8,0,100);G.fuel=c(G.fuel-5,0,100)}},
+    {i:'⚡',t:'Fly through at full power',     out:'You push through — hull cracked but time saved!',           fx:G=>{G.hull=c(G.hull-22,0,100);G.fuel=c(G.fuel-15,0,100)}},
+    {i:'⬇️',t:'Drop altitude and go around',   out:'Safe but slow and fuel-hungry.',                            fx:G=>{G.fuel=c(G.fuel-25,0,100);G.progress=c(G.progress-8,0,100)}},
+    {i:'⚓',t:'Anchor to a cloud and wait',    out:'A clever trick! You ride it out with minor hull scrapes.',  fx:G=>{G.hull=c(G.hull-8,0,100);G.fuel=c(G.fuel-5,0,100)}},
   ]},
   {title:'🔥 Boiler Room Crisis!', text:'The pressure gauges are screaming! Something has gone terribly wrong below decks.',
    choices:[
-    {t:'Jack patches it (risky!)',       out:null, fx:G=>{if(Math.random()<.6){G.fuel=c(G.fuel+5,0,100);G._msg='Jack heroically patches the boiler! Just a scorch mark.'}else{G.crewHp[2]=c(G.crewHp[2]-40,0,100);G._msg='Oh no! Jack takes a bad hit. He\'ll recover...'}}},
-    {t:'Dump steam and slow down',       out:'Crisis averted! But you\'ve lost fuel pressure.',          fx:G=>{G.fuel=c(G.fuel-22,0,100)}},
-    {t:'Ignore it — full steam ahead!', out:'The boiler blows! Hull severely damaged!',                  fx:G=>{G.hull=c(G.hull-35,0,100);G.fuel=c(G.fuel-25,0,100)}},
+    {i:'🔧',t:'Jack patches it (risky!)',       out:null, fx:G=>{if(Math.random()<.6){G.fuel=c(G.fuel+5,0,100);G._msg='Jack heroically patches the boiler! Just a scorch mark.'}else{G.crewHp[2]=c(G.crewHp[2]-40,0,100);G._msg='Oh no! Jack takes a bad hit. He\'ll recover...'}}},
+    {i:'💨',t:'Dump steam and slow down',       out:'Crisis averted! But you\'ve lost fuel pressure.',          fx:G=>{G.fuel=c(G.fuel-22,0,100)}},
+    {i:'❌',t:'Ignore it — full steam ahead!', out:'The boiler blows! Hull severely damaged!',                  fx:G=>{G.hull=c(G.hull-35,0,100);G.fuel=c(G.fuel-25,0,100)}},
   ]},
   {title:'🌫️ Thick Atlantic Fog', text:'The fog is so thick you cannot see the propeller tips. Flying blind over the open sky-ocean.',
    choices:[
-    {t:'Trust the compass and press on', out:'You emerge on course, but tension drained the fuel.',     fx:G=>{G.fuel=c(G.fuel-15,0,100)}},
-    {t:'Slow to half-speed',             out:'Careful and slow. Takes extra fuel.',                     fx:G=>{G.fuel=c(G.fuel-20,0,100);G.progress=c(G.progress-5,0,100)}},
-    {t:'Send up a signal flare',         out:'A passing sky-ship radios your position! Safe.',          fx:G=>{G.morale=c(G.morale+5,0,100)}},
+    {i:'🧭',t:'Trust the compass and press on', out:'You emerge on course, but tension drained the fuel.',     fx:G=>{G.fuel=c(G.fuel-15,0,100)}},
+    {i:'🐢',t:'Slow to half-speed',             out:'Careful and slow. Takes extra fuel.',                     fx:G=>{G.fuel=c(G.fuel-20,0,100);G.progress=c(G.progress-5,0,100)}},
+    {i:'🎇',t:'Send up a signal flare',         out:'A passing sky-ship radios your position! Safe.',          fx:G=>{G.morale=c(G.morale+5,0,100)}},
   ]},
   {title:'🔭 Crow\'s Nest Alert!', text:'"Something HUGE ahead in the clouds!" radios the lookout. He sounds very frightened.',
    choices:[
-    {t:'Turn hard to starboard!',     out:'A flying iceberg! You narrowly miss it. Wing grazed.',   fx:G=>{G.hull=c(G.hull-14,0,100)}},
-    {t:'Climb above the clouds',      out:'You soar over the obstacle safely. Fuel cost.',           fx:G=>{G.fuel=c(G.fuel-18,0,100)}},
-    {t:'Throttle back and assess',    out:'It was a cloud shaped like a whale. Phew!',               fx:G=>{}},
+    {i:'↩️',t:'Turn hard to starboard!',     out:'A flying iceberg! You narrowly miss it. Wing grazed.',   fx:G=>{G.hull=c(G.hull-14,0,100)}},
+    {i:'⬆️',t:'Climb above the clouds',      out:'You soar over the obstacle safely. Fuel cost.',           fx:G=>{G.fuel=c(G.fuel-18,0,100)}},
+    {i:'🤔',t:'Throttle back and assess',    out:'It was a cloud shaped like a whale. Phew!',               fx:G=>{}},
   ]},
   {title:'🧭 The Compass Has Gone Haywire!', text:'Something magnetic in the cargo hold is throwing off the compass. You\'re flying by the stars.',
    choices:[
-    {t:'Rose navigates by starlight',  out:'Her sky-reading is perfect! Tense, but no course lost.',  fx:G=>{G.crewHp[3]=c(G.crewHp[3]-5,0,100)}},
-    {t:'Search cargo for the culprit', out:"It was Mr. Guggenheim's magnetised safe. Fixed!",          fx:G=>{G.fuel=c(G.fuel-10,0,100)}},
-    {t:'Guess and hope',               out:'You get a little lost. Extra fuel burned re-finding the route.', fx:G=>{G.fuel=c(G.fuel-20,0,100);G.progress=c(G.progress-10,0,100)}},
+    {i:'⭐',t:'Rose navigates by starlight',  out:'Her sky-reading is perfect! Tense, but no course lost.',  fx:G=>{G.crewHp[3]=c(G.crewHp[3]-5,0,100)}},
+    {i:'📦',t:'Search cargo for the culprit', out:"It was Mr. Guggenheim's magnetised safe. Fixed!",          fx:G=>{G.fuel=c(G.fuel-10,0,100)}},
+    {i:'🎲',t:'Guess and hope',               out:'You get a little lost. Extra fuel burned re-finding the route.', fx:G=>{G.fuel=c(G.fuel-20,0,100);G.progress=c(G.progress-10,0,100)}},
   ]},
   {title:'🧊 Iceberg Sighting — Too Close!', text:'A towering flying iceberg drifts across your flight path, trailing glittering ice-mist. Beautiful. Terrifying.',
    choices:[
-    {t:'Full stop! Let it pass!',          out:'You wait nervously as it drifts by. Lost time.',        fx:G=>{G.fuel=c(G.fuel-10,0,100);G.progress=c(G.progress-6,0,100)}},
-    {t:'Thread the needle between bergs',  out:'Expert flying! But the wingtip clips an edge.',         fx:G=>{G.hull=c(G.hull-10,0,100)}},
-    {t:'Turn and find another route',      out:'A safe detour. Costs fuel.',                             fx:G=>{G.fuel=c(G.fuel-16,0,100)}},
+    {i:'🛑',t:'Full stop! Let it pass!',          out:'You wait nervously as it drifts by. Lost time.',        fx:G=>{G.fuel=c(G.fuel-10,0,100);G.progress=c(G.progress-6,0,100)}},
+    {i:'🪡',t:'Thread the needle between bergs',  out:'Expert flying! But the wingtip clips an edge.',         fx:G=>{G.hull=c(G.hull-10,0,100)}},
+    {i:'🔀',t:'Turn and find another route',      out:'A safe detour. Costs fuel.',                             fx:G=>{G.fuel=c(G.fuel-16,0,100)}},
   ]},
   {title:'🤢 Sky-Sickness Strikes!', text:'The turbulence has been rough. Half the crew is looking rather green around the goggles.',
    choices:[
-    {t:'Distribute ginger chews',         out:'Helps! Costs a little food.',                                    fx:G=>{G.food=c(G.food-5,0,80);G.crewHp=G.crewHp.map(h=>c(h+10,0,100))}},
-    {t:'Smooth the ride (lower altitude)', out:'Calmer flying helps. Costs fuel.',                               fx:G=>{G.fuel=c(G.fuel-12,0,100);G.crewHp=G.crewHp.map(h=>c(h+5,0,100))}},
-    {t:'Press on — they\'ll adapt',       out:'Some do. One crew member takes a bad turn.',                     fx:G=>{const i=Math.floor(Math.random()*4);G.crewHp[i]=c(G.crewHp[i]-22,0,100)}},
+    {i:'🫚',t:'Distribute ginger chews',         out:'Helps! Costs a little food.',                                    fx:G=>{G.food=c(G.food-5,0,80);G.crewHp=G.crewHp.map(h=>c(h+10,0,100))}},
+    {i:'🛬',t:'Smooth the ride (lower altitude)', out:'Calmer flying helps. Costs fuel.',                               fx:G=>{G.fuel=c(G.fuel-12,0,100);G.crewHp=G.crewHp.map(h=>c(h+5,0,100))}},
+    {i:'💪',t:'Press on — they\'ll adapt',       out:'Some do. One crew member takes a bad turn.',                     fx:G=>{const i=Math.floor(Math.random()*4);G.crewHp[i]=c(G.crewHp[i]-22,0,100)}},
   ]},
   {title:'🌙 Mysterious Night Lights', text:'Strange glowing shapes drift past in the dark — sky-jellyfish, perhaps, or something stranger. The crew watches, entranced.',
    choices:[
-    {t:'Slow down and observe',        out:'Magical. The crew\'s spirits lift enormously.',            fx:G=>{G.morale=c(G.morale+20,0,100);G.progress=c(G.progress-5,0,100)}},
-    {t:'Keep your course — stay sharp',out:'Discipline first. But you saw something wonderful.',       fx:G=>{G.morale=c(G.morale+5,0,100)}},
+    {i:'👀',t:'Slow down and observe',        out:'Magical. The crew\'s spirits lift enormously.',            fx:G=>{G.morale=c(G.morale+20,0,100);G.progress=c(G.progress-5,0,100)}},
+    {i:'➡️',t:'Keep your course — stay sharp',out:'Discipline first. But you saw something wonderful.',       fx:G=>{G.morale=c(G.morale+5,0,100)}},
   ]},
 ];
 
@@ -818,16 +821,21 @@ function triggerEvent(){
 
 function showEvent(el){
   const ev=G.curEvent;
+  // Pull the first emoji out of the title (e.g. "⛈️ Terrible Sky-Storm!") for the big badge.
+  const emojiMatch = ev.title.match(/^\s*(\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*)/u);
+  const bigIcon = ev.icon || (emojiMatch ? emojiMatch[1] : '🎲');
+  const cleanTitle = emojiMatch ? ev.title.slice(emojiMatch[0].length).trim() : ev.title;
   el.innerHTML = `
   <div class="sbar" style="font-size:.82em">
     <span>⛽ ${Math.round(G.fuel)}%</span><span>🍖 ${Math.round(G.food)}</span>
     <span>🔧 ${Math.round(G.hull)}%</span><span>💰 ${G.gold}</span><span>Day ${G.day}</span>
   </div>
   <div class="ev-box">
-    <div class="ev-title">${ev.title}</div>
+    <div class="ev-big" aria-hidden="true">${bigIcon}</div>
+    <div class="ev-title">${cleanTitle}</div>
     <div class="ev-text">${ev.text}</div>
     <div class="ev-choices">
-      ${ev.choices.map((ch,i)=>`<button onclick="resolveEvent(${i})">${i+1}. ${ch.t}</button>`).join('')}
+      ${ev.choices.map((ch,i)=>`<button onclick="resolveEvent(${i})"><span class="ch-icon" aria-hidden="true">${ch.i||'▶'}</span><span class="ch-txt">${ch.t}</span></button>`).join('')}
     </div>
   </div>`;
 }
