@@ -72,14 +72,37 @@ function goTo(buildFn) {
 // ── Modal (replaces JOptionPane) ──────────────────────────────────────────
 function showModal(title, bodyText, buttons) {
   return new Promise(resolve => {
-    document.getElementById('modal-title').textContent = title;
+    // Parse leading emoji from title for big icon badge
+    const tEm = title.match(/^\s*(\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*)/u);
+    const titleEl = document.getElementById('modal-title');
+    titleEl.innerHTML = '';
+    if (tEm) {
+      const big = document.createElement('span');
+      big.className = 'ev-big'; big.textContent = tEm[1];
+      titleEl.appendChild(big);
+      titleEl.appendChild(document.createTextNode(title.slice(tEm[0].length).trim()));
+    } else {
+      titleEl.textContent = title;
+    }
     document.getElementById('modal-body').textContent  = bodyText;
     const btnsDiv = document.getElementById('modal-btns');
     btnsDiv.innerHTML = '';
     buttons.forEach((b, i) => {
       const btn = document.createElement('button');
-      btn.textContent = b.label;
       btn.className = b.cls || '';
+      // Parse leading emoji from label
+      const lEm = b.label.match(/^\s*(\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*)/u);
+      if (b.icon || lEm) {
+        const ic = document.createElement('span');
+        ic.className = 'ch-icon';
+        ic.textContent = b.icon || lEm[1];
+        const tx = document.createElement('span');
+        tx.className = 'ch-txt';
+        tx.textContent = lEm ? b.label.slice(lEm[0].length).trim() : b.label;
+        btn.appendChild(ic); btn.appendChild(tx);
+      } else {
+        btn.textContent = b.label;
+      }
       btn.onclick = () => {
         document.getElementById('modal-overlay').classList.add('hidden');
         resolve(i);
@@ -567,9 +590,9 @@ async function doAdvance(resting) {
   if (gs.coal === 0 && !gs.coalCrisisShown) {
     gs.coalCrisisShown = true;
     gs.addLog('!! COAL EXHAUSTED — The engines fall silent. The ship drifts.', 'alert');
-    const cr = await showModal('Coal Crisis!',
+    const cr = await showModal('⚫ Coal Crisis!',
       'The coal bunkers are empty.\nThe engines have stopped and the ship is adrift.\n\nThe chief engineer proposes burning wooden furniture and fixtures as emergency fuel.',
-      [{label:'Burn the Furniture (+50 coal, crew morale -10)', cls:'btn-amber'}, {label:'Drift and Hope'}]);
+      [{label:'🔥 Burn the Furniture (+50 coal, crew morale -10)', cls:'btn-amber'}, {label:'🙏 Drift and Hope'}]);
     if (cr === 0) {
       gs.coal = 50;
       for (let i=0;i<5;i++) if (gs.alive[i]) gs.health[i] = Math.max(5, gs.health[i]-10);
@@ -628,7 +651,7 @@ async function doAdvance(resting) {
   if (gotoStore) { goTo(app => buildStore(app, gotoStore)); return; }
 
   if (gs.progress >= 88) {
-    await showAlert('ICEBERG AHEAD!',
+    await showAlert('🧊 ICEBERG AHEAD!',
       `The night of April 14th has come.\nIcebergs have been spotted dead ahead!\n\n` +
       `Navigate through Iceberg Alley with the LEFT and RIGHT arrow keys.\n` +
       `Avoid the icebergs — or face the consequences!\n\n` +
@@ -643,9 +666,9 @@ async function doAdvance(resting) {
 async function doIceWarning() {
   gs.addLog('— Wireless: URGENT ice warnings from multiple ships —', 'alert');
   gs.addLog('SS Californian, SS Baltic, SS Mesaba all report large icebergs ahead.', 'alert');
-  const r = await showModal('Ice Warning Received',
+  const r = await showModal('🧊 Ice Warning Received',
     'WIRELESS WARNING:\n\nMultiple ships report icebergs and\nice fields along our planned route.\n\nSlowing down will reduce speed for the rest of the voyage but give the crew time to watch for ice. Maintaining speed risks entering iceberg alley with a stressed hull.',
-    [{label:'Slow Down (safer)', cls:'btn-teal'}, {label:'Maintain Speed (faster)', cls:'btn-amber'}]);
+    [{label:'🐢 Slow Down (safer)', cls:'btn-teal'}, {label:'💨 Maintain Speed (faster)', cls:'btn-amber'}]);
   if (r === 0) {
     gs.slowedForIce = true;
     gs.addLog('Captain orders reduced speed through the ice field. The crew keeps a careful watch.', 'good');
@@ -657,7 +680,7 @@ async function doIceWarning() {
 async function doChangeSpeed() {
   if (vBusy) return;
   const opts = ['Slow (conserve coal, safer)', 'Moderate', 'Full Steam Ahead (risky)'];
-  const r = await showModal('Change Speed', 'Select engine speed:', opts.map((l,i) => ({label:l, cls: i===gs.speed-1?'btn-green':''})));
+  const r = await showModal('⚙️ Change Speed', 'Select engine speed:', opts.map((l,i) => ({label:l, cls: i===gs.speed-1?'btn-green':''})));
   gs.speed = r + 1;
   gs.addLog(`Speed changed to: ${opts[r]}`);
   refreshLog(); refreshStatus();
@@ -666,7 +689,7 @@ async function doChangeSpeed() {
 async function doChangeRations() {
   if (vBusy) return;
   const opts = ['Meager (save food, lose health)', 'Normal', 'Filling (use more food)'];
-  const r = await showModal('Change Rations', 'Set daily rations:', opts.map((l,i) => ({label:l, cls: i===gs.rations-1?'btn-green':''})));
+  const r = await showModal('🍽️ Change Rations', 'Set daily rations:', opts.map((l,i) => ({label:l, cls: i===gs.rations-1?'btn-green':''})));
   gs.rations = r + 1;
   gs.addLog(`Rations changed to: ${opts[r]}`);
   refreshLog(); refreshStatus();
@@ -681,7 +704,7 @@ async function doFullStatus() {
     return '█'.repeat(filled) + '░'.repeat(10-filled) + ` ${gs.health[i]}%`;
   };
   const paxLines = gs.names.map((n,i) => `${n}: ${bars(i)}`).join('\n');
-  await showAlert('Full Status Report',
+  await showAlert('📋 Full Status Report',
     `PASSENGERS:\n${paxLines}\n\nRESOURCES:\nFood: ${gs.food} lbs\nCoal: ${gs.coal} tons\nMedicine: ${gs.medicine} doses\nMoney: ${gs.money} shillings\nLifeboat seats: ${gs.lifeboats}`);
   setBusy(false);
 }
@@ -756,9 +779,9 @@ function evIcebergNearby() {
 }
 async function evDistressCall() {
   gs.addLog('» Wireless crackles: a nearby vessel is in distress.', 'alert');
-  const r = await showModal('Distress Call',
+  const r = await showModal('📻 Distress Call',
     'A ship is transmitting a distress signal nearby.\n\nAlter course to assist? It will cost time.',
-    [{label:'Alter Course to Help (-3 progress)', cls:'btn-teal'}, {label:'Log the Position and Continue', cls:'btn-amber'}]);
+    [{label:'🆘 Alter Course to Help (-3 progress)', cls:'btn-teal'}, {label:'📝 Log the Position and Continue', cls:'btn-amber'}]);
   if (r === 0) {
     gs.progress = Math.max(0, gs.progress - 3);
     gs.addLog('  You divert course. The other ship is safely assisted. The crew\'s spirits are high.', 'good');
@@ -788,8 +811,8 @@ function evDinner() {
 async function evIllness() {
   const p = alivePax();
   if (gs.medicine > 0) {
-    const r = await showModal('Illness', `${gs.names[p]} has fallen ill with a fever.\n\nUse 1 dose of medicine?`,
-      [{label:'Use Medicine', cls:'btn-green'}, {label:'Hope for Recovery', cls:'btn-amber'}]);
+    const r = await showModal('🤒 Illness', `${gs.names[p]} has fallen ill with a fever.\n\nUse 1 dose of medicine?`,
+      [{label:'💊 Use Medicine', cls:'btn-green'}, {label:'🙏 Hope for Recovery', cls:'btn-amber'}]);
     if (r === 0) { gs.medicine--; gs.addLog(`» ${gs.names[p]} treated with medicine. Feeling better.`,'good'); }
     else {
       if (Math.random() < 0.5) gs.addLog(`» ${gs.names[p]} recovers on their own.`,'good');
@@ -804,9 +827,9 @@ async function evIllness() {
 async function evManOverboard() {
   const p = alivePax();
   gs.addLog(`» ALARM! ${gs.names[p]} has gone overboard! The water is near freezing.`,'alert');
-  const r = await showModal('Man Overboard!',
+  const r = await showModal('🌊 Man Overboard!',
     `${gs.names[p]} has fallen overboard!\nThe water is near freezing.\n\nThrow a life ring immediately? (Better odds than waiting for the bridge.)`,
-    [{label:'Throw Life Ring (80% chance)', cls:'btn-green'}, {label:'Signal the Bridge (40% chance)', cls:'btn-amber'}]);
+    [{label:'🛟 Throw Life Ring (80% chance)', cls:'btn-green'}, {label:'📯 Signal the Bridge (40% chance)', cls:'btn-amber'}]);
   if (Math.random() < (r===0 ? 0.8 : 0.4)) {
     gs.health[p]=Math.max(10,gs.health[p]-35);
     gs.addLog(`  ${gs.names[p]} is rescued! Severely hypothermic but alive.`,'good');
@@ -817,18 +840,18 @@ async function evManOverboard() {
 }
 
 async function evStowaway() {
-  const r = await showModal('Stowaway Found!',
+  const r = await showModal('🕵️ Stowaway Found!',
     'A young stowaway has been discovered hiding in a lifeboat!\n\nWhat do you do?',
-    [{label:'Report to Officers', cls:'btn-amber'}, {label:'Keep the Secret', cls:'btn-teal'}]);
+    [{label:'👮 Report to Officers', cls:'btn-amber'}, {label:'🤫 Keep the Secret', cls:'btn-teal'}]);
   if (r===0) gs.addLog('» Stowaway reported. Escorted to steerage to work their passage.');
   else { gs.food=Math.max(0,gs.food-20); for(let i=0;i<5;i++) if(gs.alive[i]) gs.health[i]=Math.min(100,gs.health[i]+4); gs.addLog('» You sneak the stowaway extra food. They are very grateful.','good'); }
 }
 
 async function evCardGame() {
   if (gs.money < 20) { gs.addLog('» A card game is underway, but you lack the funds to participate.'); return; }
-  const r = await showModal('Card Game',
+  const r = await showModal('🃏 Card Game',
     'A high-stakes card game is underway in the smoking room.\n\nJoin in?',
-    [{label:'Join the Game', cls:'btn-green'}, {label:'Decline', cls:'btn-amber'}]);
+    [{label:'🎲 Join the Game', cls:'btn-green'}, {label:'👎 Decline', cls:'btn-amber'}]);
   if (r===0) {
     if (Math.random()<0.5) { const w=20+Math.floor(Math.random()*40); gs.money+=w; gs.addLog(`» Luck is on your side! You win ${w} shillings.`,'good'); }
     else { const l=20+Math.floor(Math.random()*30); gs.money=Math.max(0,gs.money-l); gs.addLog(`» The cards turn against you. You lose ${l} shillings.`,'alert'); }
@@ -882,7 +905,7 @@ function buildStore(app, portName) {
   div.querySelectorAll('.buy-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const it = items[parseInt(btn.dataset.i)];
-      if (gs.money < it.cost) { showAlert('Insufficient Funds','You cannot afford that.'); return; }
+      if (gs.money < it.cost) { showAlert('💸 Insufficient Funds','You cannot afford that.'); return; }
       gs.money -= it.cost;
       gs.addLog(`Purchased: ${it.amt} ${it.key} for ${it.cost} shillings.`,'good');
       if (it.key==='food')      gs.food      += it.amt;
@@ -992,7 +1015,7 @@ function buildFishing(app) {
     gs.addLog('» The crew spent the afternoon fishing off the stern.', 'good');
     gs.addLog(`  Caught ${caughtStr} — ${fishFood} lbs of fresh fish added to stores.`, 'good');
     if (coalBonus > 0) gs.addLog(`  Also hauled in a floating coal barrel! +${coalBonus} tons.`, 'good');
-    await showAlert('Fishing Complete!',
+    await showAlert('🎣 Fishing Complete!',
       `Fish caught:  ${catchCount}\nFood gained: +${fishFood} lbs` +
       (coalBonus > 0 ? `\nCoal bonus:  +${coalBonus} tons` : '') +
       '\n\nThe cook is delighted with the fresh Atlantic catch!');
