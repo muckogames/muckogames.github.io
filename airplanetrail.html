@@ -289,8 +289,8 @@ function render(){
   else if (s==='icebergs')  showIcebergs(el);
   else if (s==='landing')          showLanding(el);
   else if (s==='emergency_landing') showEmergencyLanding(el);
-  else if (s==='victory')          showVictory(el);
-  else if (s==='gameover')         showGameOver(el);
+  else if (s==='victory')          { playEndSting('win'); showVictory(el); }
+  else if (s==='gameover')         { playEndSting('lose'); showGameOver(el); }
   else if (s==='scores')           showScores(el);
 }
 
@@ -1522,6 +1522,26 @@ function saveScore(score){
   return sc.findIndex(e=>e.score===entry.score&&e.date===entry.date)+1;
 }
 
+var _endActx=null;
+function playEndSting(kind){
+  try{
+    if(!_endActx) _endActx = new (window.AudioContext||window.webkitAudioContext)();
+    var actx=_endActx; if(actx.state!=='running') actx.resume();
+    var t0=actx.currentTime;
+    var notes = kind==='win' ? [[523,0],[659,0.12],[784,0.24],[1047,0.36]] : [[392,0],[330,0.12],[262,0.24],[196,0.36]];
+    notes.forEach(function(n){
+      var o=actx.createOscillator(), g=actx.createGain();
+      o.type = kind==='win' ? 'triangle' : 'sine';
+      o.frequency.value = n[0];
+      g.gain.setValueAtTime(0.0001, t0+n[1]);
+      g.gain.exponentialRampToValueAtTime(0.22, t0+n[1]+0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0+n[1]+0.36);
+      o.connect(g); g.connect(actx.destination);
+      o.start(t0+n[1]); o.stop(t0+n[1]+0.4);
+    });
+  }catch(e){}
+}
+
 function showVictory(el){
   const score=calcScore();
   const rank=saveScore(score);
@@ -1538,6 +1558,8 @@ function showVictory(el){
   const survived=G.crewHp.filter(h=>h>0).length;
   el.innerHTML=`
   <div style="text-align:center;padding:8px 0 14px">
+    <div style="font-size:5em;line-height:1;margin:8px 0 4px">🏆 🎉</div>
+    <h1 style="color:#ffd700;font-size:2em;margin:0 0 14px;text-shadow:0 0 14px rgba(255,215,0,.45)">YOU MADE IT!</h1>
     <canvas id="arrival-canvas" width="720" height="180" style="border-radius:8px;margin-bottom:14px;border:1px solid #2a4a8a;display:block;cursor:default"></canvas>
     <div class="panel prose" style="max-width:500px;margin:12px auto;text-align:left">
       Against all odds — through storm and fog and flying iceberg — Captain
@@ -1578,8 +1600,8 @@ function showVictory(el){
 function showGameOver(el){
   el.innerHTML=`
   <div style="text-align:center;padding:20px">
-    <div style="font-size:3em;margin-bottom:12px">✈️ ☁️</div>
-    <h1 style="color:#d4a853">Emergency Landing!</h1>
+    <div style="font-size:5em;line-height:1;margin-bottom:6px">😵 ☁️</div>
+    <h1 style="color:#d4a853;font-size:1.8em;margin:0 0 10px">Emergency Landing!</h1>
     <div class="panel prose" style="max-width:500px;margin:14px auto;text-align:left">
       ${G.msg||'The great sky-vessel has been forced to land short of New York.'}<br><br>
       The crew is safe on the ground. Everyone is doing fine, and the R.M.A.S. Mucko
