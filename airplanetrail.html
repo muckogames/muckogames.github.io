@@ -72,6 +72,14 @@ button:disabled{opacity:.35;cursor:default;transform:none}
 .diff-row{display:flex;gap:12px;justify-content:center;margin:16px 0}
 .dcard{background:rgba(0,0,0,.45);border:2px solid #2a2010;border-radius:8px;padding:14px;width:170px;text-align:center;cursor:pointer;transition:all .15s}
 .dcard:hover,.dcard.sel{border-color:#ffd700;background:rgba(40,25,0,.7);transform:translateY(-3px)}
+.dcard.tone-green{border-color:#225522}
+.dcard.tone-yellow{border-color:#887020}
+.dcard.tone-red{border-color:#772020}
+.dcard.tone-green.sel{border-color:#44cc44;box-shadow:0 0 12px rgba(68,204,68,.45)}
+.dcard.tone-yellow.sel{border-color:#ffcc33;box-shadow:0 0 12px rgba(255,204,51,.45)}
+.dcard.tone-red.sel{border-color:#ff5544;box-shadow:0 0 12px rgba(255,85,68,.45)}
+.dcard-big{font-size:3.4em;line-height:1;margin-bottom:2px}
+.dcard-stars{font-size:1.1em;letter-spacing:4px;color:#ffd700;margin-bottom:4px}
 .dcard-name{color:#ffd700;font-size:1em;margin-bottom:5px}
 .dcard-class{color:#8b6914;font-size:.78em;margin-bottom:6px}
 .dcard-desc{color:#6a5010;font-size:.72em;line-height:1.4;margin-bottom:8px}
@@ -109,9 +117,9 @@ const STOPS = [
 ];
 
 const DIFFS = [
-  {id:'first',  name:'First Class',  short:'First',     icon:'👑',  mult:1.0, gold:155, fuel:90, food:50, hull:100, desc:'Comfortable luxury travel. Generous supplies and forgiving weather. Perfect for beginners.'},
-  {id:'second', name:'Second Class', short:'Second',    icon:'✈️',  mult:1.5, gold:105, fuel:76, food:36, hull:100, desc:'A balanced voyage. Moderate supplies, moderate risk. Good for experienced captains.'},
-  {id:'third',  name:'Third Class',  short:'Steerage',  icon:'⚙️',  mult:2.5, gold:95,  fuel:66, food:28, hull:100, desc:'Tight supplies and rough weather. Every gold coin counts. The hardest voyage!'},
+  {id:'first',  name:'First Class',  short:'First',     icon:'👑',  tone:'green',  stars:'⭐',       mult:1.0, gold:155, fuel:90, food:50, hull:100, desc:'Comfortable luxury travel. Generous supplies and forgiving weather. Perfect for beginners.'},
+  {id:'second', name:'Second Class', short:'Second',    icon:'✈️',  tone:'yellow', stars:'⭐⭐',     mult:1.5, gold:105, fuel:76, food:36, hull:100, desc:'A balanced voyage. Moderate supplies, moderate risk. Good for experienced captains.'},
+  {id:'third',  name:'Third Class',  short:'Steerage',  icon:'⚙️',  tone:'red',    stars:'⭐⭐⭐',   mult:2.5, gold:95,  fuel:66, food:28, hull:100, desc:'Tight supplies and rough weather. Every gold coin counts. The hardest voyage!'},
 ];
 
 const CREW = [
@@ -318,8 +326,9 @@ function showDiff(el){
   <h2>Choose Your Ticket Class</h2>
   <div class="prose" style="margin-bottom:4px">Your class determines starting supplies and your score multiplier.</div>
   <div class="diff-row">${DIFFS.map(d=>`
-    <div class="dcard ${d.id===sel?'sel':''}" onclick="G.sel='${d.id}';render()">
-      <div style="font-size:2em">${d.icon}</div>
+    <div class="dcard tone-${d.tone} ${d.id===sel?'sel':''}" onclick="G.sel='${d.id}';render()">
+      <div class="dcard-big" aria-hidden="true">${d.icon}</div>
+      <div class="dcard-stars" aria-hidden="true">${d.stars}</div>
       <div class="dcard-name">${d.name}</div>
       <div class="dcard-class">${d.short} Passenger</div>
       <div class="dcard-desc">${d.desc}</div>
