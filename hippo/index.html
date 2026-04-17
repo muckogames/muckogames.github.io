@@ -716,6 +716,13 @@ const C={
   ink:'#4b3a4f',paper:'#fcf7ee',paperDk:'#ece2cf',
   lilac:'#ddc8ef',mint:'#cde7c7',blush:'#f5dbe3',
   wood:'#bf8d5a',woodDk:'#8e6338',tan:'#f1d4ad',tanDk:'#c49773',
+  // Stage 8 additions — unified SNES-style tokens
+  skinHi:'#ffe6c7',skinMd:'#f1d4ad',skinDk:'#c49773',skinDeep:'#a37a54',
+  scarf:'#c8381f',scarfHi:'#e75d3d',scarfDk:'#8e2212',
+  highlightWhite:'rgba(255,255,255,0.22)',
+  rim:'rgba(255,240,200,0.40)',
+  keeperHair1:'#5a3a1e',keeperHair2:'#2a1a14',keeperHair3:'#caa15c',
+  keeperSkin1:'#f1d4ad',keeperSkin2:'#c99b75',keeperSkin3:'#8e5d3a',
 };
 
 function adjustSuspicion(delta,reason){
@@ -841,23 +848,90 @@ function drawInkEye(x,y,r,blink){
     circ(x,y,r,C.ink);
   }
 }
+// Top-left volume highlight (sits inside a body ellipse to imply a light source).
+function topLeftLight(x,y,rx,ry,alpha){
+  ctx.save();
+  ctx.fillStyle='rgba(255,255,255,'+(alpha==null?0.16:alpha)+')';
+  ctx.beginPath();
+  ctx.ellipse(x-rx*0.28,y-ry*0.38,rx*0.55,ry*0.45,-0.35,0,TAU);
+  ctx.fill();
+  ctx.restore();
+}
+// Rim-light arc traces the bottom-right edge of a body ellipse for separation from dark bg.
+function rimArc(x,y,rx,ry,col,w){
+  ctx.save();
+  ctx.strokeStyle=col||C.rim;
+  ctx.lineWidth=w||1.6;
+  ctx.beginPath();
+  ctx.ellipse(x,y,rx,ry,0,0.2,2.0);
+  ctx.stroke();
+  ctx.restore();
+}
+// Mood-aware mouth. mood: 'neutral' | 'happy' | 'worried' | 'surprised' | 'sad'.
+function drawMouth(x,y,w,mood,col){
+  col=col||'#a35d42';
+  ctx.save();
+  ctx.strokeStyle=col;
+  ctx.lineWidth=1.8;
+  ctx.lineCap='round';
+  ctx.beginPath();
+  if(mood==='happy'){
+    ctx.arc(x,y,Math.max(2,w*0.5),0.3,Math.PI-0.3);
+    ctx.stroke();
+  } else if(mood==='worried'||mood==='sad'){
+    ctx.arc(x,y+Math.max(2,w*0.35),Math.max(2,w*0.45),Math.PI+0.3,TAU-0.3);
+    ctx.stroke();
+  } else if(mood==='surprised'){
+    ctx.fillStyle=col;
+    ctx.ellipse(x,y+1,Math.max(1.2,w*0.18),Math.max(1.7,w*0.26),0,0,TAU);
+    ctx.fill();
+    ctx.stroke();
+  } else {
+    ctx.moveTo(x-w*0.32,y); ctx.lineTo(x+w*0.32,y);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+// Discrete 4-phase walk stride: returns [leftLift, rightLift, bodyBob] in pixels.
+// Pass speed ~0.12 for normal walk, ~0.18 for run. Static pose when moving===false.
+function walkStride4(anim,speed,moving){
+  if(!moving)return [0,0,0];
+  var ph=Math.floor(((anim*(speed||0.12))%4+4)%4);
+  var lift=[0,0,2.4,0.7];
+  return [lift[ph], lift[(ph+2)%4], [0.2,1.1,0.2,1.1][ph]];
+}
 
 function drawHippoSide(cx,cy,sc,flip,anim){
   sc=sc||1; anim=anim||0;
   const bob=Math.sin(anim*0.05)*2;
+  // ear flick — rare twitch about every 3 seconds
+  const flickWindow=((anim|0)%180);
+  const earFlick=(flickWindow<10)?Math.sin(flickWindow*0.9)*0.55:0;
+  // tail wag — slow sway (tail sits behind the body)
+  const tailWag=Math.sin(anim*0.08)*3;
   ctx.save(); ctx.translate(cx,cy);
   if(flip)ctx.scale(-1,1); ctx.scale(sc,sc);
   ellipse(0,47+bob,30,7,'rgba(0,0,0,0.14)');
+  // tail behind hind leg
+  ctx.save();
+  ctx.strokeStyle=C.hippoDk;ctx.lineWidth=3;ctx.lineCap='round';
+  ctx.beginPath();
+  ctx.moveTo(-21,16+bob);
+  ctx.quadraticCurveTo(-27+tailWag*0.6,14+bob,-28+tailWag,8+bob);
+  ctx.stroke();
+  ctx.restore();
   fillRect(-22,20+bob,14,24,C.hippoDk);
   fillRect(5,22+bob,14,22,C.hippoDk);
   ellipse(-15,45+bob,10,5,'#8f93a4');
   ellipse(12,46+bob,10,5,'#8f93a4');
   ellipse(-3,8+bob,36,28,C.hippo);
   strokeEllipse(-3,8+bob,36,28,C.ink,2);
+  topLeftLight(-3,8+bob,36,28,0.14);
+  rimArc(-3,8+bob,36,28,C.rim,1.4);
   ellipse(10,11+bob,19,18,'rgba(255,255,255,0.12)');
-  ellipse(12,-18+bob,5.5,7,'#aeb4be',-0.55);
-  strokeEllipse(12,-18+bob,5.5,7,C.ink,2,-0.55);
-  ellipse(13,-18+bob,2.2,3.4,'#d5d9e1',-0.55);
+  ellipse(12,-18+bob,5.5,7,'#aeb4be',-0.55+earFlick);
+  strokeEllipse(12,-18+bob,5.5,7,C.ink,2,-0.55+earFlick);
+  ellipse(13,-18+bob,2.2,3.4,'#d5d9e1',-0.55+earFlick);
   ellipse(31,-1+bob,22,18,C.hippo);
   strokeEllipse(31,-1+bob,22,18,C.ink,2);
   ellipse(43,5+bob,12,8,'#d6d9e1');
@@ -904,17 +978,35 @@ function drawHippoCool(cx,cy,sc,anim){
 function drawHippoFriendly(cx,cy,sc,anim){
   sc=sc||1; anim=anim||0;
   const bob=Math.sin(anim*0.05)*2;
+  // ear flick window — alternates between left/right so ears feel independent
+  const flickT=((anim|0)%220);
+  const leftFlick=(flickT<8)?Math.sin(flickT*1.1)*0.35:0;
+  const rightFlick=((flickT>110&&flickT<120))?Math.sin((flickT-110)*1.1)*0.35:0;
+  // tail wag — rear-center
+  const tailWag=Math.sin(anim*0.09)*4;
   ctx.save();ctx.translate(cx,cy);ctx.scale(sc,sc);
   ellipse(0,48+bob,32,8,'rgba(0,0,0,0.16)');
+  // tail curl behind body
+  ctx.save();
+  ctx.strokeStyle=C.hippoDk;ctx.lineWidth=3;ctx.lineCap='round';
+  ctx.beginPath();
+  ctx.moveTo(-22,18+bob);
+  ctx.quadraticCurveTo(-30+tailWag*0.4,14+bob,-28+tailWag,6+bob);
+  ctx.stroke();
+  ctx.restore();
   ellipse(0,14+bob,36,30,C.hippo); strokeEllipse(0,14+bob,36,30,C.ink,2);
+  topLeftLight(0,14+bob,36,30,0.14);
+  rimArc(0,14+bob,36,30,C.rim,1.4);
   ellipse(0,-10+bob,25,21,C.hippo); strokeEllipse(0,-10+bob,25,21,C.ink,2);
+  topLeftLight(0,-10+bob,25,21,0.16);
   ellipse(0,-2+bob,16,10,'#d7dbe2'); strokeEllipse(0,-2+bob,16,10,C.ink,2);
   const hfBlink=isBlinking(anim,60);
   drawInkEye(-10,-9.5+bob,2.2,hfBlink); drawInkEye(10,-9.5+bob,2.2,hfBlink);
   if(!hfBlink){ circ(-8.7,-10.4+bob,0.7,'#fff'); circ(11.3,-10.4+bob,0.7,'#fff'); }
   circ(-4.5,-0.5+bob,1.6,C.hippoDk); circ(4.5,-0.5+bob,1.6,C.hippoDk);
-  ellipse(-14,-26+bob,6.5,7.5,C.hippo); ellipse(14,-26+bob,6.5,7.5,C.hippo);
-  strokeEllipse(-14,-26+bob,6.5,7.5,C.ink,2); strokeEllipse(14,-26+bob,6.5,7.5,C.ink,2);
+  ellipse(-14,-26+bob,6.5,7.5,C.hippo,leftFlick); ellipse(14,-26+bob,6.5,7.5,C.hippo,rightFlick);
+  strokeEllipse(-14,-26+bob,6.5,7.5,C.ink,2,leftFlick); strokeEllipse(14,-26+bob,6.5,7.5,C.ink,2,rightFlick);
+  ellipse(-14,-27+bob,3,3,'#f5c7d1',leftFlick); ellipse(14,-27+bob,3,3,'#f5c7d1',rightFlick);
   line(-16,18+bob,-12,33+bob,C.hippoDk,8);
   line(16,18+bob,12,33+bob,C.hippoDk,8);
   ellipse(-15,41+bob,9,4,'#9499a8');
@@ -932,41 +1024,77 @@ function drawHippoFriendly(cx,cy,sc,anim){
   ctx.restore();
 }
 
-function drawPflueger(cx,cy,sc,flip,anim){
+function drawPflueger(cx,cy,sc,flip,anim,mood){
   sc=sc||1; anim=anim||0;
   const bob=Math.sin(anim*0.08)*2;
   const ls=Math.sin(anim*0.14)*8;
+  const scarfSway=Math.sin(anim*0.22)*4+ls*0.25;
   ctx.save(); ctx.translate(cx,cy);
   if(flip)ctx.scale(-1,1); ctx.scale(sc,sc);
   ellipse(0,53,15,4,'rgba(0,0,0,0.12)');
+  // legs (slight shading split for light from top-left)
   fillRect(-9,24+bob,10,22+Math.max(0,ls),C.pflBlue);
   fillRect(1,24+bob,10,22+Math.max(0,-ls),'#4975cc');
+  fillRect(-9,24+bob,3,22+Math.max(0,ls),'#7ea2e8'); // top-left leg highlight
   strokeEllipse(-4,47+bob+Math.max(0,ls),7,4,C.ink,2);
   strokeEllipse(7,47+bob+Math.max(0,-ls),7,4,C.ink,2);
   ellipse(-4,47+bob+Math.max(0,ls),7,4,'#8b633e');
   ellipse(7,47+bob+Math.max(0,-ls),7,4,'#8b633e');
+  // shirt with top-left highlight + rim
   rnd(-13,8+bob,26,20,7,C.pflShirt,C.ink,2);
   fillRect(-13,13+bob,26,4,C.pflOrange);
   fillRect(-13,20+bob,26,4,C.pflOrange);
+  topLeftLight(0,18+bob,13,10,0.14);
+  rimArc(0,18+bob,13,10,C.rim,1.3);
   line(-15,13+bob,-20,25+bob,'#d3573d',4);
   line(15,13+bob,20,25+bob,'#d3573d',4);
-  circ(-20,25+bob,5,C.tan); strokeCirc(-20,25+bob,5,C.ink,2);
-  circ(20,25+bob,5,C.tan); strokeCirc(20,25+bob,5,C.ink,2);
-  fillRect(-4,1+bob,8,8,C.tan);
-  circ(0,-10+bob,15,C.tan);
+  circ(-20,25+bob,5,C.skinMd); strokeCirc(-20,25+bob,5,C.ink,2);
+  circ(20,25+bob,5,C.skinMd); strokeCirc(20,25+bob,5,C.ink,2);
+  // neck
+  fillRect(-4,1+bob,8,8,C.skinMd);
+  // red scarf — wraps neck, tail flutters when walking / speaking
+  ctx.save();
+  // scarf knot / wrap
+  rnd(-10,3+bob,20,7,3,C.scarf,C.ink,2);
+  ellipse(-5,6+bob,4,1.6,C.scarfHi);
+  ellipse(5,6+bob,4,1.6,C.scarfHi);
+  // trailing tail end behind right shoulder
+  ctx.fillStyle=C.scarf;
+  ctx.beginPath();
+  ctx.moveTo(7,7+bob);
+  ctx.quadraticCurveTo(12+scarfSway*0.6,14+bob,9+scarfSway,24+bob);
+  ctx.quadraticCurveTo(13+scarfSway*0.4,19+bob,16+scarfSway*0.3,10+bob);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle=C.ink;ctx.lineWidth=1.6;ctx.stroke();
+  // tail highlight stripe
+  ctx.strokeStyle=C.scarfHi;ctx.lineWidth=1;
+  ctx.beginPath();
+  ctx.moveTo(9+scarfSway*0.5,13+bob);
+  ctx.quadraticCurveTo(11+scarfSway*0.4,18+bob,10+scarfSway*0.8,22+bob);
+  ctx.stroke();
+  ctx.restore();
+  // head
+  circ(0,-10+bob,15,C.skinMd);
   strokeCirc(0,-10+bob,15,C.ink,2);
+  topLeftLight(0,-10+bob,15,15,0.14);
   ctx.fillStyle=C.pflHair;
   for(let i=-12;i<=12;i+=5){ctx.beginPath();ctx.arc(i,-20+bob,6,0,TAU);ctx.fill();}
   ctx.beginPath();ctx.arc(0,-25+bob,6,0,TAU);ctx.fill();
   strokeEllipse(0,-21+bob,16,8,C.ink,2);
+  // hair highlight glint (top-left)
+  ellipse(-7,-23+bob,5,2.3,'rgba(255,250,210,0.55)');
   const pfBlink=isBlinking(anim,110);
-  drawInkEye(-5,-10+bob,1.8,pfBlink); drawInkEye(5,-10+bob,1.8,pfBlink);
-  ctx.strokeStyle='#a35d42';ctx.lineWidth=1.8;
-  ctx.beginPath();ctx.arc(0,-4+bob,5,0.3,Math.PI-0.3);ctx.stroke();
+  drawInkEye(-5,-10+bob,1.9,pfBlink); drawInkEye(5,-10+bob,1.9,pfBlink);
+  if(!pfBlink){ circ(-4.3,-10.6+bob,0.55,'#fff'); circ(5.7,-10.6+bob,0.55,'#fff'); }
+  // cheeks
+  ellipse(-8,-5+bob,2.5,1.5,'rgba(230,130,110,0.35)');
+  ellipse(8,-5+bob,2.5,1.5,'rgba(230,130,110,0.35)');
+  drawMouth(0,-4+bob,10,mood||'happy','#a35d42');
   ctx.restore();
 }
 
-function drawLisa(cx,cy,sc,flip,anim){
+function drawLisa(cx,cy,sc,flip,anim,mood){
   sc=sc||1; anim=anim||0;
   const bob=Math.sin(anim*0.08)*2;
   ctx.save(); ctx.translate(cx,cy);
@@ -974,26 +1102,35 @@ function drawLisa(cx,cy,sc,flip,anim){
   ellipse(0,51,13,4,'rgba(0,0,0,0.11)');
   rnd(-12,8+bob,24,28,7,C.lisaPurp,C.ink,2);
   rnd(-11,4+bob,22,15,6,C.lisaPink,C.ink,2);
+  topLeftLight(0,18+bob,11,12,0.12);
+  rimArc(0,18+bob,12,13,C.rim,1.2);
   line(-13,11+bob,-19,25+bob,'#d86ea9',4);
   line(13,11+bob,19,25+bob,'#d86ea9',4);
   circ(-19,25+bob,4.8,C.tan);strokeCirc(-19,25+bob,4.8,C.ink,2);
   circ(19,25+bob,4.8,C.tan);strokeCirc(19,25+bob,4.8,C.ink,2);
-  fillRect(-4,0+bob,8,7,C.tan);
+  fillRect(-4,0+bob,8,7,C.skinMd);
   ctx.fillStyle=C.lisaHair;
   ellipse(0,-11+bob,15,13,C.lisaHair);
   circ(-16,-7+bob,7,C.lisaHair);circ(16,-7+bob,7,C.lisaHair);
   strokeEllipse(0,-11+bob,15,13,C.ink,2);
-  circ(0,-9+bob,13,C.tan);strokeCirc(0,-9+bob,13,C.ink,2);
+  circ(0,-9+bob,13,C.skinMd);strokeCirc(0,-9+bob,13,C.ink,2);
+  topLeftLight(0,-9+bob,13,13,0.14);
   ellipse(0,-18+bob,12,7,C.lisaHair);
   strokeEllipse(0,-18+bob,12,7,C.ink,2);
   line(-9,-17+bob,-4,-12+bob,C.lisaHair,4);
   line(9,-17+bob,4,-12+bob,C.lisaHair,4);
+  ellipse(-5,-16+bob,4,1.8,'rgba(255,250,230,0.45)');
   circ(-16,-14+bob,3,'#f17db1');circ(16,-14+bob,3,'#f17db1');
   rnd(-13,-13+bob,10,8,3,null,C.ink,1.8);
   rnd(3,-13+bob,10,8,3,null,C.ink,1.8);
   line(-3,-9+bob,3,-9+bob,C.ink,1.5);
   const liBlink=isBlinking(anim,150);
   drawInkEye(-8,-9+bob,1.5,liBlink); drawInkEye(8,-9+bob,1.5,liBlink);
+  if(!liBlink){ circ(-7.3,-9.4+bob,0.5,'#fff'); circ(8.7,-9.4+bob,0.5,'#fff'); }
+  // cheeks + mood mouth
+  ellipse(-9,-5+bob,2.2,1.3,'rgba(230,130,160,0.4)');
+  ellipse(9,-5+bob,2.2,1.3,'rgba(230,130,160,0.4)');
+  drawMouth(0,-4+bob,9,mood||'happy','#c85a7a');
   circ(0,12+bob,3.7,'#fff6a0');strokeCirc(0,12+bob,3.7,'#c58f34',1.2);
   line(-5,46+bob,-4,36+bob,C.tanDk,3);
   line(5,46+bob,4,36+bob,C.tanDk,3);
@@ -1002,25 +1139,31 @@ function drawLisa(cx,cy,sc,flip,anim){
   ctx.restore();
 }
 
-function drawMom(cx,cy,sc,anim){
+function drawMom(cx,cy,sc,anim,mood){
   sc=sc||1; anim=anim||0;
   const bob=Math.sin(anim*0.06)*2;
   ctx.save(); ctx.translate(cx,cy); ctx.scale(sc,sc);
   ellipse(0,65,15,5,'rgba(0,0,0,0.11)');
   rnd(-13,6+bob,26,23,7,C.momShirt,C.ink,2);
+  topLeftLight(0,17+bob,13,11,0.14);
+  rimArc(0,17+bob,13,12,C.rim,1.2);
   rnd(-14,28+bob,28,34,7,'#a48a72',C.ink,2);
   line(-15,12+bob,-20,30+bob,'#9d8267',4);
   line(15,12+bob,20,30+bob,'#9d8267',4);
-  circ(-20,30+bob,5,C.tan);strokeCirc(-20,30+bob,5,C.ink,2);
-  circ(20,30+bob,5,C.tan);strokeCirc(20,30+bob,5,C.ink,2);
-  fillRect(-4,0+bob,8,8,C.tan);
-  circ(0,-12+bob,14,C.tan);strokeCirc(0,-12+bob,14,C.ink,2);
+  circ(-20,30+bob,5,C.skinMd);strokeCirc(-20,30+bob,5,C.ink,2);
+  circ(20,30+bob,5,C.skinMd);strokeCirc(20,30+bob,5,C.ink,2);
+  fillRect(-4,0+bob,8,8,C.skinMd);
+  circ(0,-12+bob,14,C.skinMd);strokeCirc(0,-12+bob,14,C.ink,2);
+  topLeftLight(0,-12+bob,14,14,0.14);
   ellipse(0,-22+bob,16,10,C.momHair);
   strokeEllipse(0,-22+bob,16,10,C.ink,2);
+  ellipse(-6,-22+bob,5,2.2,'rgba(255,250,220,0.5)');
   const moBlink=isBlinking(anim,30);
-  drawInkEye(-5,-12+bob,1.7,moBlink); drawInkEye(5,-12+bob,1.7,moBlink);
-  ctx.strokeStyle='#9d6947';ctx.lineWidth=1.5;
-  ctx.beginPath();ctx.arc(0,-6+bob,4,0.25,Math.PI-0.25);ctx.stroke();
+  drawInkEye(-5,-12+bob,1.8,moBlink); drawInkEye(5,-12+bob,1.8,moBlink);
+  if(!moBlink){ circ(-4.3,-12.5+bob,0.5,'#fff'); circ(5.7,-12.5+bob,0.5,'#fff'); }
+  ellipse(-9,-7+bob,2.2,1.3,'rgba(220,140,130,0.35)');
+  ellipse(9,-7+bob,2.2,1.3,'rgba(220,140,130,0.35)');
+  drawMouth(0,-6+bob,8,mood||'neutral','#9d6947');
   line(-7,60+bob,-7,47+bob,'#8a6d53',3);
   line(7,60+bob,7,47+bob,'#8a6d53',3);
   ellipse(-7,61+bob,6,3,'#8a6d53');
@@ -1634,34 +1777,43 @@ const SCENES=[
   // ── SHORT INTRO ──────────────────────────────────────────────────
   {id:'ch1_1',bg:bgBedroom,
    chars:[{type:'pflueger',x:250,y:370,sc:0.95},{type:'hippo',x:530,y:395,sc:1.15}],
+   moods:{pflueger:'surprised'},
    text:DIALOG_DATA.scenes.ch1_1},
   {id:'stealth_intro',bg:bgBedroom,
    chars:[{type:'pflueger',x:320,y:370,sc:1},{type:'hippo',x:565,y:400,sc:1.1,flip:true}],
+   speaker:'pflueger', moods:{pflueger:'worried'},
    text:DIALOG_DATA.scenes.stealth_intro,
    action:'stealth'},
   {id:'ch2_4',bg:bgLibrary,
    chars:[{type:'pflueger',x:310,y:370,sc:0.95},{type:'lisa',x:490,y:360,sc:0.95}],
+   moods:{pflueger:'worried',lisa:'happy'},
    text:DIALOG_DATA.scenes.ch2_4},
   {id:'escape_intro',bg:bgLibrary,
    chars:[{type:'pflueger',x:310,y:370,sc:0.95},{type:'lisa',x:490,y:360,sc:0.95}],
+   moods:{lisa:'happy'},
    text:DIALOG_DATA.scenes.escape_intro,
    action:'escape'},
   {id:'decision_1',bg:bgBackyard,
    chars:[{type:'hippo',x:450,y:400,sc:1.3},{type:'pflueger',x:200,y:360,sc:0.95},{type:'lisa',x:620,y:360,sc:0.95}],
+   moods:{pflueger:'worried',lisa:'worried'},
    text:DIALOG_DATA.scenes.decision_1},
   {id:'cleanup_intro',bg:bgBedroom,
    chars:[{type:'pflueger',x:270,y:360,sc:0.95},{type:'lisa',x:430,y:356,sc:0.95},{type:'hippo',x:590,y:400,sc:1.05,flip:true}],
+   speaker:'pflueger', moods:{pflueger:'surprised',lisa:'worried'},
    text:DIALOG_DATA.scenes.cleanup_intro,
    action:'cleanup'},
   {id:'closet_intro',bg:bgBedroom,
    chars:[{type:'pflueger',x:320,y:360,sc:1},{type:'hippo',x:560,y:400,sc:1.1,flip:true}],
+   speaker:'pflueger', moods:{pflueger:'worried'},
    text:DIALOG_DATA.scenes.closet_intro,
    action:'closet_game'},
   {id:'epilogue_start',bg:bgNeighborhood,
    chars:[{type:'pflueger',x:350,y:340,sc:1},{type:'hippo',x:560,y:350,sc:1.1}],
+   moods:{pflueger:'happy'},
    text:DIALOG_DATA.scenes.epilogue_start},
   {id:'epilogue_end',bg:bgBedroom,
    chars:[{type:'pflueger',x:300,y:360,sc:0.9},{type:'hippo',x:580,y:420,sc:1.1,flip:true}],
+   moods:{pflueger:'happy'},
    text:DIALOG_DATA.scenes.epilogue_end,
    action:'credits'},
 ];
@@ -2043,23 +2195,23 @@ function drawScene(scene){
   drawBgOverlay(scene);
   drawEggLayer(scene);
   const activeSpeaker=(scene.speaker||'').toLowerCase();
+  const sceneMoods=scene.moods||{};
   (scene.chars||[]).forEach(function(ch){
     ctx.save();
     let anim=t+(ch.animOff||0);
-    // subtle breathing lift on the current speaker
     const chMatch=ch.type?ch.type.replace('hippocool','hippo'):'';
     const isSpeaker=activeSpeaker&&chMatch&&activeSpeaker.indexOf(chMatch)!==-1;
     if(isSpeaker){
       const bob=Math.sin(t*0.14)*1.4-0.8;
       ctx.translate(0,bob);
-      // gentle spotlight under speaker
       ellipse(ch.x,ch.y+56,36,10,'rgba(255,240,200,0.12)');
     }
-    if(ch.type==='pflueger')drawPflueger(ch.x,ch.y,ch.sc||1,ch.flip||false,anim);
+    const chMood=sceneMoods[ch.type]||(isSpeaker?scene.mood:null)||null;
+    if(ch.type==='pflueger')drawPflueger(ch.x,ch.y,ch.sc||1,ch.flip||false,anim,chMood);
     else if(ch.type==='hippo')drawHippoSide(ch.x,ch.y,ch.sc||1,ch.flip||false,anim);
     else if(ch.type==='hippocool')drawHippoCool(ch.x,ch.y,ch.sc||1,anim);
-    else if(ch.type==='lisa')drawLisa(ch.x,ch.y,ch.sc||1,ch.flip||false,anim);
-    else if(ch.type==='mom')drawMom(ch.x,ch.y,ch.sc||1,anim);
+    else if(ch.type==='lisa')drawLisa(ch.x,ch.y,ch.sc||1,ch.flip||false,anim,chMood);
+    else if(ch.type==='mom')drawMom(ch.x,ch.y,ch.sc||1,anim,chMood);
     ctx.restore();
   });
   if(scene.special==='newspaper'){
@@ -2266,6 +2418,7 @@ function updateStealth(dt){
   if(canMoveTo(nx,s.player.y,map))s.player.x=nx;
   if(canMoveTo(s.player.x,ny,map))s.player.y=ny;
   const moving=(vx!==0||vy!==0);
+  s.player.moving=moving;
   if(moving)s.player.anim++;
   s.player.stepCd-=dt;
   if(moving&&s.player.stepCd<=0){
@@ -2492,7 +2645,7 @@ function drawStealth(){
   drawStealthBackdrop(s,zd);
   drawMomTD(s.mom.x,s.mom.y,s.mom.angle,t);
   if(zd.hasDigory)drawDigoryTD(s.digory.x,s.digory.y,s.digory.chasing,s.digory.anim);
-  drawPfluegerTD(s.player.x,s.player.y,s.player.dir,s.player.anim,s.hasSandwich);
+  drawPfluegerTD(s.player.x,s.player.y,s.player.dir,s.player.anim,s.hasSandwich,s.player.moving);
   drawStealthUI();
   if(s.flash>0){
     ctx.save();
@@ -2582,20 +2735,36 @@ function drawSandwichEatenOverlay(){
   txt('Getting another one...',MAP_W/2,H/2+40,C.dimTxt,14,'center',"'Courier New',monospace");
 }
 
-function drawPfluegerTD(x,y,dir,anim,hasSandwich){
+function drawPfluegerTD(x,y,dir,anim,hasSandwich,moving){
   ctx.save();ctx.translate(x,y);
-  const bounce=Math.sin(anim*0.22)*1.4;
+  const stride=walkStride4(anim,0.16,moving!==false);
+  const leftLeg=-stride[0], rightLeg=-stride[1], bounce=stride[2];
   ellipse(0,10,13,5,'rgba(0,0,0,0.18)');
+  // torso with top-left highlight
   rnd(-10,-3+bounce,20,17,7,C.pflShirt,C.ink,2);
   fillRect(-10,1+bounce,20,3,C.pflOrange);
   fillRect(-10,6+bounce,20,3,C.pflOrange);
-  line(-5,10+bounce,-5,18+bounce,C.pflBlue,4);
-  line(5,10+bounce,5,18+bounce,C.pflBlue,4);
-  ellipse(-5,18+bounce,5,2.5,'#8b653f');
-  ellipse(5,18+bounce,5,2.5,'#8b653f');
+  topLeftLight(0,5+bounce,10,8,0.16);
+  // tiny scarf tail
+  ctx.save();
+  ctx.fillStyle=C.scarf;
+  ctx.beginPath();
+  ctx.moveTo(-4,-2+bounce);
+  ctx.quadraticCurveTo(-9,3+bounce,-6,9+bounce);
+  ctx.quadraticCurveTo(-3,4+bounce,-1,-1+bounce);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle=C.ink;ctx.lineWidth=1.2;ctx.stroke();
+  ctx.restore();
+  // legs — 4-phase discrete stride (left/right alternate)
+  line(-5,10+bounce,-5,18+bounce+leftLeg,C.pflBlue,4);
+  line(5,10+bounce,5,18+bounce+rightLeg,C.pflBlue,4);
+  ellipse(-5,18+bounce+leftLeg,5,2.5,'#8b653f');
+  ellipse(5,18+bounce+rightLeg,5,2.5,'#8b653f');
   const ha=[[0,-14],[0,13],[-14,0],[14,0]];
   const[hx,hy]=ha[dir]||ha[0];
-  circ(hx,hy,8,C.tan);strokeCirc(hx,hy,8,C.ink,2);
+  circ(hx,hy,8,C.skinMd);strokeCirc(hx,hy,8,C.ink,2);
+  topLeftLight(hx,hy,8,8,0.16);
   ellipse(hx,hy-4,8,5,C.pflHair);
   strokeEllipse(hx,hy-4,8,5,C.ink,2);
   if(dir===1){circ(hx-2,hy+1,1.2,C.ink);circ(hx+2,hy+1,1.2,C.ink);}
@@ -3489,7 +3658,7 @@ function initEscape(){
   esc={
     zone:0,
     player:{x:Z0_PLAYER_START.x,y:Z0_PLAYER_START.y,dir:0,vx:0,vy:0,anim:0,stepCd:0},
-    keepers:deepClone(Z0_KEEPERS),
+    keepers:stampKeeperVariants(deepClone(Z0_KEEPERS),0),
     npcs:deepClone([]),
     nikReady:false,
     nikActive:false,
@@ -3517,6 +3686,17 @@ function initEscape(){
 }
 
 function deepClone(obj){return JSON.parse(JSON.stringify(obj));}
+// Stamp deterministic skin/hair variants on keeper array so each keeper looks distinct.
+function stampKeeperVariants(keepers,zone){
+  if(!keepers)return keepers;
+  keepers.forEach(function(k,i){
+    var seed=(zone||0)*7+i;
+    k.variant=seed%3;          // 0,1,2 → three skin tones
+    k.hairVariant=(seed>>1)%3; // 0,1,2 → three hair shades
+    k.uniVariant=seed%2;       // 0,1   → two uniform shades
+  });
+  return keepers;
+}
 
 function showZoneMsg(text){
   if(esc)esc.zoneMsg={text,timer:180};
@@ -3601,6 +3781,7 @@ function updateEscape(dt){
   if(canMoveTo(nx,e.player.y,map))e.player.x=nx;
   if(canMoveTo(e.player.x,ny,map))e.player.y=ny;
   const moving=(vx!==0||vy!==0);
+  e.player.moving=moving;
   if(moving)e.player.anim++;
   e.player.stepCd-=dt;
   if(moving&&e.player.stepCd<=0){
@@ -3699,7 +3880,7 @@ function advanceZone(){
   e.player.x=zd.playerStart.x;
   e.player.y=zd.playerStart.y;
   e.player.dir=0;
-  e.keepers=deepClone(zd.keepers);
+  e.keepers=stampKeeperVariants(deepClone(zd.keepers),e.zone);
   e.npcs=deepClone(zd.npcs);
   e.nikActive=false;
   e.nikTimer=0;
@@ -3716,7 +3897,7 @@ function restartZone(){
   e.player.x=zd.playerStart.x;
   e.player.y=zd.playerStart.y;
   e.player.dir=0;
-  e.keepers=deepClone(zd.keepers);
+  e.keepers=stampKeeperVariants(deepClone(zd.keepers),e.zone);
   e.npcs=deepClone(zd.npcs);
   e.nikActive=false;
   e.nikTimer=0;
@@ -3787,8 +3968,8 @@ function drawEscape(){
       txt('[E] Talk',n.x-20,n.y-24,'#fff8c0',11,'left',"'Courier New',monospace");
     }
   });
-  e.keepers.forEach(function(k){drawKeeperTD(k.x,k.y,k.angle,t,k.frozen);});
-  drawHippoTD(e.player.x,e.player.y,e.player.dir,e.player.anim,false);
+  e.keepers.forEach(function(k){drawKeeperTD(k.x,k.y,k.angle,t,k.frozen,k);});
+  drawHippoTD(e.player.x,e.player.y,e.player.dir,e.player.anim,false,e.player.moving);
   if(e.nikActive){drawNikAnimation();}
   // Nik radial white flash (decays)
   if(e.nikFlash>0){
@@ -3892,7 +4073,7 @@ function drawZ1Cutscene(){
   drawSuspicionMeter(UI_X+8,H-94,UI_W-16,true);
 }
 
-function drawKeeperTD(x,y,angle,anim,frozen){
+function drawKeeperTD(x,y,angle,anim,frozen,k){
   ctx.save(); ctx.translate(x,y);
   if(!frozen&&!esc.cheatInvis){
     ctx.save();
@@ -3914,16 +4095,29 @@ function drawKeeperTD(x,y,angle,anim,frozen){
     ctx.stroke();
     ctx.restore();
   }
+  // variant colors (skin, hair, uniform) — fallback to defaults if k is undefined
+  var skinTones=[C.keeperSkin1,C.keeperSkin2,C.keeperSkin3];
+  var hairTones=[C.keeperHair1,C.keeperHair2,C.keeperHair3];
+  var uniforms=[C.keeperBlue,'#2c4f8c'];
+  var skin=skinTones[k&&k.variant||0];
+  var hair=hairTones[k&&k.hairVariant||0];
+  var uniform=uniforms[k&&k.uniVariant||0];
   ellipse(0,6,10,4,'rgba(0,0,0,0.2)');
-  const ls=frozen?0:Math.sin(anim*0.2)*3;
-  line(-4,8,-4,16,'#143170',3.5);
-  line(4,8+ls,4,16+ls,'#10265a',3.5);
-  rnd(-7,-5,14,17,6,frozen?'#92a7b8':C.keeperBlue,C.ink,2);
-  fillRect(-7,3,14,3,'#d9cf84');
-  circ(0,-12,5.5,frozen?'#c8dff0':C.tan);strokeCirc(0,-12,5.5,C.ink,1.8);
-  fillRect(-8,-20,16,6,'#1b2b5d');
-  ellipse(0,-20,10,3,'#0e1a3d');
-  strokeEllipse(0,-20,10,3,C.ink,1.5);
+  // 4-phase discrete walk cycle (both legs alternate) — frozen keepers stand still
+  var stride=walkStride4(anim,0.14,!frozen);
+  var leftLift=-stride[0], rightLift=-stride[1], bodyBob=-stride[2];
+  line(-4,8+bodyBob,-4,16+bodyBob+leftLift,'#143170',3.5);
+  line(4,8+bodyBob,4,16+bodyBob+rightLift,'#10265a',3.5);
+  rnd(-7,-5+bodyBob,14,17,6,frozen?'#92a7b8':uniform,C.ink,2);
+  fillRect(-7,3+bodyBob,14,3,'#d9cf84');
+  topLeftLight(0,3+bodyBob,7,8,0.15);
+  circ(0,-12+bodyBob,5.5,frozen?'#c8dff0':skin);strokeCirc(0,-12+bodyBob,5.5,C.ink,1.8);
+  topLeftLight(0,-12+bodyBob,5.5,5.5,0.18);
+  // hair visible at the back of the cap
+  ellipse(0,-10+bodyBob,6,2.2,hair);
+  fillRect(-8,-20+bodyBob,16,6,'#1b2b5d');
+  ellipse(0,-20+bodyBob,10,3,'#0e1a3d');
+  strokeEllipse(0,-20+bodyBob,10,3,C.ink,1.5);
   if(frozen){
     // blue icy tint
     ctx.save();
@@ -3958,13 +4152,17 @@ function drawKeeperTD(x,y,angle,anim,frozen){
   ctx.restore();
 }
 
-function drawHippoTD(x,y,dir,anim,frozen){
+function drawHippoTD(x,y,dir,anim,frozen,moving){
   ctx.save(); ctx.translate(x,y);
+  // heavy 4-phase bob conveys mass when moving
+  const stride=walkStride4(anim,0.14,moving===true);
+  const bounce=stride[2];
   ellipse(0,9,17,6,'rgba(0,0,0,0.18)');
   const pulse=frozen?Math.sin(anim*0.2)*2:0;
   ctx.fillStyle=frozen?'#a0c8e0':C.hippo;
-  ctx.beginPath(); ctx.ellipse(0,1,17+pulse,13,0,0,TAU); ctx.fill();
-  strokeEllipse(0,1,17+pulse,13,C.ink,2);
+  ctx.beginPath(); ctx.ellipse(0,1-bounce,17+pulse,13,0,0,TAU); ctx.fill();
+  strokeEllipse(0,1-bounce,17+pulse,13,C.ink,2);
+  topLeftLight(0,1-bounce,17+pulse,13,0.14);
   const ha=[[0,-14],[0,12],[-14,0],[14,0]];
   const [hx,hy]=ha[dir]||ha[0];
   ctx.fillStyle=frozen?'#a0c8e0':C.hippo;
