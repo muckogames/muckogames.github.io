@@ -51,6 +51,7 @@
       box-shadow: 0 0 40px rgba(200,144,26,0.3);
     }
     #modal-title { font-size: 22px; color: #ffd700; margin-bottom: 10px; }
+    #modal-title .ev-big { font-size: 52px; display: block; line-height: 1; margin-bottom: 6px; }
     #modal-body { font-size: 15px; color: #e8d8b0; margin-bottom: 18px; line-height: 1.5; }
     #modal-btns { display: flex; justify-content: center; flex-wrap: wrap; }
     #modal-btns button { margin: 5px; }
@@ -64,6 +65,8 @@
       min-width: 130px;
       line-height: 1.4;
     }
+    #modal-btns button .ch-icon { font-size: 22px; margin-right: 6px; vertical-align: middle; }
+    #modal-btns button .ch-txt { vertical-align: middle; }
     #modal-btns button:hover { background: #3a2a10; }
     #modal-btns button:disabled { opacity: 0.4; cursor: default; }
 
@@ -394,7 +397,7 @@ function goTo(fn, ...args) {
 
 // ── Modal ─────────────────────────────────────────────────────────────────────
 function showModal(title, body, buttons) {
-  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-title').innerHTML = title;
   document.getElementById('modal-body').innerHTML = body;
   const btns = document.getElementById('modal-btns');
   btns.innerHTML = '';
@@ -1135,8 +1138,11 @@ function buildDriving(app, nextIdx) {
     const textStr = typeof ev.text === 'function' ? ev.text(gs) : ev.text;
     const buttons = ev.choices.map(ch => {
       const unavailable = ch.canAfford ? !ch.canAfford(gs) : false;
+      const em = ch.label.match(/^\s*(\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*)/u);
+      const ic = em ? em[1] : '▶';
+      const tx = em ? ch.label.slice(em[0].length).trim() : ch.label;
       return {
-        label: `${ch.label}<br><small style="color:#888;font-size:11px">${ch.desc}</small>`,
+        label: `<span class="ch-icon">${ic}</span><span class="ch-txt">${tx}</span><br><small style="color:#888;font-size:11px">${ch.desc}</small>`,
         disabled: unavailable,
         fn: () => {
           ch.effect(gs);
@@ -1149,7 +1155,7 @@ function buildDriving(app, nextIdx) {
         }
       };
     });
-    showModal(`${ev.emoji} ${ev.title}`, textStr, buttons);
+    showModal(`<span class="ev-big">${ev.emoji}</span>${ev.title}`, textStr, buttons);
   }
 
   setTimeout(nextEvent, 900);
