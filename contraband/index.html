@@ -873,9 +873,30 @@ function drawPort(){
 }
 
 /* ── GAME OVER & VICTORY ─────────────────────────────────────────────────── */
+var _endActx=null;
+function playEndSting(kind){
+  try{
+    if(!_endActx) _endActx = new (window.AudioContext||window.webkitAudioContext)();
+    var actx=_endActx; if(actx.state!=='running') actx.resume();
+    var t0=actx.currentTime;
+    var notes = kind==='win' ? [[523,0],[659,0.12],[784,0.24],[1047,0.36]] : [[392,0],[330,0.12],[262,0.24],[196,0.36]];
+    notes.forEach(function(n){
+      var o=actx.createOscillator(), g=actx.createGain();
+      o.type = kind==='win' ? 'triangle' : 'sine';
+      o.frequency.value = n[0];
+      g.gain.setValueAtTime(0.0001, t0+n[1]);
+      g.gain.exponentialRampToValueAtTime(0.22, t0+n[1]+0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0+n[1]+0.36);
+      o.connect(g); g.connect(actx.destination);
+      o.start(t0+n[1]); o.stop(t0+n[1]+0.4);
+    });
+  }catch(e){}
+}
+
 function showArrested(){
+  playEndSting('lose');
   el().innerHTML='<div class="page" style="justify-content:center;align-items:center;text-align:center;gap:16px">'+
-    '<div style="font-size:4em">🚔</div>'+
+    '<div style="font-size:5em;line-height:1">😵 🚔</div>'+
     '<div class="page-title" style="color:#cc4444">ARRESTED</div>'+
     '<div class="card" style="max-width:480px;text-align:left">'+
     '<div style="font-size:0.9em;color:#aa8888;line-height:1.6">'+G.msg+'</div>'+
@@ -887,12 +908,13 @@ function showArrested(){
 }
 
 function showVictory(){
+  playEndSting('win');
   var final=Math.round(G.marks+(G.heat<30?80:G.heat<60?40:0));
   var grade=final>500?'S':final>350?'A':final>220?'B':'C';
   var gradeCol={'S':'#f0d060','A':'#88ff88','B':'#aaddff','C':'#cc9966'}[grade];
   el().innerHTML='<div class="page" style="justify-content:center;align-items:center;text-align:center;gap:16px">'+
-    '<div style="font-size:3em">⛵</div>'+
-    '<div class="page-title">ROTTERDAM</div>'+
+    '<div style="font-size:5em;line-height:1">🏆 🎉</div>'+
+    '<div class="page-title" style="color:#ffd700;text-shadow:0 0 12px rgba(255,215,0,.4)">ROTTERDAM</div>'+
     '<div class="page-sub">You made it. The Rhine is behind you. The buyer is pleased.</div>'+
     '<div class="card" style="max-width:480px">'+
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;text-align:left">'+
