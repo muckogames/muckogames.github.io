@@ -34,6 +34,7 @@ body{
   <canvas id="gc"></canvas>
 </div>
 <script src="../mucko-engine.js"></script>
+<script src="dialog-data.js"></script>
 <script>
 'use strict';
 
@@ -343,7 +344,7 @@ document.addEventListener('keydown', function(e) {
 var phase = 'title';
 var LOW_FPS_PHASES = { title:1, victory:1, highscores:1, keypad:1, caught:1, shop:1 };
 
-var player = { x: 0, y: 0, facing: 'up', sprinting: false };
+var player = { x: 0, y: 0, facing: 'up', sprinting: false, hiding: false };
 
 // Run-level state
 var MAX_ENERGY = 300;
@@ -357,6 +358,15 @@ var dailyLockedOut = false;         // already scored today
 var alertedEver = false;            // any guard hit 'alerted' this run (breaks no-alert bonus)
 var hsStore = MuckoEngine.makeStore('mucko_hs_duckdieb2');
 var dailyStore = MuckoEngine.makeStore('mucko_dd2_daily');
+
+// ── Dialog (loaded from dialog-data.js; fallback if missing) ────────────────
+var DD = (typeof window !== 'undefined' && window.DUCKDIEB2_DIALOG) || {
+  shopkeeper:[], postmortem:[], raccoons:[], victory:[], cheats:{}
+};
+function ddPick(list) {
+  if (!list || !list.length) return '';
+  return list[Math.floor(Math.random() * list.length)];
+}
 
 // ── Persistent wallet + lifetime stats ──────────────────────────────────────
 var WALLET_KEY = 'mucko_dd2_wallet';
@@ -701,9 +711,10 @@ function drawMobileControls() {
 // # wall  . floor  C creak  R rug  P paper  K keypad  L loot  V vault-gate  D door
 var TILE = 40;
 var COLS = 20, ROWS = 14;
-var T_FLOOR=0, T_WALL=1, T_CREAK=2, T_RUG=3, T_PAPER=4, T_KEYPAD=5, T_LOOT=6, T_VAULT=7, T_DOOR=8;
+var T_FLOOR=0, T_WALL=1, T_CREAK=2, T_RUG=3, T_PAPER=4, T_KEYPAD=5, T_LOOT=6, T_VAULT=7, T_DOOR=8, T_HIDE=9, T_CAMERA=10;
 var TILE_FROM_CHAR = { '#':T_WALL, '.':T_FLOOR, 'C':T_CREAK, 'R':T_RUG,
-                       'P':T_PAPER, 'K':T_KEYPAD, 'L':T_LOOT, 'V':T_VAULT, 'D':T_DOOR };
+                       'P':T_PAPER, 'K':T_KEYPAD, 'L':T_LOOT, 'V':T_VAULT, 'D':T_DOOR,
+                       'H':T_HIDE, 'M':T_CAMERA };
 
 // Patrol helper: list of [col,row] → waypoints at tile centers.
 function P(list) {
@@ -720,15 +731,15 @@ var ROOM_TEMPLATES = [
     name: 'the living room',
     rows: [
       '####################',
-      '#..................#',
-      '#....CCCC..........#',
+      '#H.................#',
+      '#....CCCC........M.#',
       '#...........P......#',
       '#..................#',
       '#......######......#',
       '#......#..L.#......#',
       '#......#....#......#',
       '#......#....#......#',
-      '#......###V##......#',
+      '#......###V##.....H#',
       '#........K.........#',
       '#.....RRRRR........#',
       '#........D.........#',
@@ -739,6 +750,10 @@ var ROOM_TEMPLATES = [
       { kind: 'inner',     pts: P([[4,3],[4,10],[15,10],[15,3]]) },
       { kind: 'creak',     pts: P([[5,2],[10,2]]) },
     ],
+    cameras: [
+      // { col, row, baseFacing, sweep (radians) }
+      { col: 17, row: 2, baseFacing: Math.PI * 0.85, sweep: Math.PI / 3 },
+    ],
   },
   {
     id: 'loft',
@@ -746,16 +761,16 @@ var ROOM_TEMPLATES = [
     rows: [
       '####################',
       '#..................#',
-      '#.CCC..............#',
+      '#.CCC........M.....#',
       '#..........P.......#',
       '#..................#',
       '#...........######.#',
-      '#...........#..L.#.#',
+      '#.H.........#..L.#.#',
       '#...........#....#.#',
       '#...........##V###.#',
       '#..................#',
       '#...RRRR..K........#',
-      '#..................#',
+      '#.................H#',
       '#.........D........#',
       '####################'
     ],
@@ -763,6 +778,9 @@ var ROOM_TEMPLATES = [
       { kind: 'perimeter', pts: P([[17,2],[17,4],[2,4],[2,2]]) },
       { kind: 'inner',     pts: P([[18,11],[18,9],[2,9],[2,11]]) },
       { kind: 'vault',     pts: P([[13,10],[17,10]]) },
+    ],
+    cameras: [
+      { col: 13, row: 2, baseFacing: Math.PI * 0.5,  sweep: Math.PI / 2.4 },
     ],
   },
   {
@@ -772,15 +790,15 @@ var ROOM_TEMPLATES = [
       '####################',
       '#..................#',
       '#.........CCC......#',
-      '#..................#',
+      '#..M...............#',
       '#..P........######.#',
       '#............#.L.#.#',
       '#............#...#.#',
       '#............##V##.#',
       '#..................#',
-      '#.RRRRR..K.........#',
+      '#.RRRRR..K........H#',
       '#..................#',
-      '#..................#',
+      '#H.................#',
       '#.......D..........#',
       '####################'
     ],
@@ -788,6 +806,9 @@ var ROOM_TEMPLATES = [
       { kind: 'perimeter', pts: P([[17,2],[17,11],[2,11],[2,2]]) },
       { kind: 'inner',     pts: P([[4,3],[11,3],[11,9],[4,9]]) },
       { kind: 'vault',     pts: P([[10,4],[10,10]]) },
+    ],
+    cameras: [
+      { col: 3, row: 3, baseFacing: Math.PI * 0.1, sweep: Math.PI / 2.2 },
     ],
   },
 ];
@@ -855,6 +876,22 @@ var noiseRate = 1.0;     // difficulty tuning
 
 var GUARD_NAMES = ['Officer Pflueger', 'Officer Malin', 'Officer Hickock', 'Officer Lekan'];
 var guards = [];
+var cameras = [];
+
+function makeCamera(def) {
+  return {
+    x: def.col * TILE + TILE/2,
+    y: def.row * TILE + TILE/2,
+    baseFacing: def.baseFacing,
+    sweep: def.sweep,
+    t: Math.random() * Math.PI * 2,
+    facing: def.baseFacing,
+    visionRange: 170,
+    visionAngle: Math.PI / 3.2,
+    suspicion: 0,
+    alert: 'calm',
+  };
+}
 
 function makeGuard(patrol, name) {
   return {
@@ -874,11 +911,13 @@ function makeGuard(patrol, name) {
 
 // Capture record for post-mortem
 var captureEvent = null; // { distPx, playerNoise, wasSprinting, tileName, guardName, guardFacing }
+var caughtLine = '';
 
 function resetStealth() {
   vaultOpen = false; hasLoot = false; knowsCode = false;
   noise = 0; paperFlash = 0; lootGlow = 0;
   captureEvent = null;
+  player.hiding = false;
   runHouseCount++;
   freshRunRand();
   pickTemplate();
@@ -895,6 +934,13 @@ function resetStealth() {
   for (var i = available.length - 1; i > 0; i--) {
     var j = Math.floor(runRand() * (i + 1));
     var t = available[i]; available[i] = available[j]; available[j] = t;
+  }
+  // Cameras — easy mode skips them
+  cameras = [];
+  if (!easyMode && currentTemplate.cameras) {
+    for (var ci = 0; ci < currentTemplate.cameras.length; ci++) {
+      cameras.push(makeCamera(currentTemplate.cameras[ci]));
+    }
   }
   var n = easyMode ? 1 : Math.min(available.length, 2 + Math.floor(runRand() * 2));
   guards = [];
@@ -956,6 +1002,9 @@ function resetAlley() {
   alley.targetIdx = Math.floor(r() * ALLEY_HOUSE_COUNT);
   alley.selectedIdx = -1;
   alley.power = 0;
+  // Pick a raccoon tip and interpolate the house number (1-based)
+  var tip = ddPick(DD.raccoons) || '';
+  alley.tip = tip.replace(/\{N\}/g, String(alley.targetIdx + 1));
   player.x = 80;
   player.y = ALLEY_GROUND_Y + 42;
   player.facing = 'right';
@@ -998,7 +1047,7 @@ function updateAlley(dt) {
   // Corner store entry: player stands in front of the storefront on the right
   var nearShop = (player.x > W - 120 && player.y > ALLEY_GROUND_Y - 6);
   if (eatAction()) {
-    if (nearShop) { setPhase('shop'); return; }
+    if (nearShop) { refreshShopLine(); setPhase('shop'); return; }
     if (alley.selectedIdx >= 0) {
       enterHousePhase();
       return;
@@ -1112,6 +1161,22 @@ function renderAlley() {
   ctx.fillStyle = '#1a1a1a'; ctx.fillRect(69, ALLEY_GROUND_Y - 12, 2, 3);
   ctx.fillRect(75, ALLEY_GROUND_Y - 12, 2, 3);
 
+  // Raccoon tip speech bubble (shown when player is reasonably close)
+  if (alley.tip && player.x < 260) {
+    var tw = Math.min(360, alley.tip.length * 7 + 24);
+    var tbx = 60, tby = ALLEY_GROUND_Y - 76;
+    rndRect(tbx, tby, tw, 32, 6, 'rgba(0,0,0,0.85)', '#ffd700', 1.5);
+    txt(alley.tip, tbx + tw/2, tby + 20, '#ffd700', 12, 'center',
+        'italic 12px Georgia,serif');
+    // Tail
+    ctx.fillStyle = 'rgba(0,0,0,0.85)';
+    ctx.beginPath();
+    ctx.moveTo(tbx + 30, tby + 32);
+    ctx.lineTo(tbx + 40, tby + 32);
+    ctx.lineTo(tbx + 32, tby + 42);
+    ctx.closePath(); ctx.fill();
+  }
+
   drawDuck(player.x, player.y, player.facing);
 
   // Shop prompt when nearby
@@ -1142,7 +1207,8 @@ function renderAlley() {
 }
 
 // ── Phase: shop (corner store, raccoon shopkeep) ─────────────────────────────
-var shop = { flashT: 0, flashMsg: '' };
+var shop = { flashT: 0, flashMsg: '', line: '' };
+function refreshShopLine() { shop.line = ddPick(DD.shopkeeper); }
 function shopRowY(i) { return 160 + i * 58; }
 function shopRowBox(i) {
   return { x: 70, y: shopRowY(i) - 22, w: W - 140, h: 48 };
@@ -1211,8 +1277,8 @@ function renderShop() {
   ctx.clearRect(0, 0, W, H);
 
   txt('The Corner Store', W/2, 60, '#ffd700', 30, 'center', 'bold 30px Georgia,serif');
-  txt('Hey duck. Gold for gear — you pick.', W/2, 92, '#cde', 14, 'center',
-      'italic 14px Georgia,serif');
+  var tag = shop.line || 'Hey duck. Gold for gear — you pick.';
+  txt(tag, W/2, 92, '#cde', 14, 'center', 'italic 14px Georgia,serif');
   txt('\u272A ' + wallet.gold + ' gold', W/2, 118, '#ffd700', 16, 'center',
       'bold 16px monospace');
 
@@ -1362,6 +1428,28 @@ function drawTileBackdrop(c) {
         c.fillRect(x, y, TILE, TILE);
         c.strokeStyle = '#ffd700'; c.lineWidth = 2;
         c.strokeRect(x + 4, y + 4, TILE - 8, TILE - 8);
+      } else if (t === T_HIDE) {
+        // Wardrobe — brown box with a double-door split
+        c.fillStyle = '#6a4a2a';
+        c.fillRect(x, y, TILE, TILE);
+        c.fillStyle = '#3a2414';
+        c.fillRect(x + 4, y + 4, TILE - 8, TILE - 8);
+        c.strokeStyle = '#1a0a04'; c.lineWidth = 2;
+        c.strokeRect(x + 4, y + 4, TILE - 8, TILE - 8);
+        c.beginPath();
+        c.moveTo(x + TILE/2, y + 6); c.lineTo(x + TILE/2, y + TILE - 6);
+        c.stroke();
+        // Knobs
+        c.fillStyle = '#ffd700';
+        c.beginPath(); c.arc(x + TILE/2 - 6, y + TILE/2, 1.8, 0, Math.PI*2); c.fill();
+        c.beginPath(); c.arc(x + TILE/2 + 6, y + TILE/2, 1.8, 0, Math.PI*2); c.fill();
+      } else if (t === T_CAMERA) {
+        // Ceiling mount — floor tile under it, plus a small dome
+        c.fillStyle = '#6a4a2a';
+        c.fillRect(x, y, TILE, TILE);
+        c.strokeStyle = 'rgba(0,0,0,0.15)'; c.lineWidth = 1;
+        c.beginPath(); c.moveTo(x, y + TILE - 0.5);
+        c.lineTo(x + TILE, y + TILE - 0.5); c.stroke();
       }
       // Floor grain lines
       if (t === T_FLOOR) {
@@ -1378,7 +1466,7 @@ function nearestInteract(px, py) {
   for (var dr = -1; dr <= 1; dr++) {
     for (var dc = -1; dc <= 1; dc++) {
       var t = tileAt(pc + dc, pr + dr);
-      if (t === T_PAPER || t === T_KEYPAD || t === T_LOOT || t === T_DOOR) {
+      if (t === T_PAPER || t === T_KEYPAD || t === T_LOOT || t === T_DOOR || t === T_HIDE) {
         var cx = (pc + dc) * TILE + TILE/2, cy = (pr + dr) * TILE + TILE/2;
         var d = Math.hypot(cx - px, cy - py);
         if (d < TILE * 0.95) return { tile: t, col: pc + dc, row: pr + dr, d: d };
@@ -1432,7 +1520,7 @@ function updateOneGuard(guard, dt) {
   var pdx = player.x - guard.x, pdy = player.y - guard.y;
   var pd  = Math.hypot(pdx, pdy);
   var seen = false;
-  if (pd < guard.visionRange) {
+  if (pd < guard.visionRange && !player.hiding) {
     var ang = Math.atan2(pdy, pdx);
     var diff = Math.atan2(Math.sin(ang - guard.facing), Math.cos(ang - guard.facing));
     if (Math.abs(diff) < guard.visionAngle / 2) {
@@ -1472,6 +1560,7 @@ function updateOneGuard(guard, dt) {
     sfxBust();
     doShake(12, 0.35);
     burst(player.x, player.y, 'smoke', 6);
+    caughtLine = ddPick(DD.postmortem);
     setPhase('caught');
     return true;
   }
@@ -1484,6 +1573,78 @@ function updateGuards(dt) {
   }
 }
 
+function updateOneCamera(cam, dt) {
+  // Rotating sweep
+  if (cheats.freezeGuardsT <= 0) cam.t += dt * 0.9;
+  cam.facing = cam.baseFacing + Math.sin(cam.t) * (cam.sweep / 2);
+
+  var pdx = player.x - cam.x, pdy = player.y - cam.y;
+  var pd  = Math.hypot(pdx, pdy);
+  var seen = false;
+  var powered = !(alley && alley.power > 0); // raccoon power-cut disables cameras
+  if (powered && !player.hiding && pd < cam.visionRange) {
+    var ang = Math.atan2(pdy, pdx);
+    var diff = Math.atan2(Math.sin(ang - cam.facing), Math.cos(ang - cam.facing));
+    if (Math.abs(diff) < cam.visionAngle / 2) {
+      if (!lineBlocked(cam.x, cam.y, player.x, player.y)) seen = true;
+    }
+  }
+  if (seen) {
+    var closeness = 1 - Math.min(1, pd / cam.visionRange);
+    cam.suspicion += (40 + 70 * closeness) * dt;
+  } else {
+    cam.suspicion -= 45 * dt;
+  }
+  cam.suspicion = Math.max(0, Math.min(100, cam.suspicion));
+  var newAlert = cam.suspicion >= 90 ? 'alerted'
+               : cam.suspicion >= 40 ? 'suspicious' : 'calm';
+  if (newAlert === 'alerted' && cam.alert !== 'alerted') {
+    sfxAlert();
+    spawnParticle(cam.x, cam.y + 14, 'alert');
+    alertedEver = true;
+    // Alert any nearby guards immediately
+    for (var g = 0; g < guards.length; g++) {
+      guards[g].suspicion = Math.max(guards[g].suspicion, 70);
+    }
+  }
+  cam.alert = newAlert;
+  if (cam.suspicion >= 100) {
+    captureEvent = {
+      distPx: Math.round(pd),
+      playerNoise: Math.round(noise),
+      wasSprinting: !!player.sprinting,
+      tileName: tileNameAt(player.x, player.y),
+      guardName: 'a ceiling camera',
+      guardFacing: guardFacingToCardinal(cam.facing),
+      px: player.x, py: player.y,
+      gx: cam.x, gy: cam.y, gFacing: cam.facing,
+      gRange: cam.visionRange, gAngle: cam.visionAngle,
+    };
+    sfxBust();
+    doShake(12, 0.35);
+    burst(player.x, player.y, 'smoke', 6);
+    caughtLine = ddPick(DD.postmortem);
+    setPhase('caught');
+    return true;
+  }
+  return false;
+}
+
+function updateCameras(dt) {
+  for (var i = 0; i < cameras.length; i++) {
+    if (updateOneCamera(cameras[i], dt)) return;
+  }
+}
+
+function drawCameraSprite(cam) {
+  // Ceiling dome
+  circ(cam.x, cam.y, 10, '#2a2a32', '#0a0a10', 2);
+  circ(cam.x, cam.y, 6,  '#111');
+  // Blinking LED
+  var blink = (Math.floor(cam.t * 4) % 2) === 0;
+  circ(cam.x + 5, cam.y - 5, 1.8, blink ? '#ff4040' : '#601010');
+}
+
 function updateHouse(dt) {
   var vx = 0, vy = 0;
   if (isLeft())  vx -= 1;
@@ -1492,7 +1653,10 @@ function updateHouse(dt) {
   if (isDown())  vy += 1;
   var moving = (vx || vy);
   var sprint = !!(K.ShiftLeft || K.ShiftRight);
-  player.sprinting = sprint && moving;
+  player.sprinting = sprint && moving && !player.hiding;
+  // While hiding, any movement press pops the duck back out.
+  if (player.hiding && moving) { player.hiding = false; }
+  if (player.hiding) moving = false;
   var speed = player.sprinting ? 260 : 150;
   if (moving) {
     var len = Math.sqrt(vx*vx + vy*vy);
@@ -1539,6 +1703,19 @@ function updateHouse(dt) {
       } else if (ni.tile === T_DOOR && hasLoot) {
         startChase();
         return;
+      } else if (ni.tile === T_HIDE) {
+        if (!player.hiding) {
+          // Snap into the wardrobe and freeze
+          player.x = ni.col * TILE + TILE/2;
+          player.y = ni.row * TILE + TILE/2;
+          player.hiding = true;
+          // Immediately cool suspicion a little — duck vanishes from sight
+          for (var gH = 0; gH < guards.length; gH++) {
+            guards[gH].suspicion = Math.max(0, guards[gH].suspicion - 20);
+          }
+        } else {
+          player.hiding = false;
+        }
       }
     }
   }
@@ -1548,6 +1725,7 @@ function updateHouse(dt) {
   lootGlow   = Math.max(0, lootGlow + dt);
 
   updateGuards(dt);
+  if (phase === 'house') updateCameras(dt);
 }
 
 // Vision cone fill on the foreground canvas (semi-transparent)
@@ -1653,8 +1831,28 @@ function renderHouse() {
                 :                            'rgba(255,255,180,0.16)';
     drawVisionCone(g, coneCol);
   }
+  // Camera cones (dimmer, bluish)
+  var camPowered = !(alley && alley.power > 0);
+  for (var ckc = 0; ckc < cameras.length; ckc++) {
+    var cm = cameras[ckc];
+    if (!camPowered) continue;
+    var ccol = cm.alert === 'alerted'    ? 'rgba(255,100,120,0.30)'
+             : cm.alert === 'suspicious' ? 'rgba(180,200,255,0.24)'
+             :                             'rgba(160,200,255,0.14)';
+    drawVisionCone(cm, ccol);
+  }
   for (var gi2 = 0; gi2 < guards.length; gi2++) drawGuardSprite(guards[gi2]);
-  drawDuck(player.x, player.y, player.facing);
+  for (var ckd = 0; ckd < cameras.length; ckd++) drawCameraSprite(cameras[ckd]);
+  if (player.hiding) {
+    // Hidden: show a small "Z" bubble over the wardrobe instead of the duck
+    ctx.globalAlpha = 0.55;
+    drawDuck(player.x, player.y, player.facing);
+    ctx.globalAlpha = 1;
+    rndRect(player.x - 14, player.y - 30, 28, 16, 4, 'rgba(0,0,0,0.7)', '#ffd700', 1);
+    txt('shh', player.x, player.y - 18, '#ffd700', 11, 'center', 'bold 11px monospace');
+  } else {
+    drawDuck(player.x, player.y, player.facing);
+  }
 
   // HUD strip
   ctx.fillStyle = 'rgba(0,0,0,0.6)';
@@ -1683,6 +1881,7 @@ function renderHouse() {
               : ni.tile === T_KEYPAD ? (knowsCode ? 'ENTER CODE' : 'need the code')
               : ni.tile === T_LOOT   ? (vaultOpen ? 'GRAB' : 'locked')
               : ni.tile === T_DOOR   ? (hasLoot ? 'ESCAPE' : 'door locked')
+              : ni.tile === T_HIDE   ? (player.hiding ? 'STEP OUT' : 'HIDE')
               :                        '';
     if (label) {
       var cx = ni.col * TILE + TILE/2, cy = ni.row * TILE - 6;
@@ -1951,6 +2150,9 @@ function renderCaught() {
   ctx.fillRect(0, 0, W, H);
 
   txt('BUSTED', W/2, 86, '#ff5555', 48, 'center', 'bold 48px Georgia,serif');
+  if (caughtLine) {
+    txt(caughtLine, W/2, 108, '#ffcdcd', 13, 'center', 'italic 13px Georgia,serif');
+  }
 
   // Post-mortem card
   var px = W/2 - 260, py = 120, pw = 520, ph = 280;
@@ -2454,7 +2656,7 @@ function renderVictory() {
   var sOver = drawBtn(sbox, 'Corner Store','#3a3a5a');
   var tOver = drawBtn(tb, 'Title',       '#3a3a5a');
   if ((pOver && mclk) || eat('Enter') || eat('Space')) { mclk = false; startGame(); }
-  if (sOver && mclk) { mclk = false; startGame(); setPhase('shop'); }
+  if (sOver && mclk) { mclk = false; startGame(); refreshShopLine(); setPhase('shop'); }
   if (tOver && mclk) { mclk = false; setPhase('title'); }
   if (eat('KeyH')) setPhase('highscores');
 }
