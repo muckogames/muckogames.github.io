@@ -18,6 +18,18 @@ BASIL          - Zookeepers become "Basil" — they'd rather stay out of it
 PRASTHEKOALA   - Zookeepers slow to 20% speed (having an epic dream)
 SKREEEEM       - Instantly activate Nik without using your charge
 
+EASTER EGGS (cameos from other Mucko games)
+-------------------------------------------
+SAMSTER        - A tiny Samster the hamster scurries across the bottom of
+                 the current story scene, squeaks hello, and vanishes.
+                 (From "Samster Diebs from the Diebs")
+DUCKDIEB       - Toggles a masked-mallard silhouette peeking from behind
+                 the rightmost cover in neighborhood & backyard scenes.
+                 (From "Duck Dieb")
+SATURNV        - A tiny Saturn V streaks across the neighborhood sky
+                 with a faint trail and a distant boom.
+                 (From "Rocket Trail")
+
 NOTE: Cheats do not disable the difficulty setting. They're just for fun.
 These codes are not shown anywhere in the game. Keep it a secret.
 Nobody else can know!

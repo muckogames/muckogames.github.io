@@ -260,6 +260,9 @@ const CHEAT_LORE={
   SKREEEEM:     'The sound Nik makes. Phonetically accurate. Scientifically terrifying.',
   CLOSETLIFE:   'The closet sees all. The closet knows all. The closet judges no one.',
   PBANDJ:       'Pflueger\u2019s post-school ritual. Creamy, not crunchy. This is not negotiable.',
+  SAMSTER:      'Samster the hamster. Master of cage locks and sneaky shortcuts. He says hi.',
+  DUCKDIEB:     'Duck Dieb, the masked mallard thief. He is watching. He is always watching.',
+  SATURNV:      'Saturn V, honorary crew of the R.M.A.S. Mucko. Somewhere, Houston is smiling.',
 };
 const CHEATS={
   MARGARITAVILLE:()=>startPhase('epilogue'),
@@ -270,6 +273,9 @@ const CHEATS={
   SKREEEEM:()=>{if(esc&&esc.nikReady&&!esc.nikActive)activateNik(true);},
   CLOSETLIFE:()=>startPhase('closet_game'),
   PBANDJ:()=>startPhase('stealth'),
+  SAMSTER:()=>triggerSamsterEgg(),
+  DUCKDIEB:()=>triggerDuckDiebEgg(),
+  SATURNV:()=>triggerSaturnVEgg(),
 };
 function cheatKey(k){
   if(k.length!==1)return;
@@ -679,6 +685,8 @@ const sfx=(function(){
       setTimeout(function(){tone({type:'sine',freq:58,dur:0.15,vol:v*0.85});},150);
     },
     openDoor:function(){tone({type:'square',freq:80,freq2:260,dur:0.25,vol:0.08});},
+    squeak:function(){tone({type:'square',freq:2100,freq2:2800,dur:0.05,vol:0.07});setTimeout(function(){tone({type:'square',freq:2450,freq2:1750,dur:0.055,vol:0.055});},55);},
+    rocketWoosh:function(){noiseBurst({dur:0.75,vol:0.14,cut:1800,filter:'bandpass'});tone({type:'sawtooth',freq:260,freq2:90,dur:0.75,vol:0.07});},
     boom:function(){noiseBurst({dur:0.5,vol:0.22,cut:320});tone({type:'sawtooth',freq:130,freq2:50,dur:0.45,vol:0.14});},
   };
 })();
@@ -1349,6 +1357,112 @@ function drawBgOverlay(scene){
 }
 
 /* ================================================================
+   EASTER EGGS (cheat-activated cameos from other Mucko games)
+   ================================================================ */
+const eggs={
+  samster:{active:false,t:0,squeaked:false},
+  duckdieb:{active:false},
+  saturnv:{active:false,t:0,boomed:false,trail:[]},
+};
+function triggerSamsterEgg(){eggs.samster.active=true;eggs.samster.t=0;eggs.samster.squeaked=false;}
+function triggerDuckDiebEgg(){eggs.duckdieb.active=!eggs.duckdieb.active;}
+function triggerSaturnVEgg(){
+  eggs.saturnv.active=true;eggs.saturnv.t=0;eggs.saturnv.boomed=false;eggs.saturnv.trail=[];
+  sfx.rocketWoosh();
+}
+function drawTinySamster(x,y,anim){
+  const bob=Math.sin(anim*0.38)*1.2;
+  ctx.save();ctx.translate(x,y);
+  ellipse(0,8,8,2.4,'rgba(0,0,0,0.2)');
+  ellipse(0,2+bob,8,6.5,'#b8885c');strokeEllipse(0,2+bob,8,6.5,'#4b3a4f',1.2);
+  ellipse(0,4.5+bob,5,4,'#e8caa4');
+  circ(0,-5+bob,5.5,'#b8885c');strokeCirc(0,-5+bob,5.5,'#4b3a4f',1.2);
+  ellipse(-4,-9+bob,2,2.5,'#d6a77a',-0.3);strokeEllipse(-4,-9+bob,2,2.5,'#4b3a4f',0.9,-0.3);
+  ellipse(4,-9+bob,2,2.5,'#d6a77a',0.3);strokeEllipse(4,-9+bob,2,2.5,'#4b3a4f',0.9,0.3);
+  circ(-2,-5.5+bob,1.1,'#2a1a20');circ(2,-5.5+bob,1.1,'#2a1a20');
+  circ(-1.7,-5.8+bob,0.35,'#fff');circ(2.3,-5.8+bob,0.35,'#fff');
+  ellipse(0,-3+bob,1.1,0.8,'#ffaaaa');
+  // tiny burglar bar (homage)
+  ctx.save();ctx.globalAlpha=0.6;rnd(-4,-7.5+bob,8,3,1.2,'#222');ctx.restore();
+  ctx.restore();
+}
+function drawDuckPeek(x,y){
+  // masked mallard peeking from behind cover — only head + eyes visible
+  ctx.save();ctx.translate(x,y);
+  // green head
+  circ(0,0,9,'#2a7a38');strokeCirc(0,0,9,'#4b3a4f',1.5);
+  ctx.fillStyle='rgba(0,200,160,0.28)';ctx.beginPath();ctx.arc(-2,-2,4.5,0,TAU);ctx.fill();
+  // black mask bar
+  fillRect(-8,-5,16,5,'#111');
+  // eye whites
+  circ(-3.5,-2,1.6,'#fff');circ(3.5,-2,1.6,'#fff');
+  circ(-3.3,-1.8,0.7,'#111');circ(3.7,-1.8,0.7,'#111');
+  // bill peeking
+  ctx.fillStyle='#e8b800';
+  ctx.beginPath();ctx.ellipse(0,4,3.2,2.2,0,0,TAU);ctx.fill();
+  ctx.strokeStyle='#4b3a4f';ctx.lineWidth=1;ctx.stroke();
+  ctx.restore();
+}
+function drawEggLayer(scene){
+  if(!scene)return;
+  // SAMSTER — scurry across the bottom of any story scene
+  if(eggs.samster.active){
+    eggs.samster.t++;
+    const tt=eggs.samster.t;
+    const dur=200;
+    const prog=tt/dur;
+    if(prog>=1){eggs.samster.active=false;}
+    else {
+      const sx=W+20-prog*(W+60);
+      const sy=H-32+Math.sin(tt*0.4)*2;
+      drawTinySamster(sx,sy,tt);
+      if(!eggs.samster.squeaked&&tt>60){eggs.samster.squeaked=true;sfx.squeak();}
+    }
+  }
+  // DUCKDIEB — peek from behind right-edge cover in neighborhood + backyard
+  if(eggs.duckdieb.active&&(scene.bg===bgNeighborhood||scene.bg===bgBackyard)){
+    const bob=Math.sin(t*0.05)*0.6;
+    let px,py;
+    if(scene.bg===bgNeighborhood){ px=742; py=H*0.56-78+bob; }
+    else { px=702; py=H-198+bob; } // backyard (behind rightmost bush)
+    // brief sideways duck-scoot
+    const peekAmt=Math.max(0,Math.min(1,(Math.sin(t*0.018)+1)*0.5));
+    drawDuckPeek(px-2+peekAmt*6,py);
+  }
+  // SATURN V — streaks across neighborhood sky
+  if(eggs.saturnv.active&&scene.bg===bgNeighborhood){
+    eggs.saturnv.t++;
+    const tt=eggs.saturnv.t;
+    const dur=140;
+    const prog=tt/dur;
+    const rx=-30+prog*(W+60);
+    const ry=70+prog*28-Math.sin(prog*Math.PI)*14;
+    // trail
+    eggs.saturnv.trail.push({x:rx-10,y:ry+3,life:30});
+    if(eggs.saturnv.trail.length>40)eggs.saturnv.trail.shift();
+    eggs.saturnv.trail.forEach(function(p){
+      p.life--;
+      const a=Math.max(0,p.life/30)*0.6;
+      circ(p.x,p.y,2+((30-p.life)/8),'rgba(255,220,160,'+a.toFixed(3)+')');
+    });
+    // rocket body
+    ctx.save();ctx.translate(rx,ry);ctx.rotate(0.4);
+    fillRect(-8,-2,16,4,'#f4ecd8');
+    fillRect(-8,-2,16,2,'#d8c9a0');
+    fillRect(4,-3,4,6,'#c8b78e');
+    // nose
+    ctx.fillStyle='#b0431f';
+    ctx.beginPath();ctx.moveTo(8,-2);ctx.lineTo(12,0);ctx.lineTo(8,2);ctx.closePath();ctx.fill();
+    // flame
+    ctx.fillStyle='#ffb040';
+    ctx.beginPath();ctx.moveTo(-8,-1.5);ctx.lineTo(-14-Math.random()*3,0);ctx.lineTo(-8,1.5);ctx.closePath();ctx.fill();
+    ctx.restore();
+    if(!eggs.saturnv.boomed&&prog>0.95){eggs.saturnv.boomed=true;sfx.boom();}
+    if(prog>=1){eggs.saturnv.active=false;eggs.saturnv.trail=[];}
+  }
+}
+
+/* ================================================================
    DIALOG BOX
    ================================================================ */
 
@@ -1927,6 +2041,7 @@ function drawScene(scene){
     rnd(8,8,W-16,H-16,18,null,'rgba(82,61,59,0.18)',2.5);
   });
   drawBgOverlay(scene);
+  drawEggLayer(scene);
   const activeSpeaker=(scene.speaker||'').toLowerCase();
   (scene.chars||[]).forEach(function(ch){
     ctx.save();
