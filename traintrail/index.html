@@ -146,6 +146,15 @@ button.btn-big    { font-size: 14px; padding: 8px 20px; }
 #log-panel p.alert { color: #e05050; }
 #log-panel p.good  { color: #50c070; }
 #log-panel p.gold  { color: #c8901a; }
+#log-panel .event-header {
+  display: flex; align-items: center;
+  padding: 6px 4px; margin: 6px 0 4px 0;
+  border-top: 1px solid #3a2806; border-bottom: 1px solid #3a2806;
+}
+#log-panel .event-big { font-size: 34px; line-height: 1; margin-right: 10px; flex-shrink: 0; }
+#log-panel .event-title { font-size: 14px; font-weight: bold; color: #c8901a; }
+.btn-big .ch-icon { font-size: 18px; margin-right: 8px; }
+.btn-big .ch-txt { }
 #status-panel {
   width: 195px; flex-shrink: 0; background: #1a1004;
   padding: 10px 12px; font-size: 12px;
@@ -751,11 +760,16 @@ function showStep() {
   btns.innerHTML = '';
 
   if (step.type === 'event' || step.type === 'kraken' || step.type === 'steam' || step.type === 'mini') {
-    // Add step header to log
-    const h = document.createElement('p');
-    h.className = 'gold'; h.style.fontWeight = 'bold'; h.style.marginTop = '8px';
-    h.textContent = `── ${step.title} ──`;
-    log.appendChild(h);
+    // Add step header to log — big emoji + title
+    const emojiMatch = step.title.match(/^\s*(\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*)/u);
+    const bigIcon = emojiMatch ? emojiMatch[1] : '🎲';
+    const cleanTitle = emojiMatch ? step.title.slice(emojiMatch[0].length).trim() : step.title;
+    const hdr = document.createElement('div');
+    hdr.className = 'event-header';
+    const bi = document.createElement('span'); bi.className = 'event-big'; bi.textContent = bigIcon;
+    const bt = document.createElement('span'); bt.className = 'event-title'; bt.textContent = cleanTitle;
+    hdr.appendChild(bi); hdr.appendChild(bt);
+    log.appendChild(hdr);
 
     const d = document.createElement('p');
     d.style.whiteSpace = 'pre-wrap'; d.textContent = step.desc || step.desc;
@@ -766,11 +780,16 @@ function showStep() {
   refreshStatus();
 
   if (step.type === 'event') {
-    // Show choices
+    // Show choices — icon + text
     (step.choices || []).forEach((ch, i) => {
       const btn = document.createElement('button');
       btn.className = 'btn-big';
-      btn.textContent = ch.text;
+      const em = ch.text.match(/^\s*(\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*)/u);
+      const ic = em ? em[1] : '▶';
+      const tx = em ? ch.text.slice(em[0].length).trim() : ch.text;
+      const si = document.createElement('span'); si.className = 'ch-icon'; si.textContent = ic;
+      const st = document.createElement('span'); st.className = 'ch-txt'; st.textContent = tx;
+      btn.appendChild(si); btn.appendChild(st);
       btn.onclick = () => handleChoice(ch);
       btns.appendChild(btn);
     });
