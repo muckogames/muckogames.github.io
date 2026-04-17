@@ -341,7 +341,7 @@ document.addEventListener('keydown', function(e) {
 
 // ── Game state ───────────────────────────────────────────────────────────────
 var phase = 'title';
-var LOW_FPS_PHASES = { title:1, victory:1, highscores:1, keypad:1, caught:1 };
+var LOW_FPS_PHASES = { title:1, victory:1, highscores:1, keypad:1, caught:1, shop:1 };
 
 var player = { x: 0, y: 0, facing: 'up', sprinting: false };
 
@@ -351,7 +351,118 @@ var energy = MAX_ENERGY;
 var jailCount = 0;
 var runStartMs = 0;
 var easyMode = false;
+var dailyMode = false;              // Daily Heist run?
+var dailySeed = 0;                  // active seed when dailyMode
+var dailyLockedOut = false;         // already scored today
+var alertedEver = false;            // any guard hit 'alerted' this run (breaks no-alert bonus)
 var hsStore = MuckoEngine.makeStore('mucko_hs_duckdieb2');
+var dailyStore = MuckoEngine.makeStore('mucko_dd2_daily');
+
+// ── Persistent wallet + lifetime stats ──────────────────────────────────────
+var WALLET_KEY = 'mucko_dd2_wallet';
+var wallet = loadWallet();
+function loadWallet() {
+  try {
+    var raw = localStorage.getItem(WALLET_KEY);
+    if (raw) {
+      var obj = JSON.parse(raw);
+      obj.gold = obj.gold || 0;
+      obj.lifetimeHeists = obj.lifetimeHeists || 0;
+      obj.lifetimeGold   = obj.lifetimeGold   || 0;
+      obj.owned = obj.owned || {};
+      obj.lastDaily = obj.lastDaily || '';
+      return obj;
+    }
+  } catch (e) {}
+  return { gold: 0, lifetimeHeists: 0, lifetimeGold: 0, owned: {}, lastDaily: '' };
+}
+function saveWallet() {
+  try { localStorage.setItem(WALLET_KEY, JSON.stringify(wallet)); } catch (e) {}
+}
+
+// ── Gadget catalog ──────────────────────────────────────────────────────────
+var GADGETS = [
+  { id:'lockpick',  price:120, label:'Lockpick',      emoji:'\uD83D\uDD11',
+    tip:'skip one keypad' },                                         // 🔑
+  { id:'silent',    price:180, label:'Silent Shoes',  emoji:'\uD83D\uDC5F',
+    tip:'half noise all run' },                                      // 👟
+  { id:'smoke',     price:200, label:'Smoke Bomb',    emoji:'\uD83D\uDCA8',
+    tip:'reset all guards' },                                        // 💨
+  { id:'cat',       price:160, label:'Getaway Cat',   emoji:'\uD83D\uDC08',
+    tip:'+8s to chase' },                                            // 🐈
+  { id:'nightvis',  price:260, label:'Night Vision',  emoji:'\uD83E\uDD7D',
+    tip:'cones always on' },                                         // 🥽
+];
+function gadgetById(id) {
+  for (var i = 0; i < GADGETS.length; i++) if (GADGETS[i].id === id) return GADGETS[i];
+  return null;
+}
+
+// ── Per-run gadget state ────────────────────────────────────────────────────
+var runGadgets = { lockpick_used:false, smoke_used:false, cat_used:false,
+                   silent_active:false, nightvis_active:false,
+                   lockpick_primed:false };
+function resetRunGadgets() {
+  runGadgets = { lockpick_used:false, smoke_used:false, cat_used:false,
+                 silent_active:false, nightvis_active:false,
+                 lockpick_primed:false };
+}
+function ownedCount(id) { return wallet.owned[id] || 0; }
+function consumeGadget(id) {
+  if (!ownedCount(id)) return false;
+  wallet.owned[id] = ownedCount(id) - 1;
+  saveWallet();
+  return true;
+}
+function gadgetApplicable(id) {
+  // Which phases the gadget can be activated from; returns false if already used.
+  if (id === 'lockpick')
+    return (phase === 'house' || phase === 'alley') && !runGadgets.lockpick_used;
+  if (id === 'silent')
+    return (phase === 'alley' || phase === 'house') && !runGadgets.silent_active;
+  if (id === 'smoke')
+    return phase === 'house' && !runGadgets.smoke_used && guards.length > 0;
+  if (id === 'cat')
+    return (phase === 'alley' || phase === 'house' || phase === 'chase') && !runGadgets.cat_used;
+  if (id === 'nightvis')
+    return (phase === 'alley' || phase === 'house') && !runGadgets.nightvis_active;
+  return false;
+}
+function activateGadget(id) {
+  if (!gadgetApplicable(id)) return false;
+  if (!consumeGadget(id)) return false;
+  if (id === 'lockpick') {
+    runGadgets.lockpick_used = true;
+    knowsCode = true;
+    if (phase === 'house') { vaultOpen = true; clearBackdropCache(); }
+    cheats.cheatMsg = 'lockpick — vault popped'; cheats.cheatActivatedT = 1.6;
+    sfxKeypadOk();
+  } else if (id === 'silent') {
+    runGadgets.silent_active = true;
+    noiseRate = noiseRate * 0.5;    // halve immediately too
+    cheats.cheatMsg = 'silent shoes on'; cheats.cheatActivatedT = 1.6;
+    audio.beep(1200, 0.1, 0.12, 'triangle');
+  } else if (id === 'smoke') {
+    runGadgets.smoke_used = true;
+    for (var i = 0; i < guards.length; i++) {
+      guards[i].suspicion = 0;
+      guards[i].alert = 'calm';
+      burst(guards[i].x, guards[i].y, 'smoke', 10);
+    }
+    cheats.cheatMsg = 'smoke bomb — guards reset'; cheats.cheatActivatedT = 1.6;
+    audio.boom(0.2, 0.3);
+  } else if (id === 'cat') {
+    runGadgets.cat_used = true;
+    if (phase === 'chase') chase.limit += 8;
+    cheats.cheatMsg = 'getaway cat +8s'; cheats.cheatActivatedT = 1.6;
+    audio.beep(660, 0.15, 0.2, 'triangle');
+  } else if (id === 'nightvis') {
+    runGadgets.nightvis_active = true;
+    cheats.cheatMsg = 'night vision on'; cheats.cheatActivatedT = 1.6;
+    audio.beep(880, 0.12, 0.18, 'sine');
+  }
+  return true;
+}
 
 function setPhase(p) { phase = p; }
 function enterHousePhase() {
@@ -368,8 +479,42 @@ function enterHousePhase() {
   setPhase('house');
 }
 function startGame() {
+  dailyMode = false;
+  dailySeed = 0;
   energy = MAX_ENERGY;
   jailCount = 0;
+  alertedEver = false;
+  runHouseCount = 0;
+  resetRunGadgets();
+  freshRunRand();
+  runStartMs = (typeof performance !== 'undefined') ? performance.now() : Date.now();
+  resetAlley();
+  setPhase('alley');
+}
+function todayString() {
+  var d = new Date();
+  return d.getFullYear() * 10000 + (d.getMonth()+1) * 100 + d.getDate();
+}
+function seededRand(state) {
+  // tiny mulberry32
+  return function() {
+    state = (state + 0x6D2B79F5) | 0;
+    var t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function startDaily() {
+  dailyMode = true;
+  dailySeed = todayString();
+  dailyLockedOut = wallet.lastDaily === '' + dailySeed;
+  energy = MAX_ENERGY;
+  jailCount = 0;
+  alertedEver = false;
+  runHouseCount = 0;
+  resetRunGadgets();
+  freshRunRand();
   runStartMs = (typeof performance !== 'undefined') ? performance.now() : Date.now();
   resetAlley();
   setPhase('alley');
@@ -438,6 +583,82 @@ function drawDuck(x, y, facing) {
   }
 
   ctx.restore();
+}
+
+// ── Gadget inventory bar (above d-pad on mobile, bottom-center on desktop) ──
+function gadgetBarVisiblePhases() {
+  return phase === 'alley' || phase === 'house' || phase === 'chase';
+}
+function gadgetBarLayout() {
+  // Only show icons for gadgets the player owns
+  var items = [];
+  for (var i = 0; i < GADGETS.length; i++) {
+    var g = GADGETS[i];
+    if (ownedCount(g.id) > 0) items.push(g);
+  }
+  var btnW = 40, gap = 6;
+  var total = items.length * btnW + Math.max(0, items.length - 1) * gap;
+  var y, x0;
+  if (TOUCH_UI) {
+    // Above the action button on the right; stacked horizontally centered above dpad+act area
+    y = H - 200;
+    x0 = W/2 - total / 2;
+  } else {
+    y = H - 48;
+    x0 = W/2 - total / 2;
+  }
+  var boxes = [];
+  for (var j = 0; j < items.length; j++) {
+    boxes.push({ g: items[j], x: x0 + j * (btnW + gap), y: y, w: btnW, h: btnW });
+  }
+  return boxes;
+}
+function drawGadgetBar() {
+  if (!gadgetBarVisiblePhases()) return;
+  var boxes = gadgetBarLayout();
+  if (boxes.length === 0) return;
+  ctx.save();
+  for (var i = 0; i < boxes.length; i++) {
+    var b = boxes[i];
+    var can = gadgetApplicable(b.g.id);
+    var over = mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h;
+    ctx.globalAlpha = can ? 0.95 : 0.55;
+    rndRect(b.x, b.y, b.w, b.h, 8, can ? (over ? '#2a4a2a' : '#1a2a1a') : '#1a1a22',
+            can ? '#ffd700' : '#555', 2);
+    ctx.globalAlpha = 1;
+    ctx.font = '22px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(b.g.emoji, b.x + b.w/2, b.y + b.h/2);
+    // count badge
+    var n = ownedCount(b.g.id);
+    if (n > 1) {
+      rndRect(b.x + b.w - 14, b.y - 4, 18, 16, 4, '#000', '#ffd700', 1);
+      txt('×' + n, b.x + b.w - 5, b.y + 8, '#ffd700', 10, 'center',
+          'bold 10px monospace');
+    }
+    // tooltip on hover (desktop)
+    if (over && !TOUCH_UI) {
+      var tip = b.g.label + ' — ' + b.g.tip;
+      var tw = tip.length * 7 + 16;
+      rndRect(b.x + b.w/2 - tw/2, b.y - 26, tw, 20, 4, '#000', '#ffd700', 1);
+      txt(tip, b.x + b.w/2, b.y - 12, '#ffd700', 11, 'center', 'bold 11px monospace');
+    }
+  }
+  ctx.restore();
+}
+function handleGadgetBarClick() {
+  if (!gadgetBarVisiblePhases() || !mclk) return false;
+  var boxes = gadgetBarLayout();
+  for (var i = 0; i < boxes.length; i++) {
+    var b = boxes[i];
+    if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
+      if (gadgetApplicable(b.g.id)) {
+        activateGadget(b.g.id);
+        mclk = false;
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 // ── Mobile controls (larger, context-aware, with sublabels) ──────────────────
@@ -582,8 +803,20 @@ function rebuildMap() {
     MAP.push(row);
   }
 }
+// In daily mode, derive every "random" decision for a house-entry from a
+// deterministic PRNG seeded from (dailySeed + which-house-index + runHouseCount).
+var runRand = Math.random;
+var runHouseCount = 0;              // increments each time we enter a house
+function freshRunRand() {
+  if (dailyMode) {
+    var mix = ((dailySeed * 131) ^ (runHouseCount * 2654435761)) >>> 0;
+    runRand = seededRand(mix);
+  } else {
+    runRand = Math.random;
+  }
+}
 function pickTemplate() {
-  currentTemplate = ROOM_TEMPLATES[Math.floor(Math.random() * ROOM_TEMPLATES.length)];
+  currentTemplate = ROOM_TEMPLATES[Math.floor(runRand() * ROOM_TEMPLATES.length)];
   MAP_ROWS = currentTemplate.rows;
   rebuildMap();
 }
@@ -646,22 +879,24 @@ function resetStealth() {
   vaultOpen = false; hasLoot = false; knowsCode = false;
   noise = 0; paperFlash = 0; lootGlow = 0;
   captureEvent = null;
+  runHouseCount++;
+  freshRunRand();
   pickTemplate();
   // Roll a numeric code (2 digits on easy, 4 on normal)
   if (easyMode) {
-    CODE = ('' + Math.floor(10 + Math.random() * 90));
+    CODE = ('' + Math.floor(10 + runRand() * 90));
   } else {
-    CODE = ('' + Math.floor(1000 + Math.random() * 9000));
+    CODE = ('' + Math.floor(1000 + runRand() * 9000));
   }
-  noiseRate = easyMode ? 0.65 : 1.0;
+  noiseRate = (easyMode ? 0.65 : 1.0) * (runGadgets.silent_active ? 0.5 : 1.0);
   // Spawn guards: pick N distinct patrols from the template
   var available = currentTemplate.patrols.slice();
   // Shuffle
   for (var i = available.length - 1; i > 0; i--) {
-    var j = Math.floor(Math.random() * (i + 1));
+    var j = Math.floor(runRand() * (i + 1));
     var t = available[i]; available[i] = available[j]; available[j] = t;
   }
-  var n = easyMode ? 1 : Math.min(available.length, 2 + Math.floor(Math.random() * 2));
+  var n = easyMode ? 1 : Math.min(available.length, 2 + Math.floor(runRand() * 2));
   guards = [];
   for (var g = 0; g < n; g++) {
     var guard = makeGuard(available[g], GUARD_NAMES[g % GUARD_NAMES.length]);
@@ -717,7 +952,8 @@ function houseDoorX(i) {
 function houseDoorY() { return ALLEY_GROUND_Y - 2; }
 
 function resetAlley() {
-  alley.targetIdx = Math.floor(Math.random() * ALLEY_HOUSE_COUNT);
+  var r = dailyMode ? seededRand((dailySeed ^ 0xA11E7) >>> 0) : Math.random;
+  alley.targetIdx = Math.floor(r() * ALLEY_HOUSE_COUNT);
   alley.selectedIdx = -1;
   alley.power = 0;
   player.x = 80;
@@ -759,7 +995,10 @@ function updateAlley(dt) {
   }
   alley.selectedIdx = nearestAlleyDoor();
 
+  // Corner store entry: player stands in front of the storefront on the right
+  var nearShop = (player.x > W - 120 && player.y > ALLEY_GROUND_Y - 6);
   if (eatAction()) {
+    if (nearShop) { setPhase('shop'); return; }
     if (alley.selectedIdx >= 0) {
       enterHousePhase();
       return;
@@ -832,8 +1071,17 @@ function drawAlleyBackdrop(c) {
   c.fillStyle = '#ffd700';
   c.font = 'bold 14px Georgia,serif'; c.textAlign = 'center';
   c.fillText('SHOP', W - 47, ALLEY_GROUND_Y - 108);
-  c.fillStyle = '#555';
-  c.fillText('(soon)', W - 47, ALLEY_GROUND_Y - 90);
+  c.fillStyle = '#8aeb8a';
+  c.fillText('OPEN', W - 47, ALLEY_GROUND_Y - 90);
+  // Lit window
+  c.fillStyle = '#ffd88a';
+  c.fillRect(W - 78, ALLEY_GROUND_Y - 72, 28, 22);
+  c.strokeStyle = '#0a0a0a'; c.lineWidth = 1;
+  c.strokeRect(W - 78, ALLEY_GROUND_Y - 72, 28, 22);
+  // Shop door
+  c.fillStyle = '#6b3a1a';
+  c.fillRect(W - 58, ALLEY_GROUND_Y - 40, 24, 40);
+  c.strokeStyle = '#2a1a0a'; c.strokeRect(W - 58, ALLEY_GROUND_Y - 40, 24, 40);
   // Door frames (runtime overlays the highlight + number)
 }
 
@@ -866,6 +1114,15 @@ function renderAlley() {
 
   drawDuck(player.x, player.y, player.facing);
 
+  // Shop prompt when nearby
+  var nearShop = (player.x > W - 120 && player.y > ALLEY_GROUND_Y - 6);
+  if (nearShop) {
+    var sw = 88;
+    rndRect(W - 47 - sw/2, ALLEY_GROUND_Y + 22, sw, 22, 5, 'rgba(0,0,0,0.8)', '#ffd700', 1.5);
+    txt('ENTER SHOP', W - 47, ALLEY_GROUND_Y + 38, '#ffd700', 12, 'center',
+        'bold 12px monospace');
+  }
+
   // HUD
   ctx.fillStyle = 'rgba(0,0,0,0.6)';
   ctx.fillRect(0, 0, W, 44);
@@ -875,7 +1132,125 @@ function renderAlley() {
   ctx.fillStyle = '#c8a040';
   ctx.fillRect(202, 24, Math.max(0, 156 * (energy / MAX_ENERGY)), 10);
   txt(energy + '/' + MAX_ENERGY, 370, 32, '#fff', 14, 'left', 'bold 14px monospace');
-  txt('pick a house', W - 14, 28, '#ffe060', 15, 'right', 'bold 15px monospace');
+  // Gold
+  txt('\u272A ' + wallet.gold + 'g', W - 14, 28, '#ffd700', 15, 'right',
+      'bold 15px monospace');
+  if (dailyMode) {
+    txt('Daily Heist #' + dailySeed, W/2, 60, '#8adfff', 13, 'center',
+        'bold 13px monospace');
+  }
+}
+
+// ── Phase: shop (corner store, raccoon shopkeep) ─────────────────────────────
+var shop = { flashT: 0, flashMsg: '' };
+function shopRowY(i) { return 160 + i * 58; }
+function shopRowBox(i) {
+  return { x: 70, y: shopRowY(i) - 22, w: W - 140, h: 48 };
+}
+function drawShopBackdrop(c) {
+  c.fillStyle = '#1a1a24'; c.fillRect(0, 0, W, H);
+  // Wood counter
+  c.fillStyle = '#3a2a1a'; c.fillRect(0, H - 60, W, 60);
+  c.strokeStyle = '#1a0a00'; c.lineWidth = 2;
+  c.beginPath(); c.moveTo(0, H - 60); c.lineTo(W, H - 60); c.stroke();
+  // Shelf lines
+  for (var s = 0; s < 4; s++) {
+    c.fillStyle = s % 2 ? '#141420' : '#0f0f18';
+    c.fillRect(20, 70 + s * 20, W - 40, 4);
+  }
+  // Shopkeeper: a raccoon behind the counter
+  var rx = 90, ry = H - 90;
+  c.fillStyle = '#5a5a5a'; c.beginPath(); c.arc(rx, ry, 28, 0, Math.PI*2); c.fill();
+  c.fillStyle = '#1a1a1a'; // mask
+  c.beginPath(); c.arc(rx - 8, ry - 4, 8, 0, Math.PI*2);
+  c.arc(rx + 8, ry - 4, 8, 0, Math.PI*2); c.fill();
+  c.fillStyle = '#fff';
+  c.beginPath(); c.arc(rx - 7, ry - 4, 3, 0, Math.PI*2);
+  c.arc(rx + 9, ry - 4, 3, 0, Math.PI*2); c.fill();
+  c.fillStyle = '#111';
+  c.beginPath(); c.arc(rx - 7, ry - 4, 1.6, 0, Math.PI*2);
+  c.arc(rx + 9, ry - 4, 1.6, 0, Math.PI*2); c.fill();
+  // Nose
+  c.fillStyle = '#1a1a1a';
+  c.beginPath(); c.arc(rx, ry + 6, 2.5, 0, Math.PI*2); c.fill();
+}
+function updateShop(dt) {
+  if (shop.flashT > 0) shop.flashT -= dt;
+  if (mclk) {
+    // Check each gadget row
+    for (var i = 0; i < GADGETS.length; i++) {
+      var g = GADGETS[i];
+      var b = shopRowBox(i);
+      if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
+        if (wallet.gold >= g.price) {
+          wallet.gold -= g.price;
+          wallet.owned[g.id] = ownedCount(g.id) + 1;
+          saveWallet();
+          shop.flashMsg = 'bought: ' + g.label;
+          shop.flashT = 1.2;
+          sfxCoin();
+        } else {
+          shop.flashMsg = 'not enough gold';
+          shop.flashT = 1.0;
+          sfxKeypadBad();
+        }
+        mclk = false;
+        return;
+      }
+    }
+    // Exit button
+    var ex = { x: W/2 - 80, y: H - 52, w: 160, h: 40 };
+    if (mx >= ex.x && mx <= ex.x + ex.w && my >= ex.y && my <= ex.y + ex.h) {
+      mclk = false; setPhase('alley'); return;
+    }
+  }
+  if (eat('Escape')) setPhase('alley');
+}
+function renderShop() {
+  drawCachedBackdrop('shop', drawShopBackdrop);
+  ctx.clearRect(0, 0, W, H);
+
+  txt('The Corner Store', W/2, 60, '#ffd700', 30, 'center', 'bold 30px Georgia,serif');
+  txt('Hey duck. Gold for gear — you pick.', W/2, 92, '#cde', 14, 'center',
+      'italic 14px Georgia,serif');
+  txt('\u272A ' + wallet.gold + ' gold', W/2, 118, '#ffd700', 16, 'center',
+      'bold 16px monospace');
+
+  // Gadget rows
+  for (var i = 0; i < GADGETS.length; i++) {
+    var g = GADGETS[i];
+    var b = shopRowBox(i);
+    var over = mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h;
+    var afford = wallet.gold >= g.price;
+    rndRect(b.x, b.y, b.w, b.h, 8,
+            afford ? (over ? '#2a3a1a' : '#1a2a14') : '#1a1a22',
+            afford ? '#ffd700' : '#555', 2);
+    // Emoji
+    ctx.font = '26px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#fff';
+    ctx.fillText(g.emoji, b.x + 26, b.y + b.h/2);
+    txt(g.label, b.x + 54, b.y + 22, '#ffd700', 15, 'left', 'bold 15px Georgia,serif');
+    txt(g.tip,   b.x + 54, b.y + 40, '#cde',    12, 'left', 'italic 12px Georgia,serif');
+    txt('\u272A ' + g.price, b.x + b.w - 120, b.y + 30,
+        afford ? '#ffd700' : '#888', 15, 'right', 'bold 15px monospace');
+    txt('owned: ' + ownedCount(g.id), b.x + b.w - 14, b.y + 30,
+        '#8adfff', 13, 'right', 'bold 13px monospace');
+  }
+
+  // Exit button
+  var ex = { x: W/2 - 80, y: H - 52, w: 160, h: 40 };
+  var exOver = mx >= ex.x && mx <= ex.x + ex.w && my >= ex.y && my <= ex.y + ex.h;
+  rndRect(ex.x, ex.y, ex.w, ex.h, 8, exOver ? '#3a5a2a' : '#1a1a22', '#ffd700', 2);
+  txt('Back to alley', ex.x + ex.w/2, ex.y + 26, '#ffd700', 15, 'center',
+      'bold 15px Georgia,serif');
+
+  if (shop.flashT > 0) {
+    var a = Math.min(1, shop.flashT);
+    ctx.globalAlpha = a;
+    rndRect(W/2 - 140, 132, 280, 22, 5, 'rgba(0,0,0,0.82)', '#ffd700', 1.5);
+    txt(shop.flashMsg, W/2, 148, '#ffd700', 13, 'center', 'bold 13px monospace');
+    ctx.globalAlpha = 1;
+  }
 }
 
 // ── Phase: title ─────────────────────────────────────────────────────────────
@@ -899,40 +1274,59 @@ function drawTitleBackdrop(c) {
 function renderTitle() {
   drawCachedBackdrop('title', drawTitleBackdrop);
   ctx.clearRect(0, 0, W, H);
-  txt('Duck Dieb 2', W/2, 150, '#ffd700', 56, 'center', 'bold 56px Georgia,serif');
-  txt('Second Edition', W/2, 188, '#cde', 18, 'center', 'italic 18px Georgia,serif');
+  txt('Duck Dieb 2', W/2, 130, '#ffd700', 56, 'center', 'bold 56px Georgia,serif');
+  txt('Second Edition', W/2, 168, '#cde', 18, 'center', 'italic 18px Georgia,serif');
+
+  // Wallet strip
+  txt('\u272A ' + wallet.gold + ' gold', W/2, 200, '#ffd700', 18, 'center',
+      'bold 18px monospace');
+  if (wallet.lifetimeHeists > 0) {
+    txt('lifetime: ' + wallet.lifetimeHeists + ' heists · ' + wallet.lifetimeGold + 'g total',
+        W/2, 224, '#8a9', 12, 'center', 'bold 12px monospace');
+  }
 
   // Start button
-  var bx = W/2 - 120, by = 230, bw = 240, bh = 62;
+  var bx = W/2 - 120, by = 248, bw = 240, bh = 56;
   var over = mx >= bx && mx <= bx+bw && my >= by && my <= by+bh;
   rndRect(bx, by, bw, bh, 10, over ? '#3a5a2a' : '#2a3a1a', '#ffd700', 3);
-  txt('Start Heist', W/2, by + 42, '#ffd700', 28, 'center', 'bold 28px Georgia,serif');
+  txt('Start Heist', W/2, by + 38, '#ffd700', 26, 'center', 'bold 26px Georgia,serif');
   if (over && mclk) { mclk = false; startGame(); }
 
+  // Daily Heist button
+  var dx = W/2 - 120, dy = 312, dw = 240, dh = 40;
+  var dOver = mx >= dx && mx <= dx+dw && my >= dy && my <= dy+dh;
+  var lockedToday = wallet.lastDaily === '' + todayString();
+  rndRect(dx, dy, dw, dh, 8,
+          dOver ? '#3a3a5a' : '#1a1a28',
+          lockedToday ? '#8a9' : '#8adfff', 2);
+  var dLbl = lockedToday ? 'Daily Heist (done today)' : 'Daily Heist \u2605';
+  txt(dLbl, dx + dw/2, dy + 26, lockedToday ? '#8a9' : '#8adfff', 16, 'center',
+      'bold 16px Georgia,serif');
+  if (dOver && mclk) { mclk = false; startDaily(); }
+
   // Easy-mode toggle
-  var tx = W/2 - 90, ty = 312, tw = 180, th = 38;
+  var tx = W/2 - 170, ty = 360, tw = 160, th = 36;
   var tOver = mx >= tx && mx <= tx+tw && my >= ty && my <= ty+th;
   rndRect(tx, ty, tw, th, 8, easyMode ? '#3a5a2a' : '#1a1a22',
           tOver ? '#ffd700' : '#5a6a5a', 2);
-  txt((easyMode ? 'Easy: ON' : 'Easy: off'), tx + tw/2, ty + 25, '#ffd700', 16,
-      'center', 'bold 16px monospace');
+  txt((easyMode ? 'Easy: ON' : 'Easy: off'), tx + tw/2, ty + 23, '#ffd700', 15,
+      'center', 'bold 15px monospace');
   if (tOver && mclk) { mclk = false; easyMode = !easyMode; }
 
   // High scores button
-  var hx = W/2 - 90, hy = 360, hw = 180, hh = 38;
+  var hx = W/2 + 10, hy = 360, hw = 160, hh = 36;
   var hOver = mx >= hx && mx <= hx+hw && my >= hy && my <= hy+hh;
   rndRect(hx, hy, hw, hh, 8, hOver ? '#3a3a5a' : '#1a1a22', '#ffd700', 2);
-  txt('High Scores', hx + hw/2, hy + 25, '#ffd700', 16, 'center',
-      'bold 16px monospace');
+  txt('High Scores', hx + hw/2, hy + 23, '#ffd700', 15, 'center',
+      'bold 15px monospace');
   if (hOver && mclk) { mclk = false; setPhase('highscores'); }
 
   txt(TOUCH_UI ? 'Tap Start to begin' : 'Click Start or press Enter',
-      W/2, 440, '#8a9', 14, 'center', 'bold 14px monospace');
-  txt('Checkpoint 2 — full run', W/2, 466, '#678', 12, 'center',
-      'bold 12px monospace');
+      W/2, 432, '#8a9', 14, 'center', 'bold 14px monospace');
 
   if (eat('Enter') || eat('Space')) startGame();
   if (eat('KeyH')) setPhase('highscores');
+  if (eat('KeyD')) startDaily();
 }
 
 // ── Phase: play (stealth) ────────────────────────────────────────────────────
@@ -1059,6 +1453,7 @@ function updateOneGuard(guard, dt) {
   if (newAlert === 'alerted' && guard.alert !== 'alerted') {
     sfxAlert();
     spawnParticle(guard.x, guard.y - 20, 'alert');
+    alertedEver = true;
   }
   guard.alert = newAlert;
 
@@ -1923,7 +2318,9 @@ function renderJail() {
 }
 
 // ── Phase: victory (score + save) ───────────────────────────────────────────
-var runResult = { won:false, score:0, stars:0, energyLeft:0, jailed:0, timeSec:0, saved:false };
+var runResult = { won:false, score:0, stars:0, energyLeft:0, jailed:0,
+                  timeSec:0, saved:false, goldEarned:0, noAlertBonus:false,
+                  daily:false, dailyRank:0 };
 function finishRun() {
   var timeSec = ((typeof performance !== 'undefined' ? performance.now() : Date.now()) - runStartMs) / 1000;
   var energyLeft = energy;
@@ -1934,15 +2331,64 @@ function finishRun() {
   var timePenalty = Math.max(0, Math.floor(timeSec - 60)) * 2;
   var score = Math.max(0, base + lootBonus + energyBonus - jailPenalty - timePenalty);
   var stars = chase.won ? (score > 700 ? 3 : score > 400 ? 2 : 1) : 0;
+
+  // Gold: only on successful escape. ~half the score plus a no-alert bonus.
+  var goldEarned = 0;
+  var noAlert = chase.won && !alertedEver;
+  if (chase.won) {
+    goldEarned = Math.round(score * 0.5);
+    if (noAlert) goldEarned += 80;
+  }
+
+  // Count gadgets used this run
+  var gUsed = 0;
+  if (runGadgets.lockpick_used) gUsed++;
+  if (runGadgets.smoke_used)    gUsed++;
+  if (runGadgets.cat_used)      gUsed++;
+  if (runGadgets.silent_active) gUsed++;
+  if (runGadgets.nightvis_active) gUsed++;
+
   runResult = {
     won: !!chase.won, score: score, stars: stars,
     energyLeft: energyLeft, jailed: jailCount,
     timeSec: timeSec, saved: false,
+    goldEarned: goldEarned, noAlertBonus: noAlert,
+    gadgetsUsed: gUsed,
+    daily: dailyMode, dailySeed: dailySeed, dailyRank: 0,
   };
+
+  // Wallet updates (persist gold + lifetime)
   if (chase.won) {
-    hsStore.save({ score: score, stars: stars, date: Date.now() });
-    runResult.saved = true;
+    wallet.gold += goldEarned;
+    wallet.lifetimeHeists += 1;
+    wallet.lifetimeGold += goldEarned;
   }
+
+  if (chase.won) {
+    var hsEntry = { score: score, stars: stars, date: Date.now(),
+                    goldEarned: goldEarned, gadgetsUsed: gUsed };
+    if (dailyMode) hsEntry.dailySeed = dailySeed;
+    hsStore.save(hsEntry);
+    runResult.saved = true;
+
+    if (dailyMode && wallet.lastDaily !== '' + dailySeed) {
+      var dEntry = { score: score, stars: stars, date: Date.now(),
+                     gadgetsUsed: gUsed, dailySeed: dailySeed };
+      dailyStore.save(dEntry);
+      wallet.lastDaily = '' + dailySeed;
+      // Figure out rank in today's list
+      var list = dailyStore.get();
+      var todayScores = [];
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].dailySeed === dailySeed) todayScores.push(list[i].score);
+      }
+      todayScores.sort(function(a, b){ return b - a; });
+      for (var r = 0; r < todayScores.length; r++) {
+        if (todayScores[r] === score) { runResult.dailyRank = r + 1; break; }
+      }
+    }
+  }
+  saveWallet();
   setPhase('victory');
 }
 function renderVictory() {
@@ -1950,54 +2396,67 @@ function renderVictory() {
   ctx.clearRect(0, 0, W, H);
 
   if (runResult.won) {
-    txt('CLEAN GETAWAY', W/2, 110, '#ffd700', 44, 'center', 'bold 44px Georgia,serif');
-    txt('The trophy is yours.', W/2, 146, '#cde', 17, 'center', 'italic 17px Georgia,serif');
+    txt('CLEAN GETAWAY', W/2, 80, '#ffd700', 40, 'center', 'bold 40px Georgia,serif');
+    txt('The trophy is yours.', W/2, 112, '#cde', 16, 'center', 'italic 16px Georgia,serif');
   } else {
-    txt('RUN ENDED', W/2, 110, '#ff8080', 42, 'center', 'bold 42px Georgia,serif');
-    txt('The van left without you.', W/2, 146, '#ffe0e0', 17, 'center', 'italic 17px Georgia,serif');
+    txt('RUN ENDED', W/2, 80, '#ff8080', 40, 'center', 'bold 40px Georgia,serif');
+    txt('The van left without you.', W/2, 112, '#ffe0e0', 16, 'center', 'italic 16px Georgia,serif');
   }
 
   // Stars
   if (runResult.won) {
     for (var i = 0; i < 3; i++) {
       var lit = i < runResult.stars;
-      ctx.font = '38px serif'; ctx.textAlign = 'center';
+      ctx.font = '34px serif'; ctx.textAlign = 'center';
       ctx.fillStyle = lit ? '#ffd700' : '#3a3a1a';
-      ctx.fillText(lit ? '\u2605' : '\u2606', W/2 - 60 + i * 60, 210);
+      ctx.fillText(lit ? '\u2605' : '\u2606', W/2 - 54 + i * 54, 164);
     }
   }
 
   // Score card
-  var px = W/2 - 180, py = 250, pw = 360, ph = 140;
-  rndRect(px, py, pw, ph, 10, 'rgba(0,0,0,0.6)', '#ffd700', 2);
+  var px = W/2 - 200, py = 188, pw = 400, ph = 216;
+  rndRect(px, py, pw, ph, 10, 'rgba(0,0,0,0.62)', '#ffd700', 2);
+
   var rows = [
     ['Score',        String(runResult.score)],
     ['Energy left',  runResult.energyLeft + '/' + MAX_ENERGY],
     ['Times jailed', String(runResult.jailed)],
     ['Time',         runResult.timeSec.toFixed(1) + 's'],
+    ['Gadgets used', String(runResult.gadgetsUsed || 0)],
+    ['Gold earned',  runResult.won ? ('\u272A ' + runResult.goldEarned) : '—'],
   ];
+  if (runResult.noAlertBonus) rows.push(['No-alert bonus', '+80']);
+  if (runResult.daily && runResult.dailyRank)
+    rows.push(['Daily rank',    '#' + runResult.dailyRank]);
+
   for (var j = 0; j < rows.length; j++) {
-    txt(rows[j][0], px + 20,     py + 32 + j * 26, '#cde',    16, 'left',  'bold 16px monospace');
-    txt(rows[j][1], px + pw - 20, py + 32 + j * 26, '#ffd700', 16, 'right', 'bold 16px monospace');
+    txt(rows[j][0], px + 20,      py + 26 + j * 22, '#cde',    14, 'left',  'bold 14px monospace');
+    txt(rows[j][1], px + pw - 20, py + 26 + j * 22, '#ffd700', 14, 'right', 'bold 14px monospace');
   }
 
+  // Wallet line
+  txt('\u272A ' + wallet.gold + ' gold in wallet   ·   lifetime: ' +
+      wallet.lifetimeHeists + ' heists',
+      W/2, py + ph - 12, '#8adfff', 12, 'center', 'bold 12px monospace');
+
   // Buttons
-  var by = py + ph + 20;
-  var pb = { x: W/2 - 260, y: by, w: 160, h: 46 };
-  var hb = { x: W/2 -  80, y: by, w: 160, h: 46 };
-  var tb = { x: W/2 + 100, y: by, w: 160, h: 46 };
+  var by = py + ph + 14;
+  var pb = { x: W/2 - 260, y: by, w: 160, h: 42 };
+  var sbox = { x: W/2 -  80, y: by, w: 160, h: 42 };
+  var tb = { x: W/2 + 100, y: by, w: 160, h: 42 };
   function drawBtn(b, label, col) {
     var over = mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h;
     rndRect(b.x, b.y, b.w, b.h, 8, over ? col : '#222', '#ffd700', 2);
-    txt(label, b.x + b.w/2, b.y + 30, '#ffd700', 17, 'center', 'bold 17px Georgia,serif');
+    txt(label, b.x + b.w/2, b.y + 28, '#ffd700', 16, 'center', 'bold 16px Georgia,serif');
     return over;
   }
-  var pOver = drawBtn(pb, 'Play Again', '#3a5a2a');
-  var hOver = drawBtn(hb, 'High Scores', '#3a3a5a');
-  var tOver = drawBtn(tb, 'Title',      '#3a3a5a');
+  var pOver = drawBtn(pb, 'Play Again',  '#3a5a2a');
+  var sOver = drawBtn(sbox, 'Corner Store','#3a3a5a');
+  var tOver = drawBtn(tb, 'Title',       '#3a3a5a');
   if ((pOver && mclk) || eat('Enter') || eat('Space')) { mclk = false; startGame(); }
-  if (hOver && mclk) { mclk = false; setPhase('highscores'); }
+  if (sOver && mclk) { mclk = false; startGame(); setPhase('shop'); }
   if (tOver && mclk) { mclk = false; setPhase('title'); }
+  if (eat('KeyH')) setPhase('highscores');
 }
 
 // ── Phase: highscores ───────────────────────────────────────────────────────
@@ -2060,6 +2519,17 @@ function stepSim(dt) {
       paused = true; mclk = false;
     }
   }
+  // Gadget bar clicks (before the phase sees them)
+  if (!paused) handleGadgetBarClick();
+  // Keyboard gadget hotkeys 1-5
+  if (!paused && gadgetBarVisiblePhases()) {
+    var boxes = gadgetBarLayout();
+    for (var gi = 0; gi < boxes.length; gi++) {
+      if (eat('Digit' + (gi + 1)) || eat('Numpad' + (gi + 1))) {
+        if (gadgetApplicable(boxes[gi].g.id)) activateGadget(boxes[gi].g.id);
+      }
+    }
+  }
 
   // Cheat banner timer always ticks so it fades in any phase
   if (cheats.cheatActivatedT > 0) {
@@ -2081,6 +2551,7 @@ function stepSim(dt) {
     case 'jail':     updateJail(dt);     break;
     case 'keypad':   updateKeypad(dt);   break;
     case 'safedial': updateSafeDial(dt); break;
+    case 'shop':     updateShop(dt);     break;
   }
 }
 
@@ -2099,11 +2570,13 @@ function renderPhase() {
     case 'jail':       renderJail();       break;
     case 'victory':    renderVictory();    break;
     case 'highscores': renderHighscores(); break;
+    case 'shop':       renderShop();       break;
   }
   drawParticles();
   ctx.restore();
 
   drawMobileControls();
+  drawGadgetBar();
   drawPauseIcon();
   drawCheatBanner();
   if (paused) drawPauseMenu();
