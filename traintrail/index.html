@@ -231,6 +231,7 @@ button.btn-big    { font-size: 14px; padding: 8px 20px; }
 .end-title { font-size: 32px; font-weight: bold; text-align: center; margin-bottom: 14px; }
 .end-title.arrived { color: #c8901a; }
 .end-title.failed  { color: #c03030; }
+.end-big { font-size: 5em; line-height: 1; text-align: center; margin: 6px 0 4px; }
 .end-narrative { font-size: 14px; line-height: 1.7; text-align: center; max-width: 600px; margin-bottom: 18px; color: #e8d8b0; }
 .end-stats {
   background: #1a1004; border: 1px solid #c8901a;
@@ -1664,9 +1665,30 @@ function buildSteam(app) {
 }
 
 // ── Ending screen ──────────────────────────────────────────────────────────
+var _endActx=null;
+function playEndSting(kind){
+  try{
+    if(!_endActx) _endActx = new (window.AudioContext||window.webkitAudioContext)();
+    var actx=_endActx; if(actx.state!=='running') actx.resume();
+    var t0=actx.currentTime;
+    var notes = kind==='win' ? [[523,0],[659,0.12],[784,0.24],[1047,0.36]] : [[392,0],[330,0.12],[262,0.24],[196,0.36]];
+    notes.forEach(function(n){
+      var o=actx.createOscillator(), g=actx.createGain();
+      o.type = kind==='win' ? 'triangle' : 'sine';
+      o.frequency.value = n[0];
+      g.gain.setValueAtTime(0.0001, t0+n[1]);
+      g.gain.exponentialRampToValueAtTime(0.22, t0+n[1]+0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0+n[1]+0.36);
+      o.connect(g); g.connect(actx.destination);
+      o.start(t0+n[1]); o.stop(t0+n[1]+0.4);
+    });
+  }catch(e){}
+}
+
 function buildEnding(app) {
   // Score calculation
   const arrived = gs.arrived;
+  playEndSting(arrived ? 'win' : 'lose');
   let score = 0;
   const breakdown = [];
 
@@ -1735,6 +1757,7 @@ function buildEnding(app) {
   const breakdownRows = breakdown.map(([l,v,cls])=>`<tr><td>${l}</td><td class="${cls}">${v>0?'+':''}${v}</td></tr>`).join('');
 
   app.innerHTML = `<div id="ending-screen">
+    <div class="end-big">${arrived?'🏆 🎉':'😵 💥'}</div>
     <div class="end-title ${arrived?'arrived':'failed'}">${title}</div>
     <div class="end-narrative">${narrative}</div>
     <div class="score-panel">
