@@ -347,12 +347,12 @@ function buildVoyage(app) {
       <div id="status-panel"></div>
     </div>
     <div id="voyage-btns">
-      <button id="btn-continue" class="btn-green">Continue Voyage</button>
-      <button id="btn-rest"     class="btn-teal">Rest for the Day</button>
-      <button id="btn-speed"    class="btn-amber">Change Speed</button>
-      <button id="btn-rations"  class="btn-amber">Change Rations</button>
-      <button id="btn-status">Full Status</button>
-      <button id="btn-fish"     class="btn-teal" disabled>Go Fishing</button>
+      <button id="btn-continue" class="btn-green">▶ Continue Voyage</button>
+      <button id="btn-rest"     class="btn-teal">💤 Rest for the Day</button>
+      <button id="btn-speed"    class="btn-amber">⚙️ Change Speed</button>
+      <button id="btn-rations"  class="btn-amber">🍽️ Change Rations</button>
+      <button id="btn-status">📋 Full Status</button>
+      <button id="btn-fish"     class="btn-teal" disabled>🎣 Go Fishing</button>
     </div>`;
   app.appendChild(div);
 
@@ -2519,7 +2519,7 @@ function buildEnding(app) {
     </div>
 
     <div class="ending-btns">
-      <button id="play-again" class="btn-green btn-large">Play Again</button>
+      <button id="play-again" class="btn-green btn-large">🔄 Play Again</button>
     </div>`;
   app.appendChild(div);
   div.querySelector('#play-again').addEventListener('click', () => goTo(buildTitle));

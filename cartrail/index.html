@@ -1261,7 +1261,7 @@ function buildEnding(app) {
 function showHighScoresModal() {
   const list = getHS();
   if (!list.length) {
-    showModal('🏆 High Scores', 'No scores yet — hit the road!', [{label:'OK', fn:()=>{}}]);
+    showModal('🏆 High Scores', 'No scores yet — hit the road!', [{label:'✓ OK', fn:()=>{}}]);
     return;
   }
   const rows = list.slice(0,10).map((e,i)=>`
@@ -1271,7 +1271,7 @@ function showHighScoresModal() {
       <span style="color:#50c070">${e.score}</span>
       <span style="color:#666;font-size:11px">${e.diff}</span>
     </div>`).join('');
-  showModal('🏆 High Scores', `<div style="text-align:left">${rows}</div>`, [{label:'Close', fn:()=>{}}]);
+  showModal('🏆 High Scores', `<div style="text-align:left">${rows}</div>`, [{label:'✗ Close', fn:()=>{}}]);
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
