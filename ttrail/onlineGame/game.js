@@ -238,11 +238,11 @@ function buildTitle(app) {
 function buildSetup(app) {
   resetGS();
   const classes = [
-    { id:1, name:'First Class',          nameCol:'#d4af37',
+    { id:1, name:'First Class',          nameCol:'#d4af37', tone:'green',  big:'👑', stars:'⭐',
       lines:['Luxury cabins on upper decks.','Plentiful food, coal & medicine.','Lifeboat access: Excellent (8 seats)','Cost: £870 per berth'] },
-    { id:2, name:'Second Class',         nameCol:'#fff8d7',
+    { id:2, name:'Second Class',         nameCol:'#fff8d7', tone:'yellow', big:'🎩', stars:'⭐⭐',
       lines:['Comfortable mid-ship cabins.','Adequate resources for the voyage.','Lifeboat access: Good (5 seats)','Cost: £12 per berth'] },
-    { id:3, name:'Third Class (Steerage)',nameCol:'#8c8472',
+    { id:3, name:'Third Class (Steerage)',nameCol:'#8c8472', tone:'red',    big:'⚙️', stars:'⭐⭐⭐',
       lines:['Below-deck shared quarters.','Limited resources — manage carefully!','Lifeboat access: Limited (3 seats)','Cost: £3 per berth'] },
   ];
   const defaults = ['John','Mary','Thomas','Alice','Robert'];
@@ -255,12 +255,18 @@ function buildSetup(app) {
       <div class="setup-col" id="class-col">
         <div class="section-label">Choose Your Class:</div>
         ${classes.map(c => `
-          <div class="class-card cls-${c.id}" id="card-${c.id}" data-cls="${c.id}">
+          <div class="class-card cls-${c.id} tone-${c.tone}" id="card-${c.id}" data-cls="${c.id}">
             <label>
               <input type="radio" name="shipclass" value="${c.id}" ${c.id===2?'checked':''}>
-              <span class="class-name" style="color:${c.nameCol}">${c.name}</span>
+              <div class="class-row-inner">
+                <div class="class-big" aria-hidden="true">${c.big}</div>
+                <div class="class-mid">
+                  <div class="class-stars" aria-hidden="true">${c.stars}</div>
+                  <span class="class-name" style="color:${c.nameCol}">${c.name}</span>
+                  <div class="class-detail">${c.lines.join('<br>')}</div>
+                </div>
+              </div>
             </label>
-            <div class="class-detail">${c.lines.join('<br>')}</div>
           </div>`).join('')}
       </div>
       <div class="setup-col">

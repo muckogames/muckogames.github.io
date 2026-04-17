@@ -104,20 +104,31 @@ button.btn-large  { font-size: 16px; padding: 8px 22px; }
   margin-bottom: 8px;
 }
 .class-card {
-  border: 1px solid #2e4080;
+  border: 2px solid #2e4080;
   background: #0d1e48;
-  padding: 8px 10px;
+  padding: 10px 12px;
   margin-bottom: 8px;
   cursor: pointer;
-  transition: background 0.12s, border-color 0.12s;
+  transition: background 0.12s, border-color 0.12s, box-shadow 0.12s;
 }
+.class-card.tone-green { border-color: #2a6a2a; }
+.class-card.tone-yellow { border-color: #8c7028; }
+.class-card.tone-red { border-color: #8a2a2a; }
 .class-card.selected { background: #152a60; border-color: #d4af37; }
+.class-card.tone-green.selected { border-color: #44cc44; box-shadow: 0 0 10px rgba(68,204,68,.35); }
+.class-card.tone-yellow.selected { border-color: #ffcc33; box-shadow: 0 0 10px rgba(255,204,51,.35); }
+.class-card.tone-red.selected { border-color: #ff5544; box-shadow: 0 0 10px rgba(255,85,68,.35); }
 .class-card label { cursor: pointer; display: block; }
+.class-row-inner { display: flex; align-items: center; }
+.class-row-inner > * + * { margin-left: 12px; }
+.class-big { font-size: 36px; line-height: 1; flex-shrink: 0; }
+.class-mid { flex: 1; }
+.class-stars { font-size: 14px; letter-spacing: 3px; color: #ffd700; margin-bottom: 2px; }
 .class-card .class-name { font-weight: bold; font-size: 14px; color: #fff8d7; }
 .class-card.cls-1 .class-name { color: #d4af37; }
 .class-card.cls-3 .class-name { color: #8c8472; }
-.class-card .class-detail { font-size: 11px; color: #8c8472; margin-top: 3px; line-height: 1.4; padding-left: 20px; }
-.class-card input[type=radio] { margin-right: 6px; accent-color: #d4af37; }
+.class-card .class-detail { font-size: 11px; color: #8c8472; margin-top: 3px; line-height: 1.4; }
+.class-card input[type=radio] { position: absolute; opacity: 0; pointer-events: none; }
 
 .name-row {
   display: flex; align-items: center; margin-bottom: 6px; gap: 8px;
