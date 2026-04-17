@@ -1162,8 +1162,29 @@ function buildDriving(app, nextIdx) {
 }
 
 // ── Ending Screen ─────────────────────────────────────────────────────────────
+var _endActx=null;
+function playEndSting(kind){
+  try{
+    if(!_endActx) _endActx = new (window.AudioContext||window.webkitAudioContext)();
+    var actx=_endActx; if(actx.state!=='running') actx.resume();
+    var t0=actx.currentTime;
+    var notes = kind==='win' ? [[523,0],[659,0.12],[784,0.24],[1047,0.36]] : [[392,0],[330,0.12],[262,0.24],[196,0.36]];
+    notes.forEach(function(n){
+      var o=actx.createOscillator(), g=actx.createGain();
+      o.type = kind==='win' ? 'triangle' : 'sine';
+      o.frequency.value = n[0];
+      g.gain.setValueAtTime(0.0001, t0+n[1]);
+      g.gain.exponentialRampToValueAtTime(0.22, t0+n[1]+0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0+n[1]+0.36);
+      o.connect(g); g.connect(actx.destination);
+      o.start(t0+n[1]); o.stop(t0+n[1]+0.4);
+    });
+  }catch(e){}
+}
+
 function buildEnding(app) {
   const arrived = gs.arrived;
+  playEndSting(arrived ? 'win' : 'lose');
   let score = gs.score;
   const breakdown = [];
 
@@ -1190,8 +1211,8 @@ function buildEnding(app) {
   app.innerHTML = `
     <div style="width:${W}px;height:${H}px;overflow-y:auto;color:#e8d8b0;font-family:Georgia,serif;padding:26px 44px">
       <div style="text-align:center;margin-bottom:18px">
-        <div style="font-size:46px">${arrived?'🏆':'💀'}</div>
-        <div style="font-size:28px;font-weight:bold;color:#ffd700">${arrived?'You made it to Leipzig!':'Road Trip Cut Short'}</div>
+        <div style="font-size:84px;line-height:1;margin-bottom:2px">${arrived?'🏆 🎉':'😵 💀'}</div>
+        <div style="font-size:28px;font-weight:bold;color:${arrived?'#ffd700':'#c05050'};text-shadow:${arrived?'0 0 14px rgba(255,215,0,.45)':'none'}">${arrived?'You made it to Leipzig!':'Road Trip Cut Short'}</div>
         <div style="font-size:15px;color:#c8901a;margin-top:5px">${rating}</div>
         ${rank<=3?`<div style="font-size:14px;color:#ffd700;margin-top:5px">★ New high score — rank #${rank}! ★</div>`:''}
       </div>
