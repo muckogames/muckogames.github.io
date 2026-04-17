@@ -312,11 +312,16 @@ function startNewGame(){
 
 function showCargoSelect(){
   var items=CARGO_TYPES.map(function(ct){
-    return '<div class="card" style="cursor:pointer;transition:border-color 0.15s" onclick="selectCargo(\''+ct.id+'\')" onmouseover="this.style.borderColor=\'#c8a84a\'" onmouseout="this.style.borderColor=\'\'">'+
-      '<div style="font-size:1.6em;margin-bottom:6px">'+ct.icon+'</div>'+
+    var risk = ct.riskMod>=30?3:ct.riskMod>=15?2:1;
+    var riskStars = risk===1?'⭐':risk===2?'⭐⭐':'⭐⭐⭐';
+    var riskColor = risk===1?'#50c070':risk===2?'#c8a84a':'#c05050';
+    var riskBorder = risk===1?'#225522':risk===2?'#887020':'#772020';
+    return '<div class="card" style="cursor:pointer;transition:border-color 0.15s;border-color:'+riskBorder+'" onclick="selectCargo(\''+ct.id+'\')" onmouseover="this.style.borderColor=\'#c8a84a\'" onmouseout="this.style.borderColor=\''+riskBorder+'\'">'+
+      '<div style="font-size:3.2em;margin-bottom:2px;line-height:1" aria-hidden="true">'+ct.icon+'</div>'+
+      '<div style="font-size:1.05em;letter-spacing:3px;color:'+riskColor+';margin-bottom:4px" aria-hidden="true">'+riskStars+'</div>'+
       '<div style="color:#c8a84a;font-weight:bold;margin-bottom:4px">'+ct.name+'</div>'+
       '<div style="font-size:0.82em;color:#9a8a68;font-style:italic;margin-bottom:6px">'+ct.desc+'</div>'+
-      '<div style="font-size:0.78em;color:#7a6040;font-family:monospace">Base value: '+ct.baseValue+' Marks &nbsp;·&nbsp; Risk mod: +'+ct.riskMod+'% heat</div>'+
+      '<div style="font-size:0.78em;color:#7a6040;font-family:monospace">💰 '+ct.baseValue+' Marks &nbsp;·&nbsp; 🔥 +'+ct.riskMod+'% heat</div>'+
       '</div>';
   }).join('');
   el().innerHTML='<div class="page">'+
