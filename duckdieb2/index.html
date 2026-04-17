@@ -122,6 +122,40 @@ function eatAction() { return eat('KeyE') || eat('Space') || eat('Enter'); }
 
 var TOUCH_UI = MuckoEngine.TOUCH_UI();
 
+// ── Audio ───────────────────────────────────────────────────────────────────
+var audio = MuckoEngine.makeAudio();
+// Unlock AudioContext on every gesture so iOS can resume after lock/unlock.
+function _unlockAudio() { audio.beep(1, 0.001, 0.01); }
+document.addEventListener('touchstart', _unlockAudio);
+document.addEventListener('touchend',   _unlockAudio);
+document.addEventListener('click',      _unlockAudio);
+
+// Throttle footstep SFX so we don't spam the audio graph.
+var lastStepMs = 0;
+function stepSfx(tile, sprinting) {
+  var now = (typeof performance !== 'undefined') ? performance.now() : Date.now();
+  var gap = sprinting ? 180 : 260;
+  if (now - lastStepMs < gap) return;
+  lastStepMs = now;
+  if (tile === T_RUG)        return;
+  if (tile === T_CREAK)      audio.beep(sprinting ? 160 : 200, 0.09, 0.12, 'square');
+  else if (sprinting)        audio.beep(120, 0.05, 0.07, 'square');
+  else                       audio.beep(420, 0.015, 0.04, 'square');
+}
+function sfxCoin()   { audio.chime(); }
+function sfxBust()   { audio.boom(0.45, 0.45); }
+function sfxEscape() { [660, 880, 1040].forEach(function(f,i) {
+  setTimeout(function(){ audio.beep(f, 0.18, 0.22, 'sine'); }, i * 90);
+}); }
+function sfxKeypadOk()   { audio.beep(900, 0.15, 0.15, 'sine'); audio.beep(1320, 0.12, 0.2, 'sine'); }
+function sfxKeypadBad()  { audio.beep(180, 0.22, 0.35, 'sawtooth'); }
+function sfxDialGood()   { audio.beep(880, 0.15, 0.12, 'triangle'); }
+function sfxDialBad()    { audio.beep(160, 0.25, 0.35, 'sawtooth'); }
+function sfxJailOk()     { audio.beep(660, 0.12, 0.16, 'sine'); }
+function sfxJailBad()    { audio.beep(140, 0.22, 0.3, 'sawtooth'); }
+function sfxAlert()      { audio.beep(740, 0.2, 0.12, 'square'); audio.beep(520, 0.18, 0.18, 'square'); }
+
+
 // ── Touch controls: larger D-pad (r=72) + action button (r=54) ───────────────
 var touchDirs = { up:false, down:false, left:false, right:false };
 var touchActionFired = false;
@@ -200,6 +234,110 @@ function isUp()    { return K.ArrowUp    || K.KeyW || touchDirs.up; }
 function isDown()  { return K.ArrowDown  || K.KeyS || touchDirs.down; }
 function isLeft()  { return K.ArrowLeft  || K.KeyA || touchDirs.left; }
 function isRight() { return K.ArrowRight || K.KeyD || touchDirs.right; }
+
+// ── Particles ───────────────────────────────────────────────────────────────
+var particles = [];
+function spawnParticle(x, y, kind) {
+  var p = { x: x, y: y, vx: 0, vy: 0, life: 0.6, kind: kind, size: 3, col: '#fff' };
+  if (kind === 'dust') {
+    p.vx = (Math.random() - 0.5) * 20;
+    p.vy = -15 - Math.random() * 10;
+    p.life = 0.5; p.size = 3; p.col = 'rgba(180,160,120,0.8)';
+  } else if (kind === 'sparkle') {
+    var ang = Math.random() * TAU;
+    var spd = 40 + Math.random() * 40;
+    p.vx = Math.cos(ang) * spd; p.vy = Math.sin(ang) * spd;
+    p.life = 0.8; p.size = 2.5; p.col = '#ffd700';
+  } else if (kind === 'alert') {
+    p.vy = -40; p.life = 0.7; p.size = 10; p.col = '#ff5555';
+  } else if (kind === 'smoke') {
+    p.vx = (Math.random() - 0.5) * 30;
+    p.vy = -20 - Math.random() * 20;
+    p.life = 1.2; p.size = 10; p.col = 'rgba(180,180,200,0.5)';
+  }
+  particles.push(p);
+}
+function burst(x, y, kind, n) { for (var i = 0; i < n; i++) spawnParticle(x, y, kind); }
+function updateParticles(dt) {
+  for (var i = particles.length - 1; i >= 0; i--) {
+    var p = particles[i];
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    p.vy += 60 * dt; // gravity-ish
+    p.life -= dt;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+}
+function drawParticles() {
+  for (var i = 0; i < particles.length; i++) {
+    var p = particles[i];
+    var a = Math.max(0, Math.min(1, p.life));
+    ctx.globalAlpha = a;
+    if (p.kind === 'alert') {
+      txt('!', p.x, p.y, p.col, 22, 'center', 'bold 22px Georgia,serif');
+    } else {
+      ctx.fillStyle = p.col;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, TAU); ctx.fill();
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ── Screen shake ────────────────────────────────────────────────────────────
+var shake = { amp: 0, dur: 0 };
+function doShake(amp, dur) {
+  if (amp > shake.amp) { shake.amp = amp; shake.dur = dur; }
+}
+function updateShake(dt) {
+  if (shake.dur > 0) {
+    shake.dur -= dt;
+    if (shake.dur <= 0) { shake.dur = 0; shake.amp = 0; }
+  }
+}
+function shakeOffset() {
+  if (shake.dur <= 0) return { x: 0, y: 0 };
+  var s = shake.amp * (shake.dur / 0.3);
+  return { x: (Math.random() - 0.5) * s, y: (Math.random() - 0.5) * s };
+}
+
+// ── Pause ───────────────────────────────────────────────────────────────────
+var paused = false;
+function canPause() {
+  return phase === 'house' || phase === 'alley' || phase === 'chase'
+      || phase === 'keypad' || phase === 'safedial' || phase === 'jail';
+}
+document.addEventListener('visibilitychange', function() {
+  if (document.hidden && canPause()) paused = true;
+});
+
+// ── Cheat buffer (Hippo-style 20-char ring) ─────────────────────────────────
+var cbuf = '';
+var cheats = {
+  infinite_noise: false,
+  freezeGuardsT: 0,
+  showAllCones: false,
+  cheatActivatedT: 0,
+  cheatMsg: '',
+};
+function consumeCheats(codeStr, label, fn) {
+  if (cbuf.slice(-codeStr.length).toUpperCase() === codeStr) {
+    cbuf = '';
+    cheats.cheatMsg = label;
+    cheats.cheatActivatedT = 1.6;
+    audio.beep(1200, 0.18, 0.18, 'triangle');
+    fn();
+    return true;
+  }
+  return false;
+}
+document.addEventListener('keydown', function(e) {
+  if (!/^Key[A-Z]$/.test(e.code)) return;
+  cbuf = (cbuf + e.key.toUpperCase()).slice(-20);
+  consumeCheats('QUACK',       'quack! +50 energy', function(){ energy = Math.min(MAX_ENERGY, energy + 50); });
+  consumeCheats('CROUTON',     'silent as a crouton', function(){ cheats.infinite_noise = true; });
+  consumeCheats('COPCOPCOP',   'cops frozen 5s',    function(){ cheats.freezeGuardsT = 5.0; });
+  consumeCheats('BREADCRUMBS', 'all cones visible', function(){ cheats.showAllCones = !cheats.showAllCones; });
+  consumeCheats('HEIST',       'skip: vault open',  function(){ if (phase === 'house') { vaultOpen = true; knowsCode = true; } });
+});
 
 // ── Game state ───────────────────────────────────────────────────────────────
 var phase = 'title';
@@ -884,7 +1022,8 @@ function updateOneGuard(guard, dt) {
   }
   var dx = tgt.x - guard.x, dy = tgt.y - guard.y;
   var d = Math.hypot(dx, dy);
-  if (d > 1) {
+  var frozen = cheats.freezeGuardsT > 0;
+  if (d > 1 && !frozen) {
     var spd = guard.spd * (guard.alert === 'alerted' ? 1.8 : (guard.alert === 'suspicious' ? 0.0 : 1.0));
     var step = Math.min(spd * dt, d);
     guard.x += dx / d * step;
@@ -915,8 +1054,13 @@ function updateOneGuard(guard, dt) {
   }
   if (noise > 70) guard.suspicion += (noise - 70) * 0.35 * dt;
   guard.suspicion = Math.max(0, Math.min(100, guard.suspicion));
-  guard.alert = guard.suspicion >= 80 ? 'alerted'
-              : guard.suspicion >= 35 ? 'suspicious' : 'calm';
+  var newAlert = guard.suspicion >= 80 ? 'alerted'
+               : guard.suspicion >= 35 ? 'suspicious' : 'calm';
+  if (newAlert === 'alerted' && guard.alert !== 'alerted') {
+    sfxAlert();
+    spawnParticle(guard.x, guard.y - 20, 'alert');
+  }
+  guard.alert = newAlert;
 
   if (guard.suspicion >= 100 || (guard.alert === 'alerted' && pd < 26)) {
     captureEvent = {
@@ -930,6 +1074,9 @@ function updateOneGuard(guard, dt) {
       gx: guard.x, gy: guard.y, gFacing: guard.facing,
       gRange: guard.visionRange, gAngle: guard.visionAngle,
     };
+    sfxBust();
+    doShake(12, 0.35);
+    burst(player.x, player.y, 'smoke', 6);
     setPhase('caught');
     return true;
   }
@@ -968,9 +1115,14 @@ function updateHouse(dt) {
                  : 0.12;
     var mult = player.sprinting ? 2.2 : 1.0;
     noise += baseRate * mult * noiseRate * (dt * 60);
+    stepSfx(currentTile, player.sprinting);
+    if (currentTile === T_CREAK && Math.random() < 0.25) {
+      burst(player.x, player.y + 10, 'dust', 2);
+    }
   } else {
     noise -= 35 * dt;
   }
+  if (cheats.infinite_noise) noise = 0;
   noise = Math.max(0, Math.min(100, noise));
 
   // Interaction
@@ -1187,11 +1339,13 @@ function keypadPress(v) {
   if (v === 'ok') {
     if (keypadEntry === CODE) {
       vaultOpen = true;
+      sfxKeypadOk();
       clearBackdropCache();  // redraw room without the vault gate
       setPhase('house');
     } else {
       keypadError = 0.6;
       keypadEntry = '';
+      sfxKeypadBad();
     }
     return;
   }
@@ -1303,9 +1457,13 @@ function updateSafeDial(dt) {
       var delta = Math.abs(dialNorm(safedial.angle - safedial.target));
       if (delta < safedial.tolerance) {
         safedial.committedT = 0.6;
+        sfxDialGood();
         safedial.idx++;
         if (safedial.idx >= safedial.digits) {
           hasLoot = true; lootGlow = 2.0;
+          sfxCoin();
+          burst(player.x, player.y, 'sparkle', 14);
+          doShake(5, 0.25);
           setPhase('house');
           return;
         }
@@ -1317,6 +1475,7 @@ function updateSafeDial(dt) {
         safedial.target = newT;
       } else {
         safedial.failT = 0.8;
+        sfxDialBad();
         for (var i = 0; i < guards.length; i++) {
           guards[i].suspicion = Math.min(100, guards[i].suspicion + 25);
         }
@@ -1489,6 +1648,7 @@ function startChase() {
   chase.caught = false; chase.won = false;
   player.x = 60; player.y = H / 2;
   player.facing = 'right';
+  sfxEscape();
   setPhase('chase');
 }
 function updateChase(dt) {
@@ -1527,6 +1687,9 @@ function updateChase(dt) {
         px: player.x, py: player.y, gx: c.x, gy: c.y,
         gFacing: 0, gRange: 0, gAngle: 0,
       };
+      sfxBust();
+      doShake(12, 0.35);
+      burst(player.x, player.y, 'smoke', 6);
       startJail();
       return;
     }
@@ -1680,13 +1843,16 @@ function updateJail(dt) {
 function handleJailPress(i) {
   jail.flashT = 0.25;
   if (jail.seq[jail.playerIdx] === i) {
+    sfxJailOk();
     jail.playerIdx++;
     if (jail.playerIdx >= jail.seq.length) {
       // Released — back to alley
+      audio.chime();
       resetAlley();
       setPhase('alley');
     }
   } else {
+    sfxJailBad();
     jail.wrongT = 0.6;
     jail.attempts++;
     if (jail.attempts >= jail.maxAttempts) {
@@ -1885,6 +2051,29 @@ var simDebt = 0, lastTs = 0;
 var lastDraw = 0;
 
 function stepSim(dt) {
+  // Toggle pause with P in pausable phases
+  if (eat('KeyP') && canPause()) paused = !paused;
+  // Click the pause icon (only when not already paused — pause menu handles resume)
+  if (!paused && canPause() && mclk) {
+    var px = W - 30, py = 18, pr = 14;
+    if (mx >= px - pr && mx <= px + pr && my >= py && my <= py + pr * 2) {
+      paused = true; mclk = false;
+    }
+  }
+
+  // Cheat banner timer always ticks so it fades in any phase
+  if (cheats.cheatActivatedT > 0) {
+    cheats.cheatActivatedT = Math.max(0, cheats.cheatActivatedT - dt);
+  }
+  if (cheats.freezeGuardsT > 0) {
+    cheats.freezeGuardsT = Math.max(0, cheats.freezeGuardsT - dt);
+  }
+
+  updateShake(dt);
+  updateParticles(dt);
+
+  if (paused) return;
+
   switch (phase) {
     case 'house':    updateHouse(dt);    break;
     case 'alley':    updateAlley(dt);    break;
@@ -1896,6 +2085,9 @@ function stepSim(dt) {
 }
 
 function renderPhase() {
+  var off = shakeOffset();
+  ctx.save();
+  ctx.translate(off.x, off.y);
   switch (phase) {
     case 'title':      renderTitle();      break;
     case 'alley':      renderAlley();      break;
@@ -1908,7 +2100,57 @@ function renderPhase() {
     case 'victory':    renderVictory();    break;
     case 'highscores': renderHighscores(); break;
   }
+  drawParticles();
+  ctx.restore();
+
   drawMobileControls();
+  drawPauseIcon();
+  drawCheatBanner();
+  if (paused) drawPauseMenu();
+}
+
+function drawPauseIcon() {
+  if (!canPause()) return;
+  var x = W - 30, y = 18, r = 14;
+  var over = mx >= x - r && mx <= x + r && my >= y && my <= y + r * 2;
+  ctx.save();
+  ctx.globalAlpha = over ? 0.95 : 0.65;
+  rndRect(x - r, y, r * 2, r * 2, 5, '#1a1a26', '#ffd700', 1.5);
+  ctx.fillStyle = '#ffd700';
+  if (paused) {
+    // play triangle
+    ctx.beginPath();
+    ctx.moveTo(x - 4, y + 6);
+    ctx.lineTo(x - 4, y + r * 2 - 6);
+    ctx.lineTo(x + 6, y + r);
+    ctx.closePath();
+    ctx.fill();
+  } else {
+    ctx.fillRect(x - 6, y + 6, 4, r * 2 - 12);
+    ctx.fillRect(x + 2, y + 6, 4, r * 2 - 12);
+  }
+  ctx.restore();
+}
+
+function drawCheatBanner() {
+  if (cheats.cheatActivatedT <= 0 || !cheats.cheatMsg) return;
+  var a = Math.min(1, cheats.cheatActivatedT / 0.5);
+  ctx.save();
+  ctx.globalAlpha = a;
+  rndRect(W/2 - 160, 10, 320, 34, 8, 'rgba(18,18,30,0.92)', '#ffd700', 2);
+  txt('✦ ' + cheats.cheatMsg + ' ✦', W/2, 33, '#ffd700', 16, 'center',
+      'bold 16px Georgia,serif');
+  ctx.restore();
+}
+
+function drawPauseMenu() {
+  ctx.fillStyle = 'rgba(0,0,0,0.72)';
+  ctx.fillRect(0, 0, W, H);
+  rndRect(W/2 - 160, H/2 - 70, 320, 140, 14, '#12121e', '#ffd700', 3);
+  txt('— Paused —', W/2, H/2 - 26, '#ffd700', 28, 'center', 'bold 28px Georgia,serif');
+  txt('press P to resume', W/2, H/2 + 6, '#cde', 16, 'center', 'bold 16px monospace');
+  txt('tap anywhere to resume', W/2, H/2 + 34, '#8a9', 13, 'center', 'bold 13px monospace');
+  if (mclk) { mclk = false; paused = false; }
 }
 
 function loop(ts) {
