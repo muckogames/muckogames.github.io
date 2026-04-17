@@ -133,7 +133,7 @@ var ACT_CX  = W - 88, ACT_CY = H - 108, ACT_R = 54;
 var mx = W / 2, my = H / 2, mclk = false;
 
 function inMovablePhase() {
-  return phase === 'play';
+  return phase === 'house' || phase === 'alley' || phase === 'chase' || phase === 'jail';
 }
 
 function getDpadDir(px, py) {
@@ -202,13 +202,21 @@ function isRight() { return K.ArrowRight || K.KeyD || touchDirs.right; }
 
 // ── Game state ───────────────────────────────────────────────────────────────
 var phase = 'title';
-var LOW_FPS_PHASES = { title:1, caught:1, escaped:1, keypad:1 };
+var LOW_FPS_PHASES = { title:1, victory:1, highscores:1, keypad:1, caught:1 };
 
 var player = { x: 0, y: 0, facing: 'up', sprinting: false };
 
+// Run-level state
+var MAX_ENERGY = 300;
+var energy = MAX_ENERGY;
+var jailCount = 0;
+var runStartMs = 0;
+var easyMode = false;
+var hsStore = MuckoEngine.makeStore('mucko_hs_duckdieb2');
+
 function setPhase(p) { phase = p; }
-function startGame() {
-  // Place player on the door tile, facing north into the house
+function enterHousePhase() {
+  // Place player on the back door tile
   var dcol = 9, drow = 12;
   for (var r = 0; r < ROWS; r++) for (var c = 0; c < COLS; c++) {
     if (MAP[r][c] === T_DOOR) { dcol = c; drow = r; }
@@ -218,7 +226,14 @@ function startGame() {
   player.facing = 'up';
   player.sprinting = false;
   resetStealth();
-  setPhase('play');
+  setPhase('house');
+}
+function startGame() {
+  energy = MAX_ENERGY;
+  jailCount = 0;
+  runStartMs = (typeof performance !== 'undefined') ? performance.now() : Date.now();
+  resetAlley();
+  setPhase('alley');
 }
 
 // ── Draw helpers ─────────────────────────────────────────────────────────────
@@ -411,8 +426,17 @@ function resetStealth() {
   vaultOpen = false; hasLoot = false; knowsCode = false;
   noise = 0; paperFlash = 0; lootGlow = 0;
   captureEvent = null;
-  // Roll a 4-digit code
-  CODE = ('' + Math.floor(1000 + Math.random() * 9000));
+  // Roll a numeric code (2 digits on easy, 4 on normal)
+  if (easyMode) {
+    CODE = ('' + Math.floor(10 + Math.random() * 90));
+  } else {
+    CODE = ('' + Math.floor(1000 + Math.random() * 9000));
+  }
+  // Tune the guard for difficulty
+  guard.spd = easyMode ? 40 : 55;
+  guard.visionRange = easyMode ? 120 : 150;
+  guard.visionAngle = easyMode ? Math.PI / 3 : Math.PI / 2.5;
+  noiseRate = easyMode ? 0.65 : 1.0;
   // Reset guard
   guard.x = guard.pts[0].x; guard.y = guard.pts[0].y;
   guard.ptIdx = 1; guard.facing = 0;
@@ -440,6 +464,185 @@ function tileNameAt(px, py) {
   }
 }
 
+// ── Phase: alley (street between runs) ─────────────────────────────────────
+// Four houses + dumpster with raccoons; pick a door and press action to enter.
+var ALLEY_HOUSE_COUNT = 4;
+var alley = {
+  targetIdx: 0,          // which house actually has the loot (decor only for now)
+  selectedIdx: -1,       // nearest house the player is standing in front of
+  power: 0,              // raccoon power-cut timer (CP3 hook)
+};
+// Alley layout (800×560 logical). Player x/y are canvas-space here.
+var ALLEY_GROUND_Y = 400; // sidewalk line
+function houseDoorX(i) {
+  // 4 houses evenly spaced across x=120..680
+  var x0 = 120, x1 = 680;
+  return x0 + (x1 - x0) * (i / (ALLEY_HOUSE_COUNT - 1));
+}
+function houseDoorY() { return ALLEY_GROUND_Y - 2; }
+
+function resetAlley() {
+  alley.targetIdx = Math.floor(Math.random() * ALLEY_HOUSE_COUNT);
+  alley.selectedIdx = -1;
+  alley.power = 0;
+  player.x = 80;
+  player.y = ALLEY_GROUND_Y + 42;
+  player.facing = 'right';
+  player.sprinting = false;
+}
+
+function nearestAlleyDoor() {
+  var best = -1, bestD = 999;
+  for (var i = 0; i < ALLEY_HOUSE_COUNT; i++) {
+    var dx = player.x - houseDoorX(i);
+    var dy = player.y - (houseDoorY() - 8);
+    var d = Math.sqrt(dx*dx + dy*dy);
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  return bestD < 54 ? best : -1;
+}
+
+function updateAlley(dt) {
+  var vx = 0, vy = 0;
+  if (isLeft())  vx -= 1;
+  if (isRight()) vx += 1;
+  if (isUp())    vy -= 1;
+  if (isDown())  vy += 1;
+  var moving = (vx || vy);
+  var speed = 170;
+  if (moving) {
+    var len = Math.sqrt(vx*vx + vy*vy);
+    player.x += vx / len * speed * dt;
+    player.y += vy / len * speed * dt;
+    if (Math.abs(vx) >= Math.abs(vy)) player.facing = vx < 0 ? 'left' : 'right';
+    else                              player.facing = vy < 0 ? 'up'   : 'down';
+    // Keep on sidewalk band
+    if (player.y < ALLEY_GROUND_Y + 10) player.y = ALLEY_GROUND_Y + 10;
+    if (player.y > H - 40)              player.y = H - 40;
+    if (player.x < 40)                  player.x = 40;
+    if (player.x > W - 40)              player.x = W - 40;
+  }
+  alley.selectedIdx = nearestAlleyDoor();
+
+  if (eatAction()) {
+    if (alley.selectedIdx >= 0) {
+      enterHousePhase();
+      return;
+    }
+  }
+  if (eat('Escape')) setPhase('title');
+}
+
+function drawAlleyBackdrop(c) {
+  // Night sky
+  var sky = c.createLinearGradient(0, 0, 0, ALLEY_GROUND_Y);
+  sky.addColorStop(0, '#0a1030');
+  sky.addColorStop(1, '#1a2040');
+  c.fillStyle = sky; c.fillRect(0, 0, W, ALLEY_GROUND_Y);
+  // Stars
+  for (var i = 0; i < 32; i++) {
+    var sx = (i * 47) % W, sy = (i * 23) % (ALLEY_GROUND_Y - 50);
+    c.fillStyle = 'rgba(255,255,255,' + (0.3 + (i % 5) * 0.1) + ')';
+    c.fillRect(sx, sy + 20, 2, 2);
+  }
+  // Houses
+  for (var h = 0; h < ALLEY_HOUSE_COUNT; h++) {
+    var cx = houseDoorX(h);
+    var hw = 120, hh = 180;
+    var hx = cx - hw/2, hy = ALLEY_GROUND_Y - hh;
+    // Wall
+    c.fillStyle = ['#5a4a3a','#6a4a3a','#4a3a5a','#5a5a3a'][h];
+    c.fillRect(hx, hy, hw, hh);
+    // Roof
+    c.fillStyle = '#2a1a0a';
+    c.beginPath();
+    c.moveTo(hx - 8, hy);
+    c.lineTo(hx + hw + 8, hy);
+    c.lineTo(hx + hw/2, hy - 34);
+    c.closePath(); c.fill();
+    // Windows
+    for (var wr = 0; wr < 2; wr++) {
+      for (var wc = 0; wc < 2; wc++) {
+        var wx = hx + 14 + wc * 60, wy = hy + 20 + wr * 55;
+        c.fillStyle = (h === 1 && wr === 0 && wc === 1) ? '#ffd88a' : '#2a2a1a';
+        c.fillRect(wx, wy, 32, 28);
+        c.strokeStyle = '#0a0a0a'; c.lineWidth = 1; c.strokeRect(wx, wy, 32, 28);
+      }
+    }
+    // Number plaque
+    c.fillStyle = '#fff8d8';
+    c.fillRect(hx + hw/2 - 12, hy + 8, 24, 12);
+    c.fillStyle = '#111';
+    c.font = 'bold 11px monospace'; c.textAlign = 'center';
+    c.fillText(String(h + 1) + '02', hx + hw/2, hy + 18);
+  }
+  // Sidewalk
+  c.fillStyle = '#3a3a3a'; c.fillRect(0, ALLEY_GROUND_Y, W, 12);
+  c.fillStyle = '#2a2a2a'; c.fillRect(0, ALLEY_GROUND_Y + 12, W, H - ALLEY_GROUND_Y - 12);
+  // Curb stripes
+  c.strokeStyle = '#555'; c.lineWidth = 1;
+  for (var sx = 0; sx < W; sx += 60) {
+    c.beginPath(); c.moveTo(sx, ALLEY_GROUND_Y + 6); c.lineTo(sx + 30, ALLEY_GROUND_Y + 6); c.stroke();
+  }
+  // Dumpster on far left
+  c.fillStyle = '#2a4a2a';
+  c.fillRect(24, ALLEY_GROUND_Y - 46, 64, 46);
+  c.strokeStyle = '#0a1a0a'; c.lineWidth = 2;
+  c.strokeRect(24, ALLEY_GROUND_Y - 46, 64, 46);
+  c.fillStyle = '#1a3a1a';
+  c.fillRect(28, ALLEY_GROUND_Y - 44, 56, 8);
+  // Corner store (right side)
+  c.fillStyle = '#3a3a4a';
+  c.fillRect(W - 90, ALLEY_GROUND_Y - 130, 86, 130);
+  c.fillStyle = '#ffd700';
+  c.font = 'bold 14px Georgia,serif'; c.textAlign = 'center';
+  c.fillText('SHOP', W - 47, ALLEY_GROUND_Y - 108);
+  c.fillStyle = '#555';
+  c.fillText('(soon)', W - 47, ALLEY_GROUND_Y - 90);
+  // Door frames (runtime overlays the highlight + number)
+}
+
+function renderAlley() {
+  drawCachedBackdrop('alley', drawAlleyBackdrop);
+  ctx.clearRect(0, 0, W, H);
+  // Doors
+  for (var i = 0; i < ALLEY_HOUSE_COUNT; i++) {
+    var dx = houseDoorX(i);
+    var dy = houseDoorY();
+    var selected = alley.selectedIdx === i;
+    rndRect(dx - 16, dy - 52, 32, 52, 4, '#6b3a1a',
+            selected ? '#ffd700' : '#2a1a0a',
+            selected ? 3 : 2);
+    circ(dx + 5, dy - 24, 2.5, '#ffd700');
+    if (selected) {
+      var label = 'ENTER';
+      var lw = label.length * 10 + 18;
+      rndRect(dx - lw/2, dy - 82, lw, 22, 5, 'rgba(0,0,0,0.8)', '#ffd700', 1.5);
+      txt(label, dx, dy - 66, '#ffd700', 14, 'center', 'bold 14px monospace');
+    }
+  }
+  // Raccoons by dumpster (decor)
+  circ(44, ALLEY_GROUND_Y - 8, 9, '#5a5a5a', '#1a1a1a', 1.5);
+  ctx.fillStyle = '#1a1a1a'; ctx.fillRect(41, ALLEY_GROUND_Y - 12, 2, 3);
+  ctx.fillRect(47, ALLEY_GROUND_Y - 12, 2, 3);
+  circ(72, ALLEY_GROUND_Y - 8, 9, '#5a5a5a', '#1a1a1a', 1.5);
+  ctx.fillStyle = '#1a1a1a'; ctx.fillRect(69, ALLEY_GROUND_Y - 12, 2, 3);
+  ctx.fillRect(75, ALLEY_GROUND_Y - 12, 2, 3);
+
+  drawDuck(player.x, player.y, player.facing);
+
+  // HUD
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(0, 0, W, 44);
+  txt('DUCK DIEB 2', 14, 28, '#ffd700', 16, 'left', 'bold 16px monospace');
+  txt('energy', 200, 18, '#cde', 12, 'left', 'bold 12px monospace');
+  rndRect(200, 22, 160, 14, 4, '#111', '#555', 1);
+  ctx.fillStyle = '#c8a040';
+  ctx.fillRect(202, 24, Math.max(0, 156 * (energy / MAX_ENERGY)), 10);
+  txt(energy + '/' + MAX_ENERGY, 370, 32, '#fff', 14, 'left', 'bold 14px monospace');
+  txt('pick a house', W - 14, 28, '#ffe060', 15, 'right', 'bold 15px monospace');
+}
+
 // ── Phase: title ─────────────────────────────────────────────────────────────
 function drawTitleBackdrop(c) {
   c.fillStyle = '#0e1a0e'; c.fillRect(0, 0, W, H);
@@ -461,21 +664,40 @@ function drawTitleBackdrop(c) {
 function renderTitle() {
   drawCachedBackdrop('title', drawTitleBackdrop);
   ctx.clearRect(0, 0, W, H);
-  txt('Duck Dieb 2', W/2, 170, '#ffd700', 56, 'center', 'bold 56px Georgia,serif');
-  txt('Second Edition', W/2, 210, '#cde', 18, 'center', 'italic 18px Georgia,serif');
-  txt('Checkpoint 1 — Stealth Slice', W/2, 240, '#7a9', 13, 'center', 'bold 13px monospace');
+  txt('Duck Dieb 2', W/2, 150, '#ffd700', 56, 'center', 'bold 56px Georgia,serif');
+  txt('Second Edition', W/2, 188, '#cde', 18, 'center', 'italic 18px Georgia,serif');
 
   // Start button
-  var bx = W/2 - 110, by = 310, bw = 220, bh = 60;
+  var bx = W/2 - 120, by = 230, bw = 240, bh = 62;
   var over = mx >= bx && mx <= bx+bw && my >= by && my <= by+bh;
   rndRect(bx, by, bw, bh, 10, over ? '#3a5a2a' : '#2a3a1a', '#ffd700', 3);
-  txt('Start', W/2, by + 40, '#ffd700', 28, 'center', 'bold 28px Georgia,serif');
+  txt('Start Heist', W/2, by + 42, '#ffd700', 28, 'center', 'bold 28px Georgia,serif');
   if (over && mclk) { mclk = false; startGame(); }
 
-  txt(TOUCH_UI ? 'Tap Start' : 'Click Start or press Enter',
-      W/2, 430, '#8a9', 14, 'center', 'bold 14px monospace');
+  // Easy-mode toggle
+  var tx = W/2 - 90, ty = 312, tw = 180, th = 38;
+  var tOver = mx >= tx && mx <= tx+tw && my >= ty && my <= ty+th;
+  rndRect(tx, ty, tw, th, 8, easyMode ? '#3a5a2a' : '#1a1a22',
+          tOver ? '#ffd700' : '#5a6a5a', 2);
+  txt((easyMode ? 'Easy: ON' : 'Easy: off'), tx + tw/2, ty + 25, '#ffd700', 16,
+      'center', 'bold 16px monospace');
+  if (tOver && mclk) { mclk = false; easyMode = !easyMode; }
+
+  // High scores button
+  var hx = W/2 - 90, hy = 360, hw = 180, hh = 38;
+  var hOver = mx >= hx && mx <= hx+hw && my >= hy && my <= hy+hh;
+  rndRect(hx, hy, hw, hh, 8, hOver ? '#3a3a5a' : '#1a1a22', '#ffd700', 2);
+  txt('High Scores', hx + hw/2, hy + 25, '#ffd700', 16, 'center',
+      'bold 16px monospace');
+  if (hOver && mclk) { mclk = false; setPhase('highscores'); }
+
+  txt(TOUCH_UI ? 'Tap Start to begin' : 'Click Start or press Enter',
+      W/2, 440, '#8a9', 14, 'center', 'bold 14px monospace');
+  txt('Checkpoint 2 — full run', W/2, 466, '#678', 12, 'center',
+      'bold 12px monospace');
 
   if (eat('Enter') || eat('Space')) startGame();
+  if (eat('KeyH')) setPhase('highscores');
 }
 
 // ── Phase: play (stealth) ────────────────────────────────────────────────────
@@ -618,7 +840,7 @@ function updateGuard(dt) {
   }
 }
 
-function updatePlay(dt) {
+function updateHouse(dt) {
   var vx = 0, vy = 0;
   if (isLeft())  vx -= 1;
   if (isRight()) vx += 1;
@@ -665,7 +887,7 @@ function updatePlay(dt) {
       } else if (ni.tile === T_LOOT && vaultOpen) {
         hasLoot = true; lootGlow = 2.0;
       } else if (ni.tile === T_DOOR && hasLoot) {
-        setPhase('escaped');
+        startChase();
         return;
       }
     }
@@ -725,7 +947,7 @@ function drawGuardSprite(g) {
   }
 }
 
-function renderPlay() {
+function renderHouse() {
   drawCachedBackdrop('room-1', drawTileBackdrop);
   ctx.clearRect(0, 0, W, H);
 
@@ -855,20 +1077,20 @@ function keypadButtons() {
 }
 
 function keypadPress(v) {
-  if (v === 'cancel') { setPhase('play'); return; }
+  if (v === 'cancel') { setPhase('house'); return; }
   if (v === 'back') { keypadEntry = keypadEntry.slice(0, -1); return; }
   if (v === 'ok') {
     if (keypadEntry === CODE) {
       vaultOpen = true;
       clearBackdropCache();  // redraw room without the vault gate
-      setPhase('play');
+      setPhase('house');
     } else {
       keypadError = 0.6;
       keypadEntry = '';
     }
     return;
   }
-  if (keypadEntry.length < 4) keypadEntry += v;
+  if (keypadEntry.length < CODE.length) keypadEntry += v;
 }
 
 function updateKeypad(dt) {
@@ -905,12 +1127,12 @@ function renderKeypad() {
   rndRect(KEYPAD_PX, KEYPAD_PY, KEYPAD_PW, KEYPAD_PH, 14, '#12121e', '#ffd700', 3);
 
   txt('Vault Keypad', W/2, KEYPAD_PY + 42, '#ffd700', 26, 'center', 'bold 26px Georgia,serif');
-  txt('enter 4 digits', W/2, KEYPAD_PY + 68, '#8aa', 14, 'center', 'bold 14px monospace');
+  txt('enter ' + CODE.length + ' digits', W/2, KEYPAD_PY + 68, '#8aa', 14, 'center', 'bold 14px monospace');
 
   // Display: sits fully above the grid so it can't be covered
   var dispY = KEYPAD_PY + 88;
   rndRect(W/2 - 130, dispY, 260, 54, 6, '#0a0a14', '#3a3a5a', 2);
-  var disp = keypadEntry + '_'.repeat(Math.max(0, 4 - keypadEntry.length));
+  var disp = keypadEntry + '_'.repeat(Math.max(0, CODE.length - keypadEntry.length));
   txt(disp.split('').join(' '), W/2, dispY + 38, '#fff', 32, 'center', 'bold 32px monospace');
 
   // Buttons
@@ -994,7 +1216,7 @@ function renderCaught() {
     txt('(no capture details recorded)', W/2, py + 80, '#ffe0e0', 14, 'center', 'bold 14px monospace');
   }
 
-  // Retry / title buttons
+  // Continue / title buttons
   var by = py + ph + 20;
   var rb = { x: W/2 - 160, y: by, w: 150, h: 48 };
   var tb = { x: W/2 + 10,  y: by, w: 150, h: 48 };
@@ -1004,35 +1226,424 @@ function renderCaught() {
     txt(label, b.x + b.w/2, b.y + 32, '#ffd700', 18, 'center', 'bold 18px Georgia,serif');
     return over;
   }
-  var rOver = drawBtn(rb, 'Try Again', '#3a5a2a');
-  var tOver = drawBtn(tb, 'Title',     '#3a3a5a');
-  if ((rOver && mclk) || eat('Enter') || eat('Space')) { mclk = false; startGame(); }
+  var rOver = drawBtn(rb, 'Hauled to jail', '#5a3a2a');
+  var tOver = drawBtn(tb, 'Quit',           '#3a3a5a');
+  if ((rOver && mclk) || eat('Enter') || eat('Space')) { mclk = false; startJail(); }
   if (tOver && mclk) { mclk = false; setPhase('title'); }
 }
 
-// (CP0 gameover phase removed; caught/escaped replace it)
+// ── Phase: chase (foot-chase to the getaway van) ────────────────────────────
+var chase = {
+  timer: 0,           // counts up; seconds since chase started
+  limit: 12,          // seconds before van drives off → caught
+  cops: [],           // {x, y, vx, vy}
+  caught: false,
+  won: false,
+};
+function startChase() {
+  chase.timer = 0;
+  chase.limit = easyMode ? 16 : 12;
+  chase.cops = [];
+  var copCount = easyMode ? 2 : 3;
+  for (var i = 0; i < copCount; i++) {
+    chase.cops.push({
+      x: 200 + i * 160,
+      y: 220 + (i % 2) * 160,
+      vx: (Math.random() < 0.5 ? -1 : 1) * (60 + i * 12),
+      vy: (Math.random() < 0.5 ? -1 : 1) * (40 + i * 10),
+    });
+  }
+  chase.caught = false; chase.won = false;
+  player.x = 60; player.y = H / 2;
+  player.facing = 'right';
+  setPhase('chase');
+}
+function updateChase(dt) {
+  chase.timer += dt;
+  var vx = 0, vy = 0;
+  if (isLeft())  vx -= 1;
+  if (isRight()) vx += 1;
+  if (isUp())    vy -= 1;
+  if (isDown())  vy += 1;
+  if (vx || vy) {
+    var len = Math.sqrt(vx*vx + vy*vy);
+    var spd = 220;
+    player.x += vx / len * spd * dt;
+    player.y += vy / len * spd * dt;
+    if (Math.abs(vx) >= Math.abs(vy)) player.facing = vx < 0 ? 'left' : 'right';
+    else                              player.facing = vy < 0 ? 'up'   : 'down';
+  }
+  if (player.x < 20) player.x = 20;
+  if (player.x > W - 20) player.x = W - 20;
+  if (player.y < 80) player.y = 80;
+  if (player.y > H - 40) player.y = H - 40;
 
-// ── Phase: escaped (victory stub) ────────────────────────────────────────────
-function renderEscaped() {
+  // Cops bounce around the street
+  for (var i = 0; i < chase.cops.length; i++) {
+    var c = chase.cops[i];
+    c.x += c.vx * dt; c.y += c.vy * dt;
+    if (c.x < 40)      { c.x = 40;      c.vx = Math.abs(c.vx); }
+    if (c.x > W - 40)  { c.x = W - 40;  c.vx = -Math.abs(c.vx); }
+    if (c.y < 100)     { c.y = 100;     c.vy = Math.abs(c.vy); }
+    if (c.y > H - 40)  { c.y = H - 40;  c.vy = -Math.abs(c.vy); }
+    if (Math.hypot(c.x - player.x, c.y - player.y) < 24) {
+      captureEvent = {
+        distPx: 0, playerNoise: Math.round(noise), wasSprinting: true,
+        tileName: 'the street', guardName: 'Patrol unit',
+        guardFacing: 'right at you',
+        px: player.x, py: player.y, gx: c.x, gy: c.y,
+        gFacing: 0, gRange: 0, gAngle: 0,
+      };
+      startJail();
+      return;
+    }
+  }
+  // Reach the van
+  if (player.x > W - 40 && player.y > H - 180 && player.y < H - 60) {
+    chase.won = true;
+    finishRun();
+    return;
+  }
+  // Van drives off
+  if (chase.timer > chase.limit) {
+    captureEvent = {
+      distPx: 0, playerNoise: 0, wasSprinting: false,
+      tileName: 'the street', guardName: 'The van',
+      guardFacing: 'away',
+      px: player.x, py: player.y, gx: W - 40, gy: H - 100,
+      gFacing: 0, gRange: 0, gAngle: 0,
+    };
+    startJail();
+    return;
+  }
+  if (eat('Escape')) setPhase('title');
+}
+function drawChaseBackdrop(c) {
+  // Asphalt
+  var sky = c.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, '#0a1030');
+  sky.addColorStop(1, '#181820');
+  c.fillStyle = sky; c.fillRect(0, 0, W, H);
+  c.fillStyle = '#222'; c.fillRect(0, 80, W, H - 80);
+  // Lane stripes
+  c.fillStyle = '#c8a040';
+  for (var x = 0; x < W; x += 60) c.fillRect(x, H/2 - 2, 30, 4);
+  // Curbs
+  c.fillStyle = '#444'; c.fillRect(0, 80, W, 4);
+  c.fillStyle = '#444'; c.fillRect(0, H - 8, W, 4);
+}
+function renderChase() {
+  drawCachedBackdrop('chase', drawChaseBackdrop);
+  ctx.clearRect(0, 0, W, H);
+
+  // Van on the right
+  var vx = W - 70, vy = H - 130;
+  rndRect(vx - 44, vy, 90, 60, 6, '#3a5a2a', '#0a1a0a', 2);
+  rndRect(vx + 10, vy + 8, 28, 22, 2, '#cde', '#111', 1);
+  circ(vx - 28, vy + 60, 9, '#111', '#555', 2);
+  circ(vx + 28, vy + 60, 9, '#111', '#555', 2);
+  txt('VAN', vx, vy + 46, '#ffd700', 12, 'center', 'bold 12px monospace');
+
+  // Cops
+  for (var i = 0; i < chase.cops.length; i++) {
+    var c = chase.cops[i];
+    circ(c.x, c.y, 13, '#2a4a8a', '#0a0a18', 2);
+    // Badge dot
+    ctx.fillStyle = '#ffd700';
+    ctx.beginPath(); ctx.arc(c.x, c.y - 4, 2.5, 0, TAU); ctx.fill();
+    txt('!', c.x + 14, c.y - 12, '#ff5555', 18, 'left', 'bold 18px Georgia,serif');
+  }
+
+  drawDuck(player.x, player.y, player.facing);
+
+  // HUD
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(0, 0, W, 44);
+  txt('CHASE', 14, 28, '#ffd700', 16, 'left', 'bold 16px monospace');
+  var remaining = Math.max(0, chase.limit - chase.timer);
+  txt('van leaves in', 140, 18, '#cde', 12, 'left', 'bold 12px monospace');
+  rndRect(140, 22, 220, 14, 4, '#111', '#555', 1);
+  ctx.fillStyle = remaining > chase.limit * 0.3 ? '#5a8a3a' : '#c85050';
+  ctx.fillRect(142, 24, Math.max(0, 216 * (remaining / chase.limit)), 10);
+  txt(remaining.toFixed(1) + 's', 372, 32, '#fff', 14, 'left', 'bold 14px monospace');
+  txt('reach the van →', W - 14, 28, '#ffe060', 15, 'right', 'bold 15px monospace');
+}
+
+// ── Phase: jail (Simon-says color match) ────────────────────────────────────
+var jail = {
+  seq: [],
+  playerIdx: 0,
+  showIdx: -1,   // which rug is being flashed; -1 = waiting for player
+  showT: 0,
+  flashT: 0,     // player press flash
+  wrongT: 0,
+  attempts: 0,
+  maxAttempts: 3,
+  rugs: [
+    { col: '#c04040', lit: '#ff8080', name: 'red'   },
+    { col: '#40a040', lit: '#80ff80', name: 'green' },
+    { col: '#4060c0', lit: '#80a0ff', name: 'blue'  },
+    { col: '#c0a040', lit: '#ffdc80', name: 'gold'  },
+  ],
+  rugBoxes: [],
+};
+function jailBuildBoxes() {
+  var boxes = [];
+  var n = jail.rugs.length;
+  var totalW = n * 110 + (n - 1) * 16;
+  var x0 = (W - totalW) / 2;
+  for (var i = 0; i < n; i++) {
+    boxes.push({ x: x0 + i * (110 + 16), y: 280, w: 110, h: 110 });
+  }
+  jail.rugBoxes = boxes;
+}
+function startJail() {
+  jailCount++;
+  energy = Math.max(0, energy - 60);
+  if (energy <= 0) {
+    // No more energy — run over without victory
+    chase.won = false;
+    finishRun();
+    return;
+  }
+  var seqLen = easyMode ? 2 : 3 + Math.min(2, jailCount - 1);
+  jail.seq = [];
+  for (var i = 0; i < seqLen; i++) jail.seq.push(Math.floor(Math.random() * jail.rugs.length));
+  jail.playerIdx = 0;
+  jail.showIdx = 0; jail.showT = 0;
+  jail.flashT = 0; jail.wrongT = 0;
+  jail.attempts = 0;
+  jailBuildBoxes();
+  setPhase('jail');
+}
+function updateJail(dt) {
+  // Play back the sequence, then accept input
+  if (jail.showIdx >= 0) {
+    jail.showT += dt;
+    if (jail.showT > 0.6) {
+      jail.showT = 0;
+      jail.showIdx++;
+      if (jail.showIdx >= jail.seq.length) { jail.showIdx = -1; jail.playerIdx = 0; }
+    }
+    return;
+  }
+  jail.flashT = Math.max(0, jail.flashT - dt);
+  jail.wrongT = Math.max(0, jail.wrongT - dt);
+
+  if (mclk) {
+    mclk = false;
+    for (var i = 0; i < jail.rugBoxes.length; i++) {
+      var b = jail.rugBoxes[i];
+      if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
+        handleJailPress(i); break;
+      }
+    }
+  }
+  // Keyboard 1-4 shortcut
+  for (var k = 1; k <= jail.rugs.length; k++) {
+    if (eat('Digit' + k) || eat('Numpad' + k)) handleJailPress(k - 1);
+  }
+}
+function handleJailPress(i) {
+  jail.flashT = 0.25;
+  if (jail.seq[jail.playerIdx] === i) {
+    jail.playerIdx++;
+    if (jail.playerIdx >= jail.seq.length) {
+      // Released — back to alley
+      resetAlley();
+      setPhase('alley');
+    }
+  } else {
+    jail.wrongT = 0.6;
+    jail.attempts++;
+    if (jail.attempts >= jail.maxAttempts) {
+      chase.won = false;
+      finishRun();
+      return;
+    }
+    // Replay sequence
+    jail.playerIdx = 0;
+    jail.showIdx = 0; jail.showT = 0;
+  }
+}
+function drawJailBackdrop(c) {
+  c.fillStyle = '#10081a'; c.fillRect(0, 0, W, H);
+  // Cell bars
+  c.fillStyle = '#222';
+  for (var x = 40; x < W - 40; x += 50) c.fillRect(x, 60, 10, 160);
+  c.fillStyle = '#444';
+  c.fillRect(30, 60, W - 60, 6);
+  c.fillRect(30, 218, W - 60, 6);
+  // Floor
+  c.fillStyle = '#1a1a22'; c.fillRect(0, 240, W, H - 240);
+}
+function renderJail() {
+  drawCachedBackdrop('jail', drawJailBackdrop);
+  ctx.clearRect(0, 0, W, H);
+
+  txt('The Slammer', W/2, 50, '#ffd700', 32, 'center', 'bold 32px Georgia,serif');
+  var sub = jail.showIdx >= 0 ? 'watch the rugs…'
+          : 'tap the rugs in the order they flashed';
+  txt(sub, W/2, 100, '#cde', 16, 'center', 'bold 16px monospace');
+  txt('attempt ' + (jail.attempts + 1) + ' of ' + jail.maxAttempts,
+      W/2, 126, '#8a9', 13, 'center', 'bold 13px monospace');
+
+  // Progress dots
+  for (var i = 0; i < jail.seq.length; i++) {
+    var px = W/2 - (jail.seq.length * 16) / 2 + i * 16;
+    var done = jail.showIdx < 0 && i < jail.playerIdx;
+    circ(px + 6, 156, 5, done ? '#ffd700' : '#444', '#888', 1);
+  }
+
+  // Rugs
+  for (var j = 0; j < jail.rugBoxes.length; j++) {
+    var b = jail.rugBoxes[j];
+    var rug = jail.rugs[j];
+    var litByShow = (jail.showIdx >= 0 && jail.seq[jail.showIdx] === j && jail.showT < 0.35);
+    var litByPress = (jail.flashT > 0 && jail.playerIdx > 0 && jail.seq[jail.playerIdx - 1] === j);
+    var lit = litByShow || litByPress;
+    rndRect(b.x, b.y, b.w, b.h, 10, lit ? rug.lit : rug.col, '#111', 3);
+    // Simple rug pattern
+    ctx.save();
+    ctx.globalAlpha = 0.25; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+    ctx.strokeRect(b.x + 8, b.y + 8, b.w - 16, b.h - 16);
+    ctx.restore();
+    txt(String(j + 1), b.x + b.w/2, b.y + b.h/2 + 10, '#fff', 28,
+        'center', 'bold 28px monospace');
+  }
+
+  if (jail.wrongT > 0) {
+    txt('wrong!', W/2, 420, '#ff6666', 24, 'center', 'bold 24px Georgia,serif');
+  }
+
+  // Energy readout
+  txt('energy', 14, 28, '#cde', 13, 'left', 'bold 13px monospace');
+  rndRect(14, 32, 160, 14, 4, '#111', '#555', 1);
+  ctx.fillStyle = '#c8a040';
+  ctx.fillRect(16, 34, Math.max(0, 156 * (energy / MAX_ENERGY)), 10);
+}
+
+// ── Phase: victory (score + save) ───────────────────────────────────────────
+var runResult = { won:false, score:0, stars:0, energyLeft:0, jailed:0, timeSec:0, saved:false };
+function finishRun() {
+  var timeSec = ((typeof performance !== 'undefined' ? performance.now() : Date.now()) - runStartMs) / 1000;
+  var energyLeft = energy;
+  var base = chase.won ? 500 : 0;
+  var lootBonus = hasLoot ? 200 : 0;
+  var energyBonus = Math.round(energyLeft * 0.8);
+  var jailPenalty = jailCount * 80;
+  var timePenalty = Math.max(0, Math.floor(timeSec - 60)) * 2;
+  var score = Math.max(0, base + lootBonus + energyBonus - jailPenalty - timePenalty);
+  var stars = chase.won ? (score > 700 ? 3 : score > 400 ? 2 : 1) : 0;
+  runResult = {
+    won: !!chase.won, score: score, stars: stars,
+    energyLeft: energyLeft, jailed: jailCount,
+    timeSec: timeSec, saved: false,
+  };
+  if (chase.won) {
+    hsStore.save({ score: score, stars: stars, date: Date.now() });
+    runResult.saved = true;
+  }
+  setPhase('victory');
+}
+function renderVictory() {
   drawCachedBackdrop('title', drawTitleBackdrop);
   ctx.clearRect(0, 0, W, H);
 
-  txt('CLEAN GETAWAY', W/2, 180, '#ffd700', 48, 'center', 'bold 48px Georgia,serif');
-  txt('The trophy is yours.', W/2, 220, '#cde', 18, 'center', 'italic 18px Georgia,serif');
-  txt('Checkpoint 1 slice complete — full neighborhood coming in CP2.',
-      W/2, 250, '#8a9', 12, 'center', 'bold 12px monospace');
+  if (runResult.won) {
+    txt('CLEAN GETAWAY', W/2, 110, '#ffd700', 44, 'center', 'bold 44px Georgia,serif');
+    txt('The trophy is yours.', W/2, 146, '#cde', 17, 'center', 'italic 17px Georgia,serif');
+  } else {
+    txt('RUN ENDED', W/2, 110, '#ff8080', 42, 'center', 'bold 42px Georgia,serif');
+    txt('The van left without you.', W/2, 146, '#ffe0e0', 17, 'center', 'italic 17px Georgia,serif');
+  }
 
-  var bx = W/2 - 110, by = 320, bw = 220, bh = 56;
-  var over = mx >= bx && mx <= bx+bw && my >= by && my <= by+bh;
-  rndRect(bx, by, bw, bh, 10, over ? '#3a5a2a' : '#2a3a1a', '#ffd700', 3);
-  txt('Play Again', W/2, by + 36, '#ffd700', 22, 'center', 'bold 22px Georgia,serif');
-  if ((over && mclk) || eat('Enter') || eat('Space')) { mclk = false; startGame(); }
+  // Stars
+  if (runResult.won) {
+    for (var i = 0; i < 3; i++) {
+      var lit = i < runResult.stars;
+      ctx.font = '38px serif'; ctx.textAlign = 'center';
+      ctx.fillStyle = lit ? '#ffd700' : '#3a3a1a';
+      ctx.fillText(lit ? '\u2605' : '\u2606', W/2 - 60 + i * 60, 210);
+    }
+  }
 
-  var tb = { x: W/2 - 80, y: by + 80, w: 160, h: 40 };
-  var tOver = mx >= tb.x && mx <= tb.x + tb.w && my >= tb.y && my <= tb.y + tb.h;
-  rndRect(tb.x, tb.y, tb.w, tb.h, 8, tOver ? '#3a3a5a' : '#222', '#ffd700', 2);
-  txt('Title', tb.x + tb.w/2, tb.y + 26, '#ffd700', 16, 'center', 'bold 16px Georgia,serif');
+  // Score card
+  var px = W/2 - 180, py = 250, pw = 360, ph = 140;
+  rndRect(px, py, pw, ph, 10, 'rgba(0,0,0,0.6)', '#ffd700', 2);
+  var rows = [
+    ['Score',        String(runResult.score)],
+    ['Energy left',  runResult.energyLeft + '/' + MAX_ENERGY],
+    ['Times jailed', String(runResult.jailed)],
+    ['Time',         runResult.timeSec.toFixed(1) + 's'],
+  ];
+  for (var j = 0; j < rows.length; j++) {
+    txt(rows[j][0], px + 20,     py + 32 + j * 26, '#cde',    16, 'left',  'bold 16px monospace');
+    txt(rows[j][1], px + pw - 20, py + 32 + j * 26, '#ffd700', 16, 'right', 'bold 16px monospace');
+  }
+
+  // Buttons
+  var by = py + ph + 20;
+  var pb = { x: W/2 - 260, y: by, w: 160, h: 46 };
+  var hb = { x: W/2 -  80, y: by, w: 160, h: 46 };
+  var tb = { x: W/2 + 100, y: by, w: 160, h: 46 };
+  function drawBtn(b, label, col) {
+    var over = mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h;
+    rndRect(b.x, b.y, b.w, b.h, 8, over ? col : '#222', '#ffd700', 2);
+    txt(label, b.x + b.w/2, b.y + 30, '#ffd700', 17, 'center', 'bold 17px Georgia,serif');
+    return over;
+  }
+  var pOver = drawBtn(pb, 'Play Again', '#3a5a2a');
+  var hOver = drawBtn(hb, 'High Scores', '#3a3a5a');
+  var tOver = drawBtn(tb, 'Title',      '#3a3a5a');
+  if ((pOver && mclk) || eat('Enter') || eat('Space')) { mclk = false; startGame(); }
+  if (hOver && mclk) { mclk = false; setPhase('highscores'); }
   if (tOver && mclk) { mclk = false; setPhase('title'); }
+}
+
+// ── Phase: highscores ───────────────────────────────────────────────────────
+function renderHighscores() {
+  drawCachedBackdrop('title', drawTitleBackdrop);
+  ctx.clearRect(0, 0, W, H);
+
+  txt('High Scores', W/2, 90, '#ffd700', 40, 'center', 'bold 40px Georgia,serif');
+
+  var list = hsStore.get();
+  var px = W/2 - 220, py = 130, pw = 440, ph = 340;
+  rndRect(px, py, pw, ph, 10, 'rgba(0,0,0,0.55)', '#ffd700', 2);
+
+  if (list.length === 0) {
+    txt('No clean getaways yet.', W/2, py + ph/2, '#cde', 18, 'center', 'italic 18px Georgia,serif');
+  } else {
+    txt('#',     px + 30,       py + 34, '#8a9', 13, 'left',  'bold 13px monospace');
+    txt('Score', px + 70,       py + 34, '#8a9', 13, 'left',  'bold 13px monospace');
+    txt('Stars', px + pw - 150, py + 34, '#8a9', 13, 'left',  'bold 13px monospace');
+    txt('Date',  px + pw - 30,  py + 34, '#8a9', 13, 'right', 'bold 13px monospace');
+    var shown = Math.min(10, list.length);
+    for (var i = 0; i < shown; i++) {
+      var e = list[i], row = py + 60 + i * 24;
+      var dateStr = '';
+      if (e.date) {
+        var d = new Date(e.date);
+        dateStr = (d.getMonth()+1) + '/' + d.getDate();
+      }
+      txt(String(i+1), px + 30,       row, '#cde',    15, 'left',  'bold 15px monospace');
+      txt(String(e.score), px + 70,   row, '#ffd700', 15, 'left',  'bold 15px monospace');
+      var stars = '';
+      for (var s = 0; s < (e.stars || 0); s++) stars += '\u2605';
+      for (var s2 = (e.stars || 0); s2 < 3; s2++) stars += '\u2606';
+      txt(stars,   px + pw - 150, row, '#ffd700', 14, 'left',  '14px monospace');
+      txt(dateStr, px + pw - 30,  row, '#8a9',    13, 'right', 'bold 13px monospace');
+    }
+  }
+
+  var bb = { x: W/2 - 90, y: 500, w: 180, h: 42 };
+  var over = mx >= bb.x && mx <= bb.x + bb.w && my >= bb.y && my <= bb.y + bb.h;
+  rndRect(bb.x, bb.y, bb.w, bb.h, 8, over ? '#3a3a5a' : '#222', '#ffd700', 2);
+  txt('Back', bb.x + bb.w/2, bb.y + 28, '#ffd700', 17, 'center', 'bold 17px Georgia,serif');
+  if ((over && mclk) || eat('Escape') || eat('Enter') || eat('Space')) {
+    mclk = false; setPhase('title');
+  }
 }
 
 // ── Fixed-timestep main loop ─────────────────────────────────────────────────
@@ -1042,18 +1653,25 @@ var lastDraw = 0;
 
 function stepSim(dt) {
   switch (phase) {
-    case 'play':   updatePlay(dt);   break;
+    case 'house':  updateHouse(dt);  break;
+    case 'alley':  updateAlley(dt);  break;
+    case 'chase':  updateChase(dt);  break;
+    case 'jail':   updateJail(dt);   break;
     case 'keypad': updateKeypad(dt); break;
   }
 }
 
 function renderPhase() {
   switch (phase) {
-    case 'title':   renderTitle();   break;
-    case 'play':    renderPlay();    break;
-    case 'keypad':  renderKeypad();  break;
-    case 'caught':  renderCaught();  break;
-    case 'escaped': renderEscaped(); break;
+    case 'title':      renderTitle();      break;
+    case 'alley':      renderAlley();      break;
+    case 'house':      renderHouse();      break;
+    case 'keypad':     renderKeypad();     break;
+    case 'caught':     renderCaught();     break;
+    case 'chase':      renderChase();      break;
+    case 'jail':       renderJail();       break;
+    case 'victory':    renderVictory();    break;
+    case 'highscores': renderHighscores(); break;
   }
   drawMobileControls();
 }
