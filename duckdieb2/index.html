@@ -133,7 +133,8 @@ var ACT_CX  = W - 88, ACT_CY = H - 108, ACT_R = 54;
 var mx = W / 2, my = H / 2, mclk = false;
 
 function inMovablePhase() {
-  return phase === 'house' || phase === 'alley' || phase === 'chase' || phase === 'jail';
+  return phase === 'house' || phase === 'alley' || phase === 'chase'
+      || phase === 'jail' || phase === 'safedial';
 }
 
 function getDpadDir(px, py) {
@@ -337,38 +338,118 @@ function drawMobileControls() {
   ctx.restore();
 }
 
-// ── Tilemap (20×14 @ 40px) ───────────────────────────────────────────────────
+// ── Tilemap (20×14 @ 40px) — template-based ──────────────────────────────────
 // # wall  . floor  C creak  R rug  P paper  K keypad  L loot  V vault-gate  D door
 var TILE = 40;
 var COLS = 20, ROWS = 14;
 var T_FLOOR=0, T_WALL=1, T_CREAK=2, T_RUG=3, T_PAPER=4, T_KEYPAD=5, T_LOOT=6, T_VAULT=7, T_DOOR=8;
 var TILE_FROM_CHAR = { '#':T_WALL, '.':T_FLOOR, 'C':T_CREAK, 'R':T_RUG,
                        'P':T_PAPER, 'K':T_KEYPAD, 'L':T_LOOT, 'V':T_VAULT, 'D':T_DOOR };
-var MAP_ROWS = [
-  '####################',
-  '#..................#',
-  '#....CCCC..........#',
-  '#...........P......#',
-  '#..................#',
-  '#......######......#',
-  '#......#..L.#......#',
-  '#......#....#......#',
-  '#......#....#......#',
-  '#......###V##......#',
-  '#........K.........#',
-  '#.....RRRRR........#',
-  '#........D.........#',
-  '####################'
+
+// Patrol helper: list of [col,row] → waypoints at tile centers.
+function P(list) {
+  var pts = [];
+  for (var i = 0; i < list.length; i++) {
+    pts.push({ x: list[i][0] * TILE + TILE/2, y: list[i][1] * TILE + TILE/2 });
+  }
+  return pts;
+}
+
+var ROOM_TEMPLATES = [
+  {
+    id: 'living',
+    name: 'the living room',
+    rows: [
+      '####################',
+      '#..................#',
+      '#....CCCC..........#',
+      '#...........P......#',
+      '#..................#',
+      '#......######......#',
+      '#......#..L.#......#',
+      '#......#....#......#',
+      '#......#....#......#',
+      '#......###V##......#',
+      '#........K.........#',
+      '#.....RRRRR........#',
+      '#........D.........#',
+      '####################'
+    ],
+    patrols: [
+      { kind: 'perimeter', pts: P([[17,2],[17,11],[2,11],[2,2]]) },
+      { kind: 'inner',     pts: P([[4,3],[4,10],[15,10],[15,3]]) },
+      { kind: 'creak',     pts: P([[5,2],[10,2]]) },
+    ],
+  },
+  {
+    id: 'loft',
+    name: 'the open loft',
+    rows: [
+      '####################',
+      '#..................#',
+      '#.CCC..............#',
+      '#..........P.......#',
+      '#..................#',
+      '#...........######.#',
+      '#...........#..L.#.#',
+      '#...........#....#.#',
+      '#...........##V###.#',
+      '#..................#',
+      '#...RRRR..K........#',
+      '#..................#',
+      '#.........D........#',
+      '####################'
+    ],
+    patrols: [
+      { kind: 'perimeter', pts: P([[17,2],[17,4],[2,4],[2,2]]) },
+      { kind: 'inner',     pts: P([[18,11],[18,9],[2,9],[2,11]]) },
+      { kind: 'vault',     pts: P([[13,10],[17,10]]) },
+    ],
+  },
+  {
+    id: 'gallery',
+    name: 'the gallery',
+    rows: [
+      '####################',
+      '#..................#',
+      '#.........CCC......#',
+      '#..................#',
+      '#..P........######.#',
+      '#............#.L.#.#',
+      '#............#...#.#',
+      '#............##V##.#',
+      '#..................#',
+      '#.RRRRR..K.........#',
+      '#..................#',
+      '#..................#',
+      '#.......D..........#',
+      '####################'
+    ],
+    patrols: [
+      { kind: 'perimeter', pts: P([[17,2],[17,11],[2,11],[2,2]]) },
+      { kind: 'inner',     pts: P([[4,3],[11,3],[11,9],[4,9]]) },
+      { kind: 'vault',     pts: P([[10,4],[10,10]]) },
+    ],
+  },
 ];
-var MAP = (function() {
-  var m = [];
+
+var currentTemplate = ROOM_TEMPLATES[0];
+var MAP_ROWS = currentTemplate.rows;
+var MAP = [];
+function rebuildMap() {
+  MAP = [];
   for (var r = 0; r < ROWS; r++) {
     var row = [];
     for (var c = 0; c < COLS; c++) row.push(TILE_FROM_CHAR[MAP_ROWS[r][c]]);
-    m.push(row);
+    MAP.push(row);
   }
-  return m;
-})();
+}
+function pickTemplate() {
+  currentTemplate = ROOM_TEMPLATES[Math.floor(Math.random() * ROOM_TEMPLATES.length)];
+  MAP_ROWS = currentTemplate.rows;
+  rebuildMap();
+}
+rebuildMap();
 function tileAt(col, row) {
   if (col < 0 || col >= COLS || row < 0 || row >= ROWS) return T_WALL;
   return MAP[row][col];
@@ -401,23 +482,24 @@ var lootGlow = 0;        // pulsing glow timer
 var noise = 0;           // 0–100
 var noiseRate = 1.0;     // difficulty tuning
 
-var guard = {
-  x: 2 * TILE + TILE/2, y: 2 * TILE + TILE/2,
-  pts: [
-    { x: 17 * TILE + TILE/2, y:  2 * TILE + TILE/2 },
-    { x: 17 * TILE + TILE/2, y: 11 * TILE + TILE/2 },
-    { x:  2 * TILE + TILE/2, y: 11 * TILE + TILE/2 },
-    { x:  2 * TILE + TILE/2, y:  2 * TILE + TILE/2 },
-  ],
-  ptIdx: 0,
-  spd: 55,
-  facing: 0,               // radians; 0 = +X (right)
-  visionRange: 150,
-  visionAngle: Math.PI / 2.5,  // ~72°
-  suspicion: 0,           // 0–100
-  alert: 'calm',          // 'calm' | 'suspicious' | 'alerted'
-  name: 'Officer Pflueger',
-};
+var GUARD_NAMES = ['Officer Pflueger', 'Officer Malin', 'Officer Hickock', 'Officer Lekan'];
+var guards = [];
+
+function makeGuard(patrol, name) {
+  return {
+    x: patrol.pts[0].x, y: patrol.pts[0].y,
+    pts: patrol.pts,
+    kind: patrol.kind,
+    ptIdx: 1 % patrol.pts.length,
+    spd: 55,
+    facing: 0,               // radians; 0 = +X (right)
+    visionRange: 150,
+    visionAngle: Math.PI / 2.5,  // ~72°
+    suspicion: 0,           // 0–100
+    alert: 'calm',          // 'calm' | 'suspicious' | 'alerted'
+    name: name,
+  };
+}
 
 // Capture record for post-mortem
 var captureEvent = null; // { distPx, playerNoise, wasSprinting, tileName, guardName, guardFacing }
@@ -426,21 +508,36 @@ function resetStealth() {
   vaultOpen = false; hasLoot = false; knowsCode = false;
   noise = 0; paperFlash = 0; lootGlow = 0;
   captureEvent = null;
+  pickTemplate();
   // Roll a numeric code (2 digits on easy, 4 on normal)
   if (easyMode) {
     CODE = ('' + Math.floor(10 + Math.random() * 90));
   } else {
     CODE = ('' + Math.floor(1000 + Math.random() * 9000));
   }
-  // Tune the guard for difficulty
-  guard.spd = easyMode ? 40 : 55;
-  guard.visionRange = easyMode ? 120 : 150;
-  guard.visionAngle = easyMode ? Math.PI / 3 : Math.PI / 2.5;
   noiseRate = easyMode ? 0.65 : 1.0;
-  // Reset guard
-  guard.x = guard.pts[0].x; guard.y = guard.pts[0].y;
-  guard.ptIdx = 1; guard.facing = 0;
-  guard.suspicion = 0; guard.alert = 'calm';
+  // Spawn guards: pick N distinct patrols from the template
+  var available = currentTemplate.patrols.slice();
+  // Shuffle
+  for (var i = available.length - 1; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1));
+    var t = available[i]; available[i] = available[j]; available[j] = t;
+  }
+  var n = easyMode ? 1 : Math.min(available.length, 2 + Math.floor(Math.random() * 2));
+  guards = [];
+  for (var g = 0; g < n; g++) {
+    var guard = makeGuard(available[g], GUARD_NAMES[g % GUARD_NAMES.length]);
+    // Per-difficulty tuning + per-kind tweaks
+    guard.spd = (easyMode ? 40 : 55) * (guard.kind === 'vault' ? 0.8 : 1.0);
+    guard.visionRange = easyMode ? 120 : 150;
+    guard.visionAngle = easyMode ? Math.PI / 3 : Math.PI / 2.5;
+    if (guard.kind === 'creak') {
+      // Short bouncer with a wider cone
+      guard.visionAngle += 0.15;
+      guard.spd *= 0.8;
+    }
+    guards.push(guard);
+  }
 }
 
 function guardFacingToCardinal(f) {
@@ -777,7 +874,7 @@ function tryMove(p, nx, ny) {
   }
 }
 
-function updateGuard(dt) {
+function updateOneGuard(guard, dt) {
   // Pursue player when alerted, otherwise follow patrol
   var tgt;
   if (guard.alert === 'alerted') {
@@ -792,7 +889,6 @@ function updateGuard(dt) {
     var step = Math.min(spd * dt, d);
     guard.x += dx / d * step;
     guard.y += dy / d * step;
-    // Only rotate facing when actually moving
     if (spd > 0) guard.facing = Math.atan2(dy, dx);
   }
   if (guard.alert !== 'alerted' && d < 4) {
@@ -811,14 +907,12 @@ function updateGuard(dt) {
     }
   }
 
-  // Suspicion update
   if (seen) {
     var closeness = 1 - Math.min(1, pd / guard.visionRange);
     guard.suspicion += (30 + 60 * closeness) * dt;
   } else {
     guard.suspicion -= 35 * dt;
   }
-  // Noise nudges suspicion when loud
   if (noise > 70) guard.suspicion += (noise - 70) * 0.35 * dt;
   guard.suspicion = Math.max(0, Math.min(100, guard.suspicion));
   guard.alert = guard.suspicion >= 80 ? 'alerted'
@@ -837,6 +931,14 @@ function updateGuard(dt) {
       gRange: guard.visionRange, gAngle: guard.visionAngle,
     };
     setPhase('caught');
+    return true;
+  }
+  return false;
+}
+
+function updateGuards(dt) {
+  for (var i = 0; i < guards.length; i++) {
+    if (updateOneGuard(guards[i], dt)) return; // captured — stop updating
   }
 }
 
@@ -884,8 +986,9 @@ function updateHouse(dt) {
         } else {
           paperFlash = 1.2; // reuse as "nope, read the paper first" pulse
         }
-      } else if (ni.tile === T_LOOT && vaultOpen) {
-        hasLoot = true; lootGlow = 2.0;
+      } else if (ni.tile === T_LOOT && vaultOpen && !hasLoot) {
+        startSafeDial();
+        return;
       } else if (ni.tile === T_DOOR && hasLoot) {
         startChase();
         return;
@@ -897,7 +1000,7 @@ function updateHouse(dt) {
   paperFlash = Math.max(0, paperFlash - dt);
   lootGlow   = Math.max(0, lootGlow + dt);
 
-  updateGuard(dt);
+  updateGuards(dt);
 }
 
 // Vision cone fill on the foreground canvas (semi-transparent)
@@ -948,7 +1051,7 @@ function drawGuardSprite(g) {
 }
 
 function renderHouse() {
-  drawCachedBackdrop('room-1', drawTileBackdrop);
+  drawCachedBackdrop('room:' + currentTemplate.id, drawTileBackdrop);
   ctx.clearRect(0, 0, W, H);
 
   // Vault overlay: if open, paint floor over the gate tile
@@ -995,13 +1098,15 @@ function renderHouse() {
     }
   }
 
-  // Guard vision cone
-  var coneCol = guard.alert === 'alerted'    ? 'rgba(255,80,80,0.32)'
-              : guard.alert === 'suspicious' ? 'rgba(255,200,80,0.26)'
-              :                                'rgba(255,255,180,0.16)';
-  drawVisionCone(guard, coneCol);
-
-  drawGuardSprite(guard);
+  // Guard vision cones (one per guard)
+  for (var gi = 0; gi < guards.length; gi++) {
+    var g = guards[gi];
+    var coneCol = g.alert === 'alerted'    ? 'rgba(255,80,80,0.32)'
+                : g.alert === 'suspicious' ? 'rgba(255,200,80,0.26)'
+                :                            'rgba(255,255,180,0.16)';
+    drawVisionCone(g, coneCol);
+  }
+  for (var gi2 = 0; gi2 < guards.length; gi2++) drawGuardSprite(guards[gi2]);
   drawDuck(player.x, player.y, player.facing);
 
   // HUD strip
@@ -1117,7 +1222,7 @@ function updateKeypad(dt) {
 }
 
 function renderKeypad() {
-  drawCachedBackdrop('room-1', drawTileBackdrop);
+  drawCachedBackdrop('room:' + currentTemplate.id, drawTileBackdrop);
   ctx.clearRect(0, 0, W, H);
   ctx.fillStyle = 'rgba(0,0,0,0.75)';
   ctx.fillRect(0, 0, W, H);
@@ -1156,9 +1261,137 @@ function renderKeypad() {
   ctx.restore();
 }
 
+// ── Phase: safedial (hold to rotate, release on the tick) ───────────────────
+var safedial = {
+  angle: 0, target: 0,
+  digits: 3, idx: 0,
+  tolerance: 0.22,
+  speed: 3.4,                // rad/s
+  committedT: 0, failT: 0,
+  wasHolding: false, didRotate: false,
+};
+function dialNorm(a) {
+  while (a >  Math.PI) a -= 2 * Math.PI;
+  while (a < -Math.PI) a += 2 * Math.PI;
+  return a;
+}
+function startSafeDial() {
+  safedial.digits = easyMode ? 1 : 3;
+  safedial.idx = 0;
+  safedial.angle = 0;
+  safedial.target = (Math.random() * 2 - 1) * Math.PI;
+  safedial.tolerance = easyMode ? 0.32 : 0.22;
+  safedial.speed = easyMode ? 2.4 : 3.4;
+  safedial.committedT = 0; safedial.failT = 0;
+  safedial.wasHolding = false; safedial.didRotate = false;
+  setPhase('safedial');
+}
+function updateSafeDial(dt) {
+  safedial.committedT = Math.max(0, safedial.committedT - dt);
+  safedial.failT      = Math.max(0, safedial.failT - dt);
+
+  var left  = isLeft(),  right = isRight();
+  var dir = (left && !right) ? -1 : (right && !left) ? 1 : 0;
+  var holding = left || right;
+  if (holding) {
+    if (dir !== 0) safedial.didRotate = true;
+    safedial.angle = dialNorm(safedial.angle + dir * safedial.speed * dt);
+  }
+
+  if (safedial.wasHolding && !holding) {
+    if (safedial.didRotate) {
+      var delta = Math.abs(dialNorm(safedial.angle - safedial.target));
+      if (delta < safedial.tolerance) {
+        safedial.committedT = 0.6;
+        safedial.idx++;
+        if (safedial.idx >= safedial.digits) {
+          hasLoot = true; lootGlow = 2.0;
+          setPhase('house');
+          return;
+        }
+        // Pick a new target that requires rotation
+        var newT;
+        do {
+          newT = (Math.random() * 2 - 1) * Math.PI;
+        } while (Math.abs(dialNorm(newT - safedial.angle)) < 1.0);
+        safedial.target = newT;
+      } else {
+        safedial.failT = 0.8;
+        for (var i = 0; i < guards.length; i++) {
+          guards[i].suspicion = Math.min(100, guards[i].suspicion + 25);
+        }
+        safedial.idx = 0;
+        safedial.target = (Math.random() * 2 - 1) * Math.PI;
+      }
+      safedial.didRotate = false;
+    }
+  }
+  safedial.wasHolding = holding;
+
+  if (eat('Escape')) setPhase('house');
+}
+function renderSafeDial() {
+  drawCachedBackdrop('room:' + currentTemplate.id, drawTileBackdrop);
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = 'rgba(6,6,14,0.78)';
+  ctx.fillRect(0, 0, W, H);
+
+  txt('Crack the Safe', W/2, 60, '#ffd700', 32, 'center', 'bold 32px Georgia,serif');
+  txt('digit ' + (safedial.idx + 1) + ' of ' + safedial.digits,
+      W/2, 90, '#cde', 16, 'center', 'bold 16px monospace');
+
+  var cx = W/2, cy = H/2 + 12, r = 130;
+  // Dial body
+  circ(cx, cy, r, '#222', '#888', 3);
+  circ(cx, cy, r - 14, '#1a1a26', '#555', 2);
+  // Background ticks on the dial (rotate with angle)
+  for (var i = 0; i < 24; i++) {
+    var a = -Math.PI/2 + i / 24 * Math.PI * 2 + safedial.angle;
+    var x1 = cx + Math.cos(a) * (r - 18), y1 = cy + Math.sin(a) * (r - 18);
+    var x2 = cx + Math.cos(a) * (r - 8),  y2 = cy + Math.sin(a) * (r - 8);
+    ctx.strokeStyle = '#666'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  }
+  // Gold target tick
+  var tA = -Math.PI/2 + dialNorm(safedial.target - safedial.angle);
+  var tx1 = cx + Math.cos(tA) * (r - 22), ty1 = cy + Math.sin(tA) * (r - 22);
+  var tx2 = cx + Math.cos(tA) * (r - 4),  ty2 = cy + Math.sin(tA) * (r - 4);
+  ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.moveTo(tx1, ty1); ctx.lineTo(tx2, ty2); ctx.stroke();
+  // Tolerance band (subtle arc near the target)
+  ctx.strokeStyle = 'rgba(255,215,0,0.25)'; ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r - 12, tA - safedial.tolerance, tA + safedial.tolerance);
+  ctx.stroke();
+
+  // Pointer at top
+  var pCol = safedial.failT > 0 ? '#ff5555'
+           : safedial.committedT > 0 ? '#5aff5a'
+           : '#ffd700';
+  ctx.fillStyle = pCol;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - r - 6);
+  ctx.lineTo(cx - 10, cy - r + 10);
+  ctx.lineTo(cx + 10, cy - r + 10);
+  ctx.closePath(); ctx.fill();
+
+  // Status text
+  var msg = safedial.failT > 0      ? 'missed — restarting' :
+            safedial.committedT > 0 ? 'locked in!' :
+                                      'hold \u25C4 / \u25BA to rotate · release on the gold tick';
+  txt(msg, W/2, H - 90, '#cde', 16, 'center', 'bold 16px monospace');
+
+  // Locked digits row
+  for (var d = 0; d < safedial.digits; d++) {
+    var lit = d < safedial.idx;
+    var dx = cx - (safedial.digits * 28)/2 + d * 28 + 14;
+    circ(dx, H - 55, 8, lit ? '#ffd700' : '#333', '#888', 1);
+  }
+}
+
 // ── Phase: caught (post-mortem) ──────────────────────────────────────────────
 function renderCaught() {
-  drawCachedBackdrop('room-1', drawTileBackdrop);
+  drawCachedBackdrop('room:' + currentTemplate.id, drawTileBackdrop);
   ctx.clearRect(0, 0, W, H);
   ctx.fillStyle = 'rgba(10,0,0,0.8)';
   ctx.fillRect(0, 0, W, H);
@@ -1653,11 +1886,12 @@ var lastDraw = 0;
 
 function stepSim(dt) {
   switch (phase) {
-    case 'house':  updateHouse(dt);  break;
-    case 'alley':  updateAlley(dt);  break;
-    case 'chase':  updateChase(dt);  break;
-    case 'jail':   updateJail(dt);   break;
-    case 'keypad': updateKeypad(dt); break;
+    case 'house':    updateHouse(dt);    break;
+    case 'alley':    updateAlley(dt);    break;
+    case 'chase':    updateChase(dt);    break;
+    case 'jail':     updateJail(dt);     break;
+    case 'keypad':   updateKeypad(dt);   break;
+    case 'safedial': updateSafeDial(dt); break;
   }
 }
 
@@ -1667,6 +1901,7 @@ function renderPhase() {
     case 'alley':      renderAlley();      break;
     case 'house':      renderHouse();      break;
     case 'keypad':     renderKeypad();     break;
+    case 'safedial':   renderSafeDial();   break;
     case 'caught':     renderCaught();     break;
     case 'chase':      renderChase();      break;
     case 'jail':       renderJail();       break;
