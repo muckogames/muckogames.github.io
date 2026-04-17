@@ -2421,8 +2421,29 @@ function calculateScore() {
 // ═════════════════════════════════════════════════════════════════════════════
 // ENDING SCREEN
 // ═════════════════════════════════════════════════════════════════════════════
+var _endActx=null;
+function playEndSting(kind){
+  try{
+    if(!_endActx) _endActx = new (window.AudioContext||window.webkitAudioContext)();
+    var actx=_endActx; if(actx.state!=='running') actx.resume();
+    var t0=actx.currentTime;
+    var notes = kind==='win' ? [[523,0],[659,0.12],[784,0.24],[1047,0.36]] : [[392,0],[330,0.12],[262,0.24],[196,0.36]];
+    notes.forEach(function(n){
+      var o=actx.createOscillator(), g=actx.createGain();
+      o.type = kind==='win' ? 'triangle' : 'sine';
+      o.frequency.value = n[0];
+      g.gain.setValueAtTime(0.0001, t0+n[1]);
+      g.gain.exponentialRampToValueAtTime(0.22, t0+n[1]+0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0+n[1]+0.36);
+      o.connect(g); g.connect(actx.destination);
+      o.start(t0+n[1]); o.stop(t0+n[1]+0.4);
+    });
+  }catch(e){}
+}
+
 function buildEnding(app) {
   const survived  = !gs.sank;
+  playEndSting(survived ? 'win' : 'lose');
   const alive     = gs.aliveCount();
   const survivors = Math.min(alive, gs.lifeboats);
   const { total, rows, rating } = calculateScore();
@@ -2453,6 +2474,7 @@ function buildEnding(app) {
   const div = document.createElement('div');
   div.id = 'ending-screen';
   div.innerHTML = `
+    <div class="ending-big">${survived?'🏆 🎉':'😵 🚢'}</div>
     <div class="ending-title ${survived?'safe':'sunk'}">${survived?'New York City — April 17, 1912':'The Titanic Has Sunk'}</div>
     <div class="ending-narrative">${narrative}</div>
 
