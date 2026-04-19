@@ -125,7 +125,10 @@ function resize() {
   stage.style.top  = Math.round((vh - H * s) / 2) + 'px';
 }
 window.addEventListener('resize', resize);
-if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', resize);
+  window.visualViewport.addEventListener('scroll', resize);
+}
 resize();
 
 // ── High scores ──────────────────────────────────────────────────────────────

@@ -52,7 +52,10 @@ function resize() {
   stage.style.top  = Math.round((vh - H*s) / 2) + 'px';
 }
 window.addEventListener('resize', resize);
-if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', resize);
+  window.visualViewport.addEventListener('scroll', resize);
+}
 resize();
 
 /* ── AUDIO ───────────────────────────────────────────────────────────────── */
@@ -1351,14 +1354,24 @@ function drawDeepSpace() {
   txt('EVENT '+(ds.eventIdx+1)+' of '+DS_EVENTS.length, bx+bw-16, by+22, '#446688', 11, 'right', 'monospace');
   // Title
   txt(ev.title, W/2, by+46, '#ccddff', 16, 'center', 'bold Georgia');
-  // Body text (simple word-wrap)
-  var words=ev.body.split(' '), line='', cy=by+76, maxW=bw-40;
+  // Cache wrapped body lines when the event changes instead of remeasuring every frame.
+  if (!ev._wrappedBody) {
+    var words=ev.body.split(' '), line='', lines=[], maxW=bw-40;
+    ctx.font='14px Georgia,serif';
+    words.forEach(function(w){
+      var test=line+(line?' ':'')+w;
+      if(ctx.measureText(test).width>maxW&&line){lines.push(line);line=w;}
+      else line=test;
+    });
+    if(line) lines.push(line);
+    ev._wrappedBody = lines;
+  }
+  var cy=by+76;
   ctx.font='14px Georgia,serif'; ctx.fillStyle='#99aacc'; ctx.textAlign='center';
-  words.forEach(function(w){
-    var test=line+(line?' ':'')+w;
-    if(ctx.measureText(test).width>maxW&&line){ctx.fillText(line,W/2,cy);line=w;cy+=18;}
-    else line=test;
-  }); if(line) ctx.fillText(line,W/2,cy);
+  ev._wrappedBody.forEach(function(line){
+    ctx.fillText(line,W/2,cy);
+    cy+=18;
+  });
   // Choices
   ev.opts.forEach(function(opt, i) {
     var btnY=by+152+i*56, btnH=48;

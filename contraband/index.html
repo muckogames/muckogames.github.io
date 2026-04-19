@@ -115,6 +115,7 @@ function resize(){
 }
 window.addEventListener('resize',resize);
 if(window.visualViewport)window.visualViewport.addEventListener('resize',resize);
+if(window.visualViewport)window.visualViewport.addEventListener('scroll',resize);
 resize();
 
 /* ── INPUT ───────────────────────────────────────────────────────────────── */

@@ -21,7 +21,7 @@ body::before{
     repeating-linear-gradient(135deg,rgba(255,255,255,.07) 0 12px,rgba(0,0,0,.03) 12px 24px);
 }
 #stage{
-  position:relative;display:block;border:4px solid #f3d59d;border-radius:18px;overflow:hidden;background:#fcf7ef;
+  position:absolute;display:block;border:4px solid #f3d59d;border-radius:18px;overflow:hidden;background:#fcf7ef;
   box-shadow:
     0 30px 90px rgba(18,8,28,.45),
     0 0 0 10px rgba(255,244,220,.12),
@@ -106,9 +106,14 @@ function drawCachedBackdrop(key,drawFn){
 }
 
 function resize(){
+  const vv=window.visualViewport;
+  const vw=vv?vv.width:window.innerWidth;
+  const vh=vv?vv.height:window.innerHeight;
   const dpr=renderDpr();
-  const s=Math.min(window.innerWidth/(W+6),(window.innerHeight-6)/(H+6));
+  const s=Math.min(vw/(W+6),(vh-6)/(H+6));
   canvasScale=s;
+  stage.style.left=Math.round((vw-W*s)/2)+'px';
+  stage.style.top=Math.round((vh-H*s)/2)+'px';
   stage.style.width=Math.max(1,Math.round(W*s))+'px';
   stage.style.height=Math.max(1,Math.round(H*s))+'px';
   bgCanvas.width=Math.max(1,Math.round(W*dpr));
@@ -121,7 +126,12 @@ function resize(){
   configureCanvasContext(ctx);
   clearBackdropCache();
 }
-window.addEventListener('resize',resize); resize();
+window.addEventListener('resize',resize);
+if(window.visualViewport){
+  window.visualViewport.addEventListener('resize',resize);
+  window.visualViewport.addEventListener('scroll',resize);
+}
+resize();
 
 /* ─── INPUT ─── */
 const K={},JP={};

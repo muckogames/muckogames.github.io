@@ -2529,12 +2529,19 @@ function buildEnding(app) {
 function scaleToViewport() {
   const app = document.getElementById('app');
   if (!app) return;
-  const scale = Math.min(window.innerWidth / 820, window.innerHeight / 620);
-  const ox = (window.innerWidth  - 820 * scale) / 2;
-  const oy = (window.innerHeight - 620 * scale) / 2;
+  const vv = window.visualViewport;
+  const vw = vv ? vv.width : window.innerWidth;
+  const vh = vv ? vv.height : window.innerHeight;
+  const scale = Math.min(vw / 820, vh / 620);
+  const ox = (vw - 820 * scale) / 2;
+  const oy = (vh - 620 * scale) / 2;
   app.style.transform = `translate(${ox}px,${oy}px) scale(${scale})`;
 }
 window.addEventListener('resize', scaleToViewport);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', scaleToViewport);
+  window.visualViewport.addEventListener('scroll', scaleToViewport);
+}
 scaleToViewport();
 
 // ── Cheat code: type "gtia" anywhere to jump to the iceberg mini-game ────

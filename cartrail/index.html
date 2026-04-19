@@ -383,7 +383,10 @@ function scaleToViewport() {
   app.style.top  = `${(vh - H*s)/2}px`;
 }
 window.addEventListener('resize', scaleToViewport);
-if (window.visualViewport) window.visualViewport.addEventListener('resize', scaleToViewport);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', scaleToViewport);
+  window.visualViewport.addEventListener('scroll', scaleToViewport);
+}
 
 // ── Screen manager ────────────────────────────────────────────────────────────
 let _cleanup = null;
