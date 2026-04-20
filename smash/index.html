@@ -70,6 +70,16 @@ var DASH_DURATION         = 0.18;   // seconds locked at dash velocity
 var DASH_COOLDOWN         = 0.35;   // seconds before another dash is allowed
 var DASH_DOUBLE_TAP_WINDOW = 0.22;  // 2nd tap must land within this many seconds
 
+// Stage 4: damage / knockback / stocks
+var START_STOCKS          = 3;
+var DAMAGE_PER_STOMP      = 9;
+var DAMAGE_PER_SIDE_BUMP  = 1;
+var KB_BASE_X             = 220;    // bounceVx = KB_BASE_X + damage * KB_SCALE_X
+var KB_BASE_Y             = 360;    // bounceVy = -(KB_BASE_Y + damage * KB_SCALE_Y)
+var KB_SCALE_X            = 6;
+var KB_SCALE_Y            = 4;
+var KB_POST_INVULN        = 30;     // frames of mercy-invuln after being launched
+
 /* ── Canvas + engine bootstrap ─────────────────────────────── */
 var canvas = document.getElementById('game');
 var ctx = MuckoEngine.initCanvas(canvas, W, H);
@@ -288,8 +298,9 @@ function makeEntity(charId, x, y, isCPU, mood) {
     onGround: false,
     facing: 'right',
     invulnFrames: 0,
-    damage: 0,     // unused until Stage 4
-    stocks: 3,     // unused until Stage 4
+    damage: 0,
+    stocks: START_STOCKS,
+    ko: false,
     isCPU: !!isCPU,
     bob: 0,
     squashT: 0,      // >0 while squashed; disables horizontal input
@@ -331,7 +342,9 @@ var state = {
   seed: 0,
   respawnFlash: 0,         // global "you just respawned" tint timer
   tapDir: 0,               // -1 / +1, last direction the player tapped (for double-tap dash)
-  tapTimer: 0              // counts down DASH_DOUBLE_TAP_WINDOW
+  tapTimer: 0,             // counts down DASH_DOUBLE_TAP_WINDOW
+  winner: null,            // entity or null (null = game over / no winner)
+  confetti: []             // particles on the results screen
 };
 
 function slotActive(s) {
@@ -361,6 +374,8 @@ function startPlay() {
     state.entities.push(makeEntity(CHAR_IDS[s.charIdx], sx, sy, isCPU, mood));
   }
   state.respawnFlash = 0;
+  state.winner = null;
+  state.confetti = [];
   state.phase = 'play';
   state.phaseTime = 0;
 }
@@ -370,10 +385,59 @@ function respawn(e) {
   e.y = 60;
   e.vx = 0;
   e.vy = 0;
+  e.damage = 0;
+  e.dashT = 0;
+  e.dashCooldown = 0;
+  e.squashT = 0;
+  e.trail.length = 0;
   e.invulnFrames = 60;
   e.facing = 'right';
   state.respawnFlash = 0.4;
   beep(180, 0.18, 0.28, 'sawtooth');
+}
+
+// Blast zones call this instead of respawn directly.
+// Decrements a stock; if the fighter has stocks left they respawn, otherwise
+// they're KO'd and removed from the match.
+function killOrRespawn(e) {
+  if (e.ko) return;
+  e.stocks--;
+  // KO sound (falling tone)
+  beep(220, 0.25, 0.18, 'sawtooth');
+  setTimeout(function() { beep(140, 0.22, 0.22, 'sawtooth'); }, 110);
+  if (e.stocks <= 0) {
+    e.ko = true;
+    // Park the KO'd entity off-screen so it's never re-touched.
+    e.x = -9999; e.y = -9999;
+    e.vx = 0; e.vy = 0;
+    e.trail.length = 0;
+    checkMatchEnd();
+    return;
+  }
+  respawn(e);
+}
+
+function aliveEntities() {
+  var out = [];
+  for (var i = 0; i < state.entities.length; i++) if (!state.entities[i].ko) out.push(state.entities[i]);
+  return out;
+}
+function checkMatchEnd() {
+  var alive = aliveEntities();
+  var total = state.entities.length;
+  // >1 fighter: last one standing wins. Solo practice: all KO'd → game over.
+  if (total > 1 && alive.length <= 1) {
+    state.winner = alive.length === 1 ? alive[0] : null;
+    state.phase = 'results';
+    state.phaseTime = 0;
+    spawnConfetti(state.winner);
+    audio.chime();
+  } else if (total === 1 && alive.length === 0) {
+    state.winner = null;
+    state.phase = 'results';
+    state.phaseTime = 0;
+    spawnConfetti(null);
+  }
 }
 
 /* ── Player input resolution ───────────────────────────────── */
@@ -546,8 +610,8 @@ function stepEntity(e, dt) {
     }
   }
 
-  // Blast zones: fall off any open side / bottom → respawn
-  if (e.x < -60 || e.x > W + 60 || e.y > H + 120) respawn(e);
+  // Blast zones: fall off any open side / bottom → KO or respawn
+  if (e.x < -60 || e.x > W + 60 || e.y > H + 120) killOrRespawn(e);
 
   // Bob: step while walking, decay otherwise
   if (e.onGround && Math.abs(e.vx) > 20) e.bob += dt * 10;
@@ -565,8 +629,14 @@ function stomp(jumper, landee) {
   jumper.vy = -JUMP_VEL * STOMP_BOUNCE_MULT;
   jumper.onGround = false;
   landee.squashT = SQUASH_DURATION;
-  // Nudge landee's x velocity toward zero (a stomp stuns you).
-  landee.vx *= 0.3;
+  // Damage first, then the launch uses the *new* damage so each hit hurts more.
+  landee.damage += DAMAGE_PER_STOMP;
+  // Fly away from the jumper's center (sign follows horizontal offset).
+  var dir = landee.x >= jumper.x ? 1 : -1;
+  landee.vx = dir * (KB_BASE_X + landee.damage * KB_SCALE_X);
+  landee.vy = -(KB_BASE_Y + landee.damage * KB_SCALE_Y);
+  landee.onGround = false;
+  landee.invulnFrames = KB_POST_INVULN;
   beep(520, 0.22, 0.11, 'sine');
   setTimeout(function() { beep(780, 0.14, 0.09, 'sine'); }, 70);
 }
@@ -574,8 +644,10 @@ function stomp(jumper, landee) {
 function resolveEntityPairs() {
   var es = state.entities;
   for (var i = 0; i < es.length; i++) {
+    if (es[i].ko) continue;
     for (var j = i + 1; j < es.length; j++) {
       var A = es[i], B = es[j];
+      if (B.ko) continue;
       // AABB overlap
       var ax0 = A.x - A.w / 2, ax1 = A.x + A.w / 2;
       var bx0 = B.x - B.w / 2, bx1 = B.x + B.w / 2;
@@ -602,6 +674,12 @@ function resolveEntityPairs() {
           var dv = (A.vx - B.vx) * SIDE_ELASTICITY;
           A.vx -= dv;
           B.vx += dv;
+          // Small rub-damage on side bumps, but only when both are moving toward each
+          // other fast enough to actually bonk. Avoids gift-wrapping damage for standing still.
+          if (Math.abs(A.vx - B.vx) > 120) {
+            A.damage += DAMAGE_PER_SIDE_BUMP;
+            B.damage += DAMAGE_PER_SIDE_BUMP;
+          }
         }
       }
     }
@@ -890,7 +968,7 @@ function tryPlayerDash() {
   // Finds the first non-CPU entity; in spectator mode there is none.
   var p = null;
   for (var i = 0; i < state.entities.length; i++) {
-    if (!state.entities[i].isCPU) { p = state.entities[i]; break; }
+    if (!state.entities[i].isCPU && !state.entities[i].ko) { p = state.entities[i]; break; }
   }
   if (!p) return;
 
@@ -939,6 +1017,7 @@ function updatePlay(dt) {
   // CPU AI ticks once per render frame; inputs are latched into entity.ai.*
   for (var a = 0; a < state.entities.length; a++) {
     var e = state.entities[a];
+    if (e.ko) continue;
     if (e.isCPU) cpuThink(e, dt);
   }
 
@@ -948,7 +1027,9 @@ function updatePlay(dt) {
   if (remaining > 0.08) remaining = 0.08;
   while (remaining > 0) {
     var dts = Math.min(step, remaining);
-    for (var i = 0; i < state.entities.length; i++) stepEntity(state.entities[i], dts);
+    for (var i = 0; i < state.entities.length; i++) {
+      if (!state.entities[i].ko) stepEntity(state.entities[i], dts);
+    }
     resolveEntityPairs();
     remaining -= dts;
   }
@@ -971,6 +1052,7 @@ function drawPlay() {
   // Entities (blink during invuln, squash animation if recently stomped)
   for (var j = 0; j < state.entities.length; j++) {
     var e = state.entities[j];
+    if (e.ko) continue;
     var blink = e.invulnFrames > 0 && (Math.floor(e.invulnFrames / 5) % 2 === 0);
     if (blink) continue;
     // Dash afterimages — trail samples are oldest-first, fading in/out.
@@ -1009,10 +1091,59 @@ function drawPlay() {
     ctx.fillRect(0, 0, W, H);
   }
 
-  // HUD: back hint
-  drawText(ctx, 'Esc: back to select', 12, 20, '#14314a', 12, 'left', 'bold');
+  // HUD strip: one card per fighter with name, stocks, damage %.
+  drawFighterHud();
+
+  // HUD: back hint (top-right so it doesn't collide with fighter cards)
+  drawText(ctx, 'Esc: back to select', W - 12, 20, '#14314a', 12, 'right', 'bold');
 
   if (mobileControlsOn()) drawMobileControls();
+}
+
+function damageColor(d) {
+  if (d < 30)  return '#1e5e2f';
+  if (d < 60)  return '#c49820';
+  if (d < 100) return '#c26a1b';
+  if (d < 150) return '#b02727';
+  return '#821010';
+}
+function drawFighterHud() {
+  var es = state.entities;
+  var n = es.length;
+  if (n === 0) return;
+  var cardW = 150, cardH = 38, gap = 8;
+  var total = n * cardW + (n - 1) * gap;
+  var x0 = Math.round((W - total) / 2);
+  var y = 6;
+  for (var i = 0; i < n; i++) {
+    var e = es[i];
+    var cx = x0 + i * (cardW + gap);
+    // Darker when KO'd.
+    var fill = e.ko ? 'rgba(24,24,32,0.70)' : 'rgba(16,30,46,0.80)';
+    var stroke = e.ko ? 'rgba(140,140,140,0.5)' : 'rgba(255,239,190,0.55)';
+    fillRoundRect(ctx, cx, y, cardW, cardH, 10, fill, stroke, 1.5);
+
+    var ch = CHARACTERS[e.charId];
+    var nameCol = e.ko ? '#9aa5ad' : '#fff4cf';
+    drawText(ctx, ch.name, cx + 10, y + 15, nameCol, 12, 'left', 'bold');
+
+    // Stock dots — solid squares so each life is legible at a glance.
+    var dotX = cx + 10, dotY = y + 26;
+    for (var k = 0; k < START_STOCKS; k++) {
+      var alive = k < e.stocks && !e.ko;
+      fillRoundRect(ctx, dotX + k * 10, dotY, 7, 7, 2,
+        alive ? '#f2c85a' : 'rgba(80,80,80,0.45)',
+        alive ? '#7b4f1a' : 'rgba(40,40,40,0.7)', 1);
+    }
+
+    // Damage %
+    if (e.ko) {
+      drawText(ctx, 'KO', cx + cardW - 10, y + 28, '#9aa5ad', 20, 'right', 'bold');
+    } else {
+      drawText(ctx, Math.floor(e.damage) + '%', cx + cardW - 10, y + 28,
+        damageColor(e.damage), 20, 'right', 'bold');
+    }
+  }
 }
 
 function drawMobileControls() {
@@ -1020,7 +1151,7 @@ function drawMobileControls() {
   // Dim the DASH button while on cooldown, so players can see it's not ready.
   var p = null;
   for (var i = 0; i < state.entities.length; i++) {
-    if (!state.entities[i].isCPU) { p = state.entities[i]; break; }
+    if (!state.entities[i].isCPU && !state.entities[i].ko) { p = state.entities[i]; break; }
   }
   var dashReady = p && p.dashCooldown <= 0 && p.dashT <= 0 && p.squashT <= 0;
   ctx.save();
@@ -1038,17 +1169,103 @@ function drawMobileControls() {
   ctx.restore();
 }
 
+/* ── Results screen ────────────────────────────────────────── */
+function spawnConfetti(winner) {
+  state.confetti = [];
+  var palette = ['#ffd86f', '#f2c85a', '#e8f1e2', '#aaddff', '#ff9eb5'];
+  if (winner) {
+    var ch = CHARACTERS[winner.charId];
+    palette = [ch.color, ch.accent, '#ffd86f', '#fff4cf'];
+  }
+  for (var i = 0; i < 90; i++) {
+    state.confetti.push({
+      x: Math.random() * W,
+      y: -20 - Math.random() * 80,
+      vx: (Math.random() - 0.5) * 120,
+      vy: 80 + Math.random() * 160,
+      rot: Math.random() * TAU,
+      vrot: (Math.random() - 0.5) * 8,
+      color: palette[Math.floor(Math.random() * palette.length)],
+      size: 5 + Math.random() * 6
+    });
+  }
+}
+function updateConfetti(dt) {
+  for (var i = 0; i < state.confetti.length; i++) {
+    var c = state.confetti[i];
+    c.vy += 320 * dt;
+    c.x += c.vx * dt;
+    c.y += c.vy * dt;
+    c.rot += c.vrot * dt;
+  }
+}
+function drawConfetti() {
+  for (var i = 0; i < state.confetti.length; i++) {
+    var c = state.confetti[i];
+    if (c.y > H + 30) continue;
+    ctx.save();
+    ctx.translate(c.x, c.y);
+    ctx.rotate(c.rot);
+    ctx.fillStyle = c.color;
+    ctx.fillRect(-c.size / 2, -c.size / 2, c.size, c.size * 0.6);
+    ctx.restore();
+  }
+}
+
+function updateResults(dt) {
+  state.phaseTime += dt;
+  updateConfetti(dt);
+  // Require a short delay before accepting input so a final-frame tap doesn't skip it.
+  if (state.phaseTime < 0.4) { mclk = false; return; }
+  if (eat('Space') || eat('Enter') || eat('Escape') || mclk) {
+    mclk = false;
+    state.phase = 'select';
+    state.phaseTime = 0;
+  }
+}
+
+function drawResults() {
+  // Freeze-frame the final play state behind a dark veil.
+  drawPlay();
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(0, 0, W, H);
+  drawConfetti();
+
+  var winner = state.winner;
+  if (winner) {
+    // Big winner portrait (uses drawCharacter with scale via ctx.scale)
+    ctx.save();
+    ctx.translate(W / 2, H / 2 - 20);
+    ctx.scale(3.2, 3.2);
+    drawCharacter(ctx, winner.charId, 0, 0, 'right', state.phaseTime * 4, 1);
+    ctx.restore();
+
+    drawText(ctx, 'WINNER!', W / 2, 128, '#ffd86f', 56, 'center', 'bold');
+    drawText(ctx, CHARACTERS[winner.charId].name.toUpperCase(),
+      W / 2, 168, '#fff4cf', 24, 'center', 'bold');
+  } else {
+    drawText(ctx, 'GAME OVER', W / 2, 180, '#ffb070', 56, 'center', 'bold');
+    drawText(ctx, 'Everyone fell off.', W / 2, 220, '#fff4cf', 20, 'center', 'bold');
+  }
+
+  var pulse = 0.5 + 0.5 * Math.sin(state.phaseTime * 5);
+  drawText(ctx, TOUCH_UI ? 'TAP TO CONTINUE' : 'PRESS SPACE / CLICK',
+    W / 2, H - 60, '#ffd86f', 18 + pulse * 2, 'center', 'bold');
+}
+
 /* ── Main loop ─────────────────────────────────────────────── */
 function update(dt) {
   if (state.phase === 'title')  updateTitle(dt);
-  else if (state.phase === 'select') updateSelect(dt);
-  else if (state.phase === 'play')   updatePlay(dt);
+  else if (state.phase === 'select')  updateSelect(dt);
+  else if (state.phase === 'play')    updatePlay(dt);
+  else if (state.phase === 'results') updateResults(dt);
   mclk = false;
 }
 function draw() {
   if (state.phase === 'title')  drawTitle();
-  else if (state.phase === 'select') drawSelect();
-  else if (state.phase === 'play')   drawPlay();
+  else if (state.phase === 'select')  drawSelect();
+  else if (state.phase === 'play')    drawPlay();
+  else if (state.phase === 'results') drawResults();
 }
 
 MuckoEngine.makeLoop(update, draw, 60);
