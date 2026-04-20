@@ -188,7 +188,13 @@ var V_RET = Math.sqrt(GM_E / R_RET); // ≈ 7.92 DU/TU, retrograde (negative vy)
 var R_HOH_PERI = 0.12;
 var R_HOH_APO  = 0.55;
 var A_HOH = (R_HOH_PERI + R_HOH_APO) / 2; // 0.335 DU
-var V_HOH = Math.sqrt(GM_E * (2 / R_HOH_PERI - 1 / A_HOH)); // ≈ 23.8 DU/TU
+var V_HOH = Math.sqrt(GM_E * (2 / R_HOH_PERI - 1 / A_HOH)); // ≈ 23.24 DU/TU
+
+// Hohmann flight-program ΔVs (impulsive burns)
+var V_APO_HOH      = Math.sqrt(GM_E * (2 / R_HOH_APO - 1 / A_HOH));  // ≈ 5.07
+var V_CIRC_APO     = Math.sqrt(GM_E / R_HOH_APO);                    // ≈ 8.47
+var HOHMANN_DV1    = V_HOH     - Math.sqrt(GM_E / R_HOH_PERI);       // ≈ 5.10
+var HOHMANN_DV2    = V_CIRC_APO - V_APO_HOH;                         // ≈ 3.40
 
 var ORBITS = [
   {
@@ -235,6 +241,24 @@ var ORBITS = [
     moonAngle0: 0,
     speed: 2,
     trailEvery: 2
+  },
+  {
+    name:    'Hohmann Transfer',
+    desc:    'Auto-pilot: two prograde burns raise LEO to a higher orbit',
+    color:   '#9ff',
+    trailRGB: [150, 240, 255],
+    program: true,
+    // Start in circular LEO; first burn fires at t=0.
+    sx: R_LEO, sy: 0, vx: 0, vy: Math.sqrt(GM_E / R_LEO),
+    moonAngle0: 0,
+    speed: 2,
+    trailEvery: 1,
+    burns: [
+      { trigger: 'time',           t: 0.003, dir: 'prograde', dv: HOHMANN_DV1,
+        label: 'BURN 1 — Transfer ellipse' },
+      { trigger: 'apoapsis_earth',           dir: 'prograde', dv: HOHMANN_DV2,
+        label: 'BURN 2 — Circularize' }
+    ]
   }
 ];
 
@@ -269,6 +293,13 @@ var placeDragging  = false;
 var PLACE_VEL_SCALE = 0.05;  // DU/TU per screen pixel of drag
 var PLACE_MIN_DRAG  = 8;     // pixels below this = tap, not drag
 
+// ── Flight program state ──────────────────────────────────────────────────────
+var programNextBurn  = 0;     // index of next burn to fire
+var programPrevDr    = null;  // dr/dt vs Earth at previous step (for apoapsis)
+var programPrevDrm   = null;  // dr/dt vs Moon at previous step (for periapsis)
+var programAnnounce  = '';    // label of most-recent burn
+var programAnnounceT = 0;     // real seconds remaining of announcement
+
 // Time multiplier
 var TIME_MULTS = [1, 2, 5, 10];
 var timeMultIdx = 0;
@@ -278,6 +309,11 @@ var SIM_DT      = 1 / 3600; // integration step (TU) — fine grain for accuracy
 function moonPos(t) {
   var a = moonAngle0 + MOON_W * t;
   return { x: MOON_R * Math.cos(a), y: MOON_R * Math.sin(a) };
+}
+
+function moonVel(t) {
+  var a = moonAngle0 + MOON_W * t;
+  return { x: -MOON_R * MOON_W * Math.sin(a), y: MOON_R * MOON_W * Math.cos(a) };
 }
 
 function startSim(idx) {
@@ -319,6 +355,101 @@ function launchFromPlace() {
   thrustLat = 0;
   moonAngle0 = 0;
   phase = 'sim';
+}
+
+function startProgram(idx) {
+  var o = ORBITS[idx];
+  curOrbit = o;
+  scX = o.sx; scY = o.sy;
+  scVX = o.vx; scVY = o.vy;
+  moonAngle0 = o.moonAngle0;
+  simT = 0;
+  trail = [];
+  trailSkip = 0;
+  dvBudget = DV_START;
+  flameParts = [];
+  thrustFwd = 0;
+  thrustLat = 0;
+  programNextBurn  = 0;
+  programPrevDr    = null;
+  programPrevDrm   = null;
+  programAnnounce  = '';
+  programAnnounceT = 0;
+  phase = 'sim';
+}
+
+// Impulsive ΔV applied to the spacecraft in a specified direction.
+// Directions are resolved against current velocity (or velocity relative to
+// the Moon for *_moon variants) at the moment the burn fires.
+function applyImpulsiveBurn(burn) {
+  var dx = 0, dy = 0;
+  if (burn.dir === 'prograde' || burn.dir === 'retrograde') {
+    var vl = Math.sqrt(scVX * scVX + scVY * scVY);
+    if (vl < 0.0001) return;
+    var fx = scVX / vl, fy = scVY / vl;
+    var s = burn.dir === 'prograde' ? 1 : -1;
+    dx = s * fx; dy = s * fy;
+  } else if (burn.dir === 'prograde_moon' || burn.dir === 'retrograde_moon') {
+    var mv = moonVel(simT);
+    var rvx = scVX - mv.x, rvy = scVY - mv.y;
+    var rl = Math.sqrt(rvx * rvx + rvy * rvy);
+    if (rl < 0.0001) return;
+    var fxm = rvx / rl, fym = rvy / rl;
+    var sm = burn.dir === 'prograde_moon' ? 1 : -1;
+    dx = sm * fxm; dy = sm * fym;
+  }
+  scVX += dx * burn.dv;
+  scVY += dy * burn.dv;
+
+  // Visual flash — spawn a fat flame burst in the exhaust direction (-dx,-dy)
+  var spx0 = sx(scX), spy0 = sy(scY);
+  var ndx0 = dx, ndy0 = -dy; // to screen
+  for (var p = 0; p < 14; p++) {
+    spawnFlameBurst(spx0 - ndx0 * 6, spy0 - ndy0 * 6,
+                    -ndx0 * 90, -ndy0 * 90,
+                    2, 0.7, 4, 255, 190, 80, 60);
+  }
+  programAnnounce  = burn.label;
+  programAnnounceT = 3.2;
+}
+
+// Called once per physics sub-step to check whether the next burn's trigger is
+// satisfied. Keeps dr/dt history for apoapsis/periapsis edge-detection.
+function tickProgram() {
+  if (!curOrbit || !curOrbit.program)             return;
+  if (programNextBurn >= curOrbit.burns.length)   return;
+
+  var burn = curOrbit.burns[programNextBurn];
+
+  // Earth-relative radial velocity (sign of dr/dt)
+  var dr = scX * scVX + scY * scVY;
+
+  // Moon-relative radial velocity
+  var mp  = moonPos(simT);
+  var mv  = moonVel(simT);
+  var mdx = scX - mp.x, mdy = scY - mp.y;
+  var rvx = scVX - mv.x, rvy = scVY - mv.y;
+  var drm = mdx * rvx + mdy * rvy;
+
+  var fire = false;
+  if (burn.trigger === 'time') {
+    if (simT >= burn.t) fire = true;
+  } else if (burn.trigger === 'apoapsis_earth') {
+    if (programPrevDr !== null && programPrevDr > 0 && dr <= 0) fire = true;
+  } else if (burn.trigger === 'periapsis_moon') {
+    if (programPrevDrm !== null && programPrevDrm < 0 && drm >= 0) fire = true;
+  }
+
+  programPrevDr  = dr;
+  programPrevDrm = drm;
+
+  if (fire) {
+    applyImpulsiveBurn(burn);
+    programNextBurn++;
+    // Reset edge detectors so a stale dr/drm doesn't fire the next burn.
+    programPrevDr  = null;
+    programPrevDrm = null;
+  }
 }
 
 // Symplectic Euler: v += a*dt, x += v*dt  (conserves energy far better than plain Euler)
@@ -822,6 +953,30 @@ function drawSim() {
     ctx.fillStyle = curOrbit.color;
     ctx.fillText(curOrbit.name, W - 10, H - 10);
   }
+
+  // Flight-program autopilot badge + burn announcement
+  if (curOrbit && curOrbit.program) {
+    ctx.fillStyle = 'rgba(150,240,255,0.65)';
+    ctx.font = 'bold 10px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText('\u2022 AUTOPILOT \u2022', W / 2, 54);
+
+    if (programAnnounceT > 0 && programAnnounce) {
+      var aAlpha = Math.min(1, programAnnounceT / 0.6);
+      ctx.fillStyle = 'rgba(255,240,180,' + aAlpha + ')';
+      ctx.font = 'bold 20px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(programAnnounce, W / 2, 110);
+    } else if (programNextBurn >= curOrbit.burns.length) {
+      ctx.fillStyle = 'rgba(180,255,200,0.7)';
+      ctx.font = 'bold 13px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText('Program complete', W / 2, 72);
+    }
+  }
 }
 
 // ── Game loop ─────────────────────────────────────────────────────────────────
@@ -856,7 +1011,7 @@ function loop(ts) {
       var nSteps = Math.ceil(tuThisStep / SIM_DT);
       if (nSteps < 1) nSteps = 1;
       var dt = tuThisStep / nSteps;
-      for (var i = 0; i < nSteps; i++) stepPhysics(dt);
+      for (var i = 0; i < nSteps; i++) { stepPhysics(dt); tickProgram(); }
       var everyN = curOrbit ? curOrbit.trailEvery : 1;
       trailSkip++;
       if (trailSkip >= everyN) {
@@ -899,14 +1054,19 @@ function loop(ts) {
   }
 
   updateFlameParts(elapsed);
+  if (programAnnounceT > 0) {
+    programAnnounceT -= elapsed;
+    if (programAnnounceT < 0) programAnnounceT = 0;
+  }
 
   // Input
   if (phase === 'select') {
     if (mclk) {
       for (var j = 0; j < ORBITS.length; j++) {
         if (hitRect(BTN_X, orbitBtnY(j), BTN_W, BTN_H)) {
-          if (ORBITS[j].custom) startPlace(j);
-          else                  startSim(j);
+          if      (ORBITS[j].custom)  startPlace(j);
+          else if (ORBITS[j].program) startProgram(j);
+          else                        startSim(j);
           mclk = false;
           break;
         }
