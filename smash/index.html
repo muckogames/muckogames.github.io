@@ -86,6 +86,10 @@ var SIDE_DAMAGE_MAX         = 12;
 var SIDE_LAUNCH_SPEED_MIN   = 320;  // strong side hits should actually send the target away
 var SIDE_LAUNCH_POP         = 135;  // slight upward pop so ledge hits don't degrade into shoves
 var SIDE_RECOIL_SPEED       = 55;   // attacker bounces back a touch instead of sticking
+var STAGE_LEFT_EDGE         = 120;
+var STAGE_RIGHT_EDGE        = 680;
+var CPU_EDGE_BUFFER         = 110;  // CPUs start steering inward before they reach the lip
+var CPU_EDGE_PANIC_BUFFER   = 50;   // extra caution zone near the actual floor edge
 
 // Damage softens you up: mass drops logistically with damage % so heavily
 // banged-up characters get launched way farther. At 0% damage mass ≈ 0.98;
@@ -629,12 +633,18 @@ function cpuThink(e, dt) {
   s.jumpCooldown = Math.max(0, s.jumpCooldown - dt);
   s.timer -= dt;
 
-  // Edge avoidance: if near the edge of the stage and on the ground, steer inward.
-  // The floor runs x ∈ [120, 680]; out-of-bounds is at x < -60 and x > W+60.
-  var nearLeft  = e.x < 170 && e.onGround;
-  var nearRight = e.x > W - 170 && e.onGround;
-  if (nearLeft)  { s.state = 'walk_right'; s.timer = Math.max(s.timer, 0.6); }
-  if (nearRight) { s.state = 'walk_left';  s.timer = Math.max(s.timer, 0.6); }
+  // Edge avoidance: start steering inward before we hit the lip, then hard-veto
+  // outward ground movement in the panic band so stale walk timers don't suicide.
+  var edgeLeft = STAGE_LEFT_EDGE + CPU_EDGE_BUFFER;
+  var edgeRight = STAGE_RIGHT_EDGE - CPU_EDGE_BUFFER;
+  var panicLeft = STAGE_LEFT_EDGE + CPU_EDGE_PANIC_BUFFER;
+  var panicRight = STAGE_RIGHT_EDGE - CPU_EDGE_PANIC_BUFFER;
+  var nearLeft  = e.x < edgeLeft;
+  var nearRight = e.x > edgeRight;
+  var panicNearLeft = e.x < panicLeft;
+  var panicNearRight = e.x > panicRight;
+  if (e.onGround && nearLeft)  { s.state = 'walk_right'; s.timer = Math.max(s.timer, panicNearLeft ? 1.0 : 0.75); }
+  if (e.onGround && nearRight) { s.state = 'walk_left';  s.timer = Math.max(s.timer, panicNearRight ? 1.0 : 0.75); }
 
   if (s.timer <= 0) {
     var m = s.mood;
@@ -654,11 +664,16 @@ function cpuThink(e, dt) {
   s.inputJumpHeld    = false;
   s.inputDashPressed = false;
 
+  if (e.onGround) {
+    if (nearLeft)  { s.inputLeft = false;  s.inputRight = true; }
+    if (nearRight) { s.inputRight = false; s.inputLeft  = true; }
+  }
+
   if (s.state === 'jump') {
     // Keep pushing toward the center if we jumped while hugging an edge,
     // otherwise drift in the current facing direction.
-    if      (nearLeft)               s.inputRight = true;
-    else if (nearRight)              s.inputLeft  = true;
+    if      (nearLeft)               { s.inputLeft = false;  s.inputRight = true; }
+    else if (nearRight)              { s.inputRight = false; s.inputLeft  = true; }
     s.inputJumpHeld = true;
     if (e.onGround && s.jumpCooldown <= 0) {
       s.inputJumpPressed = true;
@@ -674,6 +689,11 @@ function cpuThink(e, dt) {
       s.state = 'walk_' + (wantDir < 0 ? 'left' : 'right');
       s.timer = 0.3 + Math.random() * 0.4;
     }
+  }
+
+  if (!e.onGround) {
+    if (nearLeft)  { s.inputLeft = false;  s.inputRight = true; }
+    if (nearRight) { s.inputRight = false; s.inputLeft  = true; }
   }
 }
 

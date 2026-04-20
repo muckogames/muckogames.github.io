@@ -19,6 +19,8 @@
   var FEET_OFFSET = 18;
   var HEAD_OFFSET = 28;
   var ENTITY_W = 30;
+  var STAGE_LEFT_EDGE = 120;
+  var STAGE_RIGHT_EDGE = 680;
 
   var STOMP_BOUNCE_MULT = 0.85;
   var SIDE_RESTITUTION = 1.0;
@@ -357,18 +359,22 @@
     ai.targetId = target ? target.id : null;
     var input = neutralInput();
 
-    var nearLeft = entity.x < g.edgeBuffer && entity.onGround;
-    var nearRight = entity.x > W - g.edgeBuffer && entity.onGround;
+    var edgeBuffer = Math.max(70, g.edgeBuffer * 0.55);
+    var panicBuffer = Math.max(42, edgeBuffer * 0.55);
+    var nearLeft = entity.x < STAGE_LEFT_EDGE + edgeBuffer;
+    var nearRight = entity.x > STAGE_RIGHT_EDGE - edgeBuffer;
+    var panicNearLeft = entity.x < STAGE_LEFT_EDGE + panicBuffer;
+    var panicNearRight = entity.x > STAGE_RIGHT_EDGE - panicBuffer;
 
     if (!target) {
       ai.state = 'idle';
       ai.timer = 0.2;
-    } else if (nearLeft) {
+    } else if (entity.onGround && nearLeft) {
       ai.state = 'walk_right';
-      ai.timer = Math.max(ai.timer, 0.25);
-    } else if (nearRight) {
+      ai.timer = Math.max(ai.timer, panicNearLeft ? 0.9 : 0.55);
+    } else if (entity.onGround && nearRight) {
       ai.state = 'walk_left';
-      ai.timer = Math.max(ai.timer, 0.25);
+      ai.timer = Math.max(ai.timer, panicNearRight ? 0.9 : 0.55);
     } else if (ai.timer <= 0) {
       var dx = target.x - entity.x;
       var adx = Math.abs(dx);
@@ -423,11 +429,27 @@
         ai.jumpCooldown = g.jumpCooldown;
         ai.state = 'idle';
       }
+      if (nearLeft) {
+        input.left = false;
+        input.right = true;
+        input.dashPressed = false;
+      } else if (nearRight) {
+        input.right = false;
+        input.left = true;
+        input.dashPressed = false;
+      }
     } else {
       var centerBias = (W * 0.5 - entity.x) / (W * 0.5);
       if (target) {
         if (target.x < entity.x - 10) input.left = true;
         if (target.x > entity.x + 10) input.right = true;
+      }
+      if (nearLeft) {
+        input.left = false;
+        input.right = true;
+      } else if (nearRight) {
+        input.right = false;
+        input.left = true;
       }
       if (centerBias < -0.08 * g.airborneCenterBias) {
         input.left = true;
