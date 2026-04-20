@@ -64,6 +64,12 @@ var STOMP_BOUNCE_MULT = 0.85;   // jumper bounces back at 85% of a normal jump
 var SIDE_ELASTICITY   = 0.35;   // fraction of x-velocity exchanged on a side bump
 var SQUASH_DURATION   = 0.24;   // seconds the landee stays squished
 
+// Stage 3: dash tuning
+var DASH_VEL              = 540;
+var DASH_DURATION         = 0.18;   // seconds locked at dash velocity
+var DASH_COOLDOWN         = 0.35;   // seconds before another dash is allowed
+var DASH_DOUBLE_TAP_WINDOW = 0.22;  // 2nd tap must land within this many seconds
+
 /* ── Canvas + engine bootstrap ─────────────────────────────── */
 var canvas = document.getElementById('game');
 var ctx = MuckoEngine.initCanvas(canvas, W, H);
@@ -85,7 +91,8 @@ var mx = W / 2;
 var my = H / 2;
 var mclk = false;
 var touchSuppressUntil = 0;
-var touchState = { leftBtn: false, rightBtn: false, jumpBtn: false, jumpJustPressed: false };
+var touchState = { leftBtn: false, rightBtn: false, jumpBtn: false, jumpJustPressed: false,
+                   dashBtn: false, dashJustPressed: false };
 
 function setPointerFromEvent(e) {
   var r = canvas.getBoundingClientRect();
@@ -115,9 +122,9 @@ var CHAR_IDS = ['samster', 'duck', 'hippo', 'nik', 'lekan', 'basil', 'mucko', 'r
 // CPU difficulty "moods" — drive AI dwell time and jump frequency.
 // idleChance + walkChance + jumpChance must sum to 1.
 var MOODS = {
-  chill:  { dwellMin: 1.0, dwellMax: 2.2, idleChance: 0.50, walkChance: 0.40, jumpChance: 0.10, label: 'CHILL'  },
-  normal: { dwellMin: 0.5, dwellMax: 1.4, idleChance: 0.25, walkChance: 0.55, jumpChance: 0.20, label: 'NORMAL' },
-  frisky: { dwellMin: 0.25, dwellMax: 0.9, idleChance: 0.10, walkChance: 0.50, jumpChance: 0.40, label: 'FRISKY' }
+  chill:  { dwellMin: 1.0, dwellMax: 2.2, idleChance: 0.50, walkChance: 0.40, jumpChance: 0.10, dashChance: 0.00, label: 'CHILL'  },
+  normal: { dwellMin: 0.5, dwellMax: 1.4, idleChance: 0.25, walkChance: 0.55, jumpChance: 0.20, dashChance: 0.00, label: 'NORMAL' },
+  frisky: { dwellMin: 0.25, dwellMax: 0.9, idleChance: 0.10, walkChance: 0.45, jumpChance: 0.30, dashChance: 0.15, label: 'FRISKY' }
 };
 var CPU_MODES = ['off', 'chill', 'normal', 'frisky'];
 
@@ -287,14 +294,20 @@ function makeEntity(charId, x, y, isCPU, mood) {
     bob: 0,
     squashT: 0,      // >0 while squashed; disables horizontal input
     prevFootY: y + FEET_OFFSET,
+    // Stage 3 dash
+    dashT: 0,           // >0 while dashing (velocity locked to dashDir * DASH_VEL)
+    dashDir: 1,
+    dashCooldown: 0,
+    trail: [],          // recent {x,y,facing,bob} for afterimages (kept short)
     ai: isCPU ? {
       mood: mood || MOODS.normal,
-      state: 'idle',        // 'idle' | 'walk_left' | 'walk_right' | 'jump'
+      state: 'idle',        // 'idle' | 'walk_left' | 'walk_right' | 'jump' | 'dash'
       timer: 0.3,
       inputLeft: false,
       inputRight: false,
       inputJumpPressed: false,
       inputJumpHeld: false,
+      inputDashPressed: false,
       jumpCooldown: 0
     } : null
   };
@@ -316,7 +329,9 @@ var state = {
   entities: [],
   platforms: [],
   seed: 0,
-  respawnFlash: 0          // global "you just respawned" tint timer
+  respawnFlash: 0,         // global "you just respawned" tint timer
+  tapDir: 0,               // -1 / +1, last direction the player tapped (for double-tap dash)
+  tapTimer: 0              // counts down DASH_DOUBLE_TAP_WINDOW
 };
 
 function slotActive(s) {
@@ -371,6 +386,19 @@ function jumpPressed() {
   return kp;
 }
 
+/* ── Dash helper ───────────────────────────────────────────── */
+function startDash(e, dir) {
+  if (e.dashT > 0 || e.dashCooldown > 0 || e.squashT > 0) return;
+  e.dashDir = dir < 0 ? -1 : 1;
+  e.facing = e.dashDir < 0 ? 'left' : 'right';
+  e.dashT = DASH_DURATION;
+  e.dashCooldown = DASH_DURATION + DASH_COOLDOWN;
+  e.vx = e.dashDir * DASH_VEL;
+  e.trail = [];
+  if (!e.isCPU) beep(640, 0.14, 0.12, 'sawtooth');
+  else          beep(520, 0.08, 0.10, 'sawtooth');
+}
+
 /* ── CPU AI: picks new behaviour once per frame, latches inputs ─ */
 function cpuThink(e, dt) {
   var s = e.ai;
@@ -387,10 +415,12 @@ function cpuThink(e, dt) {
   if (s.timer <= 0) {
     var m = s.mood;
     var r = Math.random();
-    if      (r < m.idleChance)                       s.state = 'idle';
-    else if (r < m.idleChance + m.walkChance * 0.5)  s.state = 'walk_left';
-    else if (r < m.idleChance + m.walkChance)        s.state = 'walk_right';
-    else                                             s.state = 'jump';
+    var c = m.idleChance;
+    if      (r < c)                                  s.state = 'idle';
+    else if (r < (c += m.walkChance * 0.5))          s.state = 'walk_left';
+    else if (r < (c += m.walkChance * 0.5))          s.state = 'walk_right';
+    else if (r < (c += m.jumpChance))                s.state = 'jump';
+    else                                             s.state = 'dash';
     s.timer = m.dwellMin + Math.random() * (m.dwellMax - m.dwellMin);
   }
 
@@ -398,6 +428,7 @@ function cpuThink(e, dt) {
   s.inputRight      = s.state === 'walk_right';
   s.inputJumpPressed = false;
   s.inputJumpHeld    = false;
+  s.inputDashPressed = false;
 
   if (s.state === 'jump') {
     // Keep pushing toward the center if we jumped while hugging an edge,
@@ -409,23 +440,36 @@ function cpuThink(e, dt) {
       s.inputJumpPressed = true;
       s.jumpCooldown = 0.4;
     }
+  } else if (s.state === 'dash') {
+    // Dash toward stage center when near an edge; otherwise a random side.
+    // One-shot: fire the dash once, then coast.
+    var wantDir = nearLeft ? 1 : nearRight ? -1 : (Math.random() < 0.5 ? -1 : 1);
+    if (wantDir < 0) s.inputLeft = true; else s.inputRight = true;
+    if (e.dashCooldown <= 0 && e.dashT <= 0 && e.onGround) {
+      s.inputDashPressed = true;
+      s.state = 'walk_' + (wantDir < 0 ? 'left' : 'right');
+      s.timer = 0.3 + Math.random() * 0.4;
+    }
   }
 }
 
 /* ── Physics step ──────────────────────────────────────────── */
 function stepEntity(e, dt) {
-  var pressingLeft, pressingRight, jp, jh;
+  var pressingLeft, pressingRight, jp, jh, dashPressed;
   if (e.isCPU) {
     pressingLeft  = e.ai.inputLeft;
     pressingRight = e.ai.inputRight;
     jp = e.ai.inputJumpPressed;
     jh = e.ai.inputJumpHeld;
+    dashPressed = e.ai.inputDashPressed;
     e.ai.inputJumpPressed = false; // consume so multi-substep doesn't re-jump
+    e.ai.inputDashPressed = false;
   } else {
     pressingLeft  = playerLeft();
     pressingRight = playerRight();
     jp = jumpPressed();
     jh = jumpHeld();
+    dashPressed = false; // player dash is started from updatePlay() before stepping
   }
   // Squash disables all horizontal input and kills walking momentum.
   if (e.squashT > 0) {
@@ -433,25 +477,47 @@ function stepEntity(e, dt) {
     pressingLeft = false;
     pressingRight = false;
     jp = false;
+    dashPressed = false;
     if (e.onGround) e.vx *= Math.pow(0.1, dt * 8); // decay to zero over the squash
   }
 
-  var accel = e.onGround ? MOVE_ACCEL_GROUND : MOVE_ACCEL_AIR;
-  if (pressingLeft && !pressingRight)  { e.vx -= accel * dt; e.facing = 'left'; }
-  if (pressingRight && !pressingLeft)  { e.vx += accel * dt; e.facing = 'right'; }
-  if (!pressingLeft && !pressingRight && e.onGround && e.squashT <= 0) {
-    var dec = GROUND_FRIC * dt;
-    if (e.vx > 0)      e.vx = Math.max(0, e.vx - dec);
-    else if (e.vx < 0) e.vx = Math.min(0, e.vx + dec);
+  // CPU dash kickoff (player's is handled in updatePlay)
+  if (dashPressed) {
+    var dir = pressingLeft && !pressingRight ? -1
+            : pressingRight && !pressingLeft ? 1
+            : (e.facing === 'left' ? -1 : 1);
+    startDash(e, dir);
   }
+
+  // Dash state machine: while dashT > 0 we pin vx and skip accel/friction.
+  var dashing = e.dashT > 0;
+  if (dashing) {
+    e.dashT = Math.max(0, e.dashT - dt);
+    e.vx = e.dashDir * DASH_VEL;
+    // Record afterimage sample (kept short; reused in drawPlay)
+    e.trail.push({ x: e.x, y: e.y, facing: e.facing, bob: e.bob });
+    if (e.trail.length > 6) e.trail.shift();
+  } else {
+    if (e.trail.length > 0) e.trail.length = 0;
+    var accel = e.onGround ? MOVE_ACCEL_GROUND : MOVE_ACCEL_AIR;
+    if (pressingLeft && !pressingRight)  { e.vx -= accel * dt; e.facing = 'left'; }
+    if (pressingRight && !pressingLeft)  { e.vx += accel * dt; e.facing = 'right'; }
+    if (!pressingLeft && !pressingRight && e.onGround && e.squashT <= 0) {
+      var dec = GROUND_FRIC * dt;
+      if (e.vx > 0)      e.vx = Math.max(0, e.vx - dec);
+      else if (e.vx < 0) e.vx = Math.min(0, e.vx + dec);
+    }
+    if (e.vx >  MOVE_MAX) e.vx =  MOVE_MAX;
+    if (e.vx < -MOVE_MAX) e.vx = -MOVE_MAX;
+  }
+  if (e.dashCooldown > 0) e.dashCooldown = Math.max(0, e.dashCooldown - dt);
+
   if (jp && e.onGround) {
     e.vy = -JUMP_VEL;
     e.onGround = false;
     if (!e.isCPU) beep(380, 0.14, 0.09, 'triangle');
   }
   if (!jh && e.vy < -JUMP_CUT) e.vy = -JUMP_CUT;
-  if (e.vx >  MOVE_MAX) e.vx =  MOVE_MAX;
-  if (e.vx < -MOVE_MAX) e.vx = -MOVE_MAX;
 
   // Gravity + terminal velocity
   e.vy += GRAVITY * dt;
@@ -549,15 +615,17 @@ function mobileControlsOn() {
 
 function mobileLayout() {
   return {
-    left:  { cx: 68,      cy: H - 80, r: 44, label: '◀' },
-    right: { cx: 170,     cy: H - 80, r: 44, label: '▶' },
-    jump:  { cx: W - 90,  cy: H - 84, r: 52, label: 'JUMP' }
+    left:  { cx: 68,       cy: H - 80, r: 44, label: '◀' },
+    right: { cx: 170,      cy: H - 80, r: 44, label: '▶' },
+    dash:  { cx: W - 200,  cy: H - 80, r: 40, label: 'DASH' },
+    jump:  { cx: W - 90,   cy: H - 84, r: 52, label: 'JUMP' }
   };
 }
 function hitMobileControl(px, py) {
   if (!mobileControlsOn()) return null;
   var L = mobileLayout();
   if (Math.hypot(px - L.jump.cx,  py - L.jump.cy)  <= L.jump.r)  return 'jump';
+  if (Math.hypot(px - L.dash.cx,  py - L.dash.cy)  <= L.dash.r)  return 'dash';
   if (Math.hypot(px - L.left.cx,  py - L.left.cy)  <= L.left.r)  return 'left';
   if (Math.hypot(px - L.right.cx, py - L.right.cy) <= L.right.r) return 'right';
   return null;
@@ -565,7 +633,7 @@ function hitMobileControl(px, py) {
 function syncTouches(e) {
   var rect = canvas.getBoundingClientRect();
   var sx = W / rect.width, sy = H / rect.height;
-  var leftHit = false, rightHit = false, jumpHit = false, paperTap = null;
+  var leftHit = false, rightHit = false, jumpHit = false, dashHit = false, paperTap = null;
   var touches = e.touches;
   for (var i = 0; i < touches.length; i++) {
     var t = touches[i];
@@ -575,12 +643,15 @@ function syncTouches(e) {
     if      (hit === 'left')  leftHit  = true;
     else if (hit === 'right') rightHit = true;
     else if (hit === 'jump')  jumpHit  = true;
+    else if (hit === 'dash')  dashHit  = true;
     else                      paperTap = { x: px, y: py };
   }
   if (jumpHit && !touchState.jumpBtn) touchState.jumpJustPressed = true;
+  if (dashHit && !touchState.dashBtn) touchState.dashJustPressed = true;
   touchState.leftBtn  = leftHit;
   touchState.rightBtn = rightHit;
   touchState.jumpBtn  = jumpHit;
+  touchState.dashBtn  = dashHit;
   // Non-control taps (title / select screens) register as clicks.
   if (paperTap && !mclk) { mx = paperTap.x; my = paperTap.y; mclk = true; }
 }
@@ -593,7 +664,7 @@ canvas.addEventListener('touchmove',   function(e) { syncTouches(e); e.preventDe
 canvas.addEventListener('touchend',    function(e) { syncTouches(e); e.preventDefault(); }, { passive: false });
 canvas.addEventListener('touchcancel', function(e) { syncTouches(e); e.preventDefault(); }, { passive: false });
 window.addEventListener('blur', function() {
-  touchState.leftBtn = touchState.rightBtn = touchState.jumpBtn = false;
+  touchState.leftBtn = touchState.rightBtn = touchState.jumpBtn = touchState.dashBtn = false;
 });
 
 /* ── Background ────────────────────────────────────────────── */
@@ -815,9 +886,55 @@ function updateSelect(dt) {
 }
 
 /* ── Play screen ───────────────────────────────────────────── */
+function tryPlayerDash() {
+  // Finds the first non-CPU entity; in spectator mode there is none.
+  var p = null;
+  for (var i = 0; i < state.entities.length; i++) {
+    if (!state.entities[i].isCPU) { p = state.entities[i]; break; }
+  }
+  if (!p) return;
+
+  // Mobile DASH button: single tap triggers in facing direction (or current hold)
+  if (touchState.dashJustPressed) {
+    touchState.dashJustPressed = false;
+    var tdir = touchState.leftBtn ? -1 : touchState.rightBtn ? 1 : (p.facing === 'left' ? -1 : 1);
+    startDash(p, tdir);
+    return;
+  }
+
+  // Shift = dash in currently-held / facing direction
+  if (eat('ShiftLeft') || eat('ShiftRight')) {
+    var sdir = playerLeft() && !playerRight() ? -1
+             : playerRight() && !playerLeft() ? 1
+             : (p.facing === 'left' ? -1 : 1);
+    startDash(p, sdir);
+    return;
+  }
+
+  // Double-tap ArrowLeft/KeyA or ArrowRight/KeyD within DASH_DOUBLE_TAP_WINDOW
+  var tappedLeft  = eat('ArrowLeft')  || eat('KeyA');
+  var tappedRight = eat('ArrowRight') || eat('KeyD');
+  if (tappedLeft) {
+    if (state.tapDir === -1 && state.tapTimer > 0) {
+      startDash(p, -1); state.tapDir = 0; state.tapTimer = 0;
+    } else {
+      state.tapDir = -1; state.tapTimer = DASH_DOUBLE_TAP_WINDOW;
+    }
+  } else if (tappedRight) {
+    if (state.tapDir === 1 && state.tapTimer > 0) {
+      startDash(p, 1); state.tapDir = 0; state.tapTimer = 0;
+    } else {
+      state.tapDir = 1; state.tapTimer = DASH_DOUBLE_TAP_WINDOW;
+    }
+  }
+}
+
 function updatePlay(dt) {
   state.phaseTime += dt;
   if (state.respawnFlash > 0) state.respawnFlash = Math.max(0, state.respawnFlash - dt);
+  if (state.tapTimer > 0) state.tapTimer = Math.max(0, state.tapTimer - dt);
+
+  tryPlayerDash();
 
   // CPU AI ticks once per render frame; inputs are latched into entity.ai.*
   for (var a = 0; a < state.entities.length; a++) {
@@ -856,6 +973,18 @@ function drawPlay() {
     var e = state.entities[j];
     var blink = e.invulnFrames > 0 && (Math.floor(e.invulnFrames / 5) % 2 === 0);
     if (blink) continue;
+    // Dash afterimages — trail samples are oldest-first, fading in/out.
+    if (e.dashT > 0 && e.trail.length > 0) {
+      ctx.save();
+      var n = e.trail.length;
+      for (var k = 0; k < n; k++) {
+        var s = e.trail[k];
+        var alpha = 0.12 + 0.32 * (k / Math.max(1, n - 1));
+        ctx.globalAlpha = alpha;
+        drawCharacter(ctx, e.charId, s.x, s.y, s.facing, s.bob, 0);
+      }
+      ctx.restore();
+    }
     if (e.squashT > 0) {
       // Ease: peaks squished at mid-animation.
       var p = e.squashT / SQUASH_DURATION;        // 1 → 0
@@ -888,13 +1017,23 @@ function drawPlay() {
 
 function drawMobileControls() {
   var L = mobileLayout();
+  // Dim the DASH button while on cooldown, so players can see it's not ready.
+  var p = null;
+  for (var i = 0; i < state.entities.length; i++) {
+    if (!state.entities[i].isCPU) { p = state.entities[i]; break; }
+  }
+  var dashReady = p && p.dashCooldown <= 0 && p.dashT <= 0 && p.squashT <= 0;
   ctx.save();
   ctx.globalAlpha = 0.9;
   drawCircle(ctx, L.left.cx,  L.left.cy,  L.left.r,  touchState.leftBtn  ? 'rgba(255,216,111,0.6)' : 'rgba(32,46,60,0.55)', 'rgba(255,244,207,0.42)', 2);
   drawCircle(ctx, L.right.cx, L.right.cy, L.right.r, touchState.rightBtn ? 'rgba(255,216,111,0.6)' : 'rgba(32,46,60,0.55)', 'rgba(255,244,207,0.42)', 2);
+  var dashFill = !dashReady ? 'rgba(60,60,72,0.45)'
+    : (touchState.dashBtn ? 'rgba(226,116,75,0.8)' : 'rgba(32,46,60,0.65)');
+  drawCircle(ctx, L.dash.cx,  L.dash.cy,  L.dash.r,  dashFill, 'rgba(255,244,207,0.48)', 2);
   drawCircle(ctx, L.jump.cx,  L.jump.cy,  L.jump.r,  touchState.jumpBtn  ? 'rgba(255,216,111,0.75)' : 'rgba(32,46,60,0.65)', 'rgba(255,244,207,0.48)', 2);
   drawText(ctx, L.left.label,  L.left.cx,  L.left.cy  + 10, '#fff4cf', 26, 'center', 'bold');
   drawText(ctx, L.right.label, L.right.cx, L.right.cy + 10, '#fff4cf', 26, 'center', 'bold');
+  drawText(ctx, L.dash.label,  L.dash.cx,  L.dash.cy  + 6,  '#fff4cf', 18, 'center', 'bold');
   drawText(ctx, L.jump.label,  L.jump.cx,  L.jump.cy  + 8,  '#fff4cf', 22, 'center', 'bold');
   ctx.restore();
 }
