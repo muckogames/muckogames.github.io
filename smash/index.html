@@ -41,14 +41,17 @@ var W = 800;
 var H = 560;
 var TAU = Math.PI * 2;
 
-var GRAVITY     = 1500;
+var GRAVITY     = 1400;
 var MOVE_ACCEL_GROUND = 2000;
 var MOVE_ACCEL_AIR    = 1100;
 var MOVE_MAX    = 260;
 var GROUND_FRIC = 1700;
-var JUMP_VEL    = 580;
-var JUMP_CUT    = 260;
-var TERM_VEL    = 960;
+// Peak jump height ≈ JUMP_VEL^2 / (2*GRAVITY).
+// 760^2 / 2800 ≈ 206 px — enough to clear the tallest generated platform
+// (see makeArena: y range [280, 420]) from the floor (y=470).
+var JUMP_VEL    = 760;
+var JUMP_CUT    = 340;
+var TERM_VEL    = 1000;
 
 // Entity vertical pivot sits this many px above the feet.
 // drawCharacter() draws a shadow at +18 in local space.
@@ -239,7 +242,9 @@ function makeArena(seed) {
     attempts++;
     var w = 100 + Math.floor(rng() * 80);
     var x = 60 + Math.floor(rng() * (W - 120 - w));
-    var y = 210 + Math.floor(rng() * 180);
+    // y range keeps every platform within one jump of the floor (y=470).
+    // Reachable from floor: y >= 470 - peakJumpHeight ≈ 264.
+    var y = 280 + Math.floor(rng() * 140);
     // Reject platforms that stack too close to another.
     var ok = true;
     for (var i = 0; i < platforms.length; i++) {
