@@ -196,6 +196,16 @@ var V_CIRC_APO     = Math.sqrt(GM_E / R_HOH_APO);                    // ≈ 8.47
 var HOHMANN_DV1    = V_HOH     - Math.sqrt(GM_E / R_HOH_PERI);       // ≈ 5.10
 var HOHMANN_DV2    = V_CIRC_APO - V_APO_HOH;                         // ≈ 3.40
 
+// Trans-Lunar Injection: transfer ellipse peri=R_LEO, apo=0.94 DU (just
+// short of the Moon's orbit so Moon's gravity pulls us in cleanly).
+var R_TLI_APO      = 0.94;
+var A_TLI          = (R_LEO + R_TLI_APO) / 2;
+var V_TLI_PERI     = Math.sqrt(GM_E * (2 / R_LEO - 1 / A_TLI));       // ≈ 24.15
+var TLI_DV         = V_TLI_PERI - Math.sqrt(GM_E / R_LEO);            // ≈ 6.01
+var TLI_HALF_PERIOD = Math.PI * Math.sqrt(A_TLI * A_TLI * A_TLI / GM_E); // ≈ 0.193 TU
+// Phase Moon so it's at (-1,0) when spacecraft reaches apoapsis
+var TLI_MOON_ANGLE0 = Math.PI - MOON_W * (0.003 + TLI_HALF_PERIOD);    // ≈ 1.91 rad
+
 var ORBITS = [
   {
     name:  'Low Earth Orbit',
@@ -258,6 +268,23 @@ var ORBITS = [
         label: 'BURN 1 — Transfer ellipse' },
       { trigger: 'apoapsis_earth',           dir: 'prograde', dv: HOHMANN_DV2,
         label: 'BURN 2 — Circularize' }
+    ]
+  },
+  {
+    name:    'Moon Insertion',
+    desc:    'LEO \u2192 Trans-Lunar Injection \u2192 capture into lunar orbit',
+    color:   '#fe8',
+    trailRGB: [255, 230, 140],
+    program: true,
+    sx: R_LEO, sy: 0, vx: 0, vy: Math.sqrt(GM_E / R_LEO),
+    moonAngle0: TLI_MOON_ANGLE0,
+    speed: 3,
+    trailEvery: 2,
+    burns: [
+      { trigger: 'time', t: 0.003, dir: 'prograde', dv: TLI_DV,
+        label: 'TLI — Trans-Lunar Injection' },
+      { trigger: 'periapsis_moon', mode: 'circularize_moon',
+        label: 'LOI — Lunar Orbit Insertion' }
     ]
   }
 ];
@@ -383,7 +410,22 @@ function startProgram(idx) {
 // the Moon for *_moon variants) at the moment the burn fires.
 function applyImpulsiveBurn(burn) {
   var dx = 0, dy = 0;
-  if (burn.dir === 'prograde' || burn.dir === 'retrograde') {
+  var dvMag = burn.dv || 0;
+
+  if (burn.mode === 'circularize_moon') {
+    // Slow spacecraft to Moon-centered circular velocity at current altitude.
+    var mp1 = moonPos(simT);
+    var mv1 = moonVel(simT);
+    var mdx1 = scX - mp1.x, mdy1 = scY - mp1.y;
+    var rvx1 = scVX - mv1.x, rvy1 = scVY - mv1.y;
+    var rm1  = Math.sqrt(mdx1 * mdx1 + mdy1 * mdy1);
+    var vr1  = Math.sqrt(rvx1 * rvx1 + rvy1 * rvy1);
+    if (rm1 < 0.01) rm1 = 0.01;
+    if (vr1 < 0.0001) return;
+    var vcirc = Math.sqrt(GM_M / rm1);
+    dvMag = vr1 - vcirc;              // positive ⇒ retrograde slowdown
+    dx = -rvx1 / vr1; dy = -rvy1 / vr1;
+  } else if (burn.dir === 'prograde' || burn.dir === 'retrograde') {
     var vl = Math.sqrt(scVX * scVX + scVY * scVY);
     if (vl < 0.0001) return;
     var fx = scVX / vl, fy = scVY / vl;
@@ -398,8 +440,8 @@ function applyImpulsiveBurn(burn) {
     var sm = burn.dir === 'prograde_moon' ? 1 : -1;
     dx = sm * fxm; dy = sm * fym;
   }
-  scVX += dx * burn.dv;
-  scVY += dy * burn.dv;
+  scVX += dx * dvMag;
+  scVY += dy * dvMag;
 
   // Visual flash — spawn a fat flame burst in the exhaust direction (-dx,-dy)
   var spx0 = sx(scX), spy0 = sy(scY);
@@ -437,7 +479,9 @@ function tickProgram() {
   } else if (burn.trigger === 'apoapsis_earth') {
     if (programPrevDr !== null && programPrevDr > 0 && dr <= 0) fire = true;
   } else if (burn.trigger === 'periapsis_moon') {
-    if (programPrevDrm !== null && programPrevDrm < 0 && drm >= 0) fire = true;
+    // Only arm near the Moon so stray edge-crossings far from the Moon don't fire.
+    var rmNow = Math.sqrt(mdx * mdx + mdy * mdy);
+    if (programPrevDrm !== null && programPrevDrm < 0 && drm >= 0 && rmNow < 0.15) fire = true;
   }
 
   programPrevDr  = dr;
