@@ -61,7 +61,7 @@ var ENTITY_W    = 30;
 
 // Stage 2b: elastic head-bounce tuning
 var STOMP_BOUNCE_MULT = 0.85;   // jumper bounces back at 85% of a normal jump
-var SIDE_ELASTICITY   = 0.35;   // fraction of x-velocity exchanged on a side bump
+var SIDE_RESTITUTION  = 1.0;    // 1.0 = fully elastic x-collision; equal masses swap vx
 var SQUASH_DURATION   = 0.24;   // seconds the landee stays squished
 
 // Stage 3: dash tuning
@@ -73,7 +73,6 @@ var DASH_DOUBLE_TAP_WINDOW = 0.22;  // 2nd tap must land within this many second
 // Stage 4: damage / knockback / stocks
 var START_STOCKS          = 3;
 var DAMAGE_PER_STOMP      = 9;
-var DAMAGE_PER_SIDE_BUMP  = 1;
 var KB_BASE_X             = 220;    // bounceVx = KB_BASE_X + damage * KB_SCALE_X
 var KB_BASE_Y             = 360;    // bounceVy = -(KB_BASE_Y + damage * KB_SCALE_Y)
 var KB_SCALE_X            = 6;
@@ -81,12 +80,31 @@ var KB_SCALE_Y            = 4;
 var KB_POST_INVULN        = 30;     // frames of mercy-invuln after being launched
 var KB_RATIO_MIN          = 0.6;    // clamp on sqrt(mass) stomp-ratio multiplier
 var KB_RATIO_MAX          = 1.9;
+var SIDE_DAMAGE_SPEED_MIN   = 120;  // no side-hit damage below this post-hit exit speed
+var SIDE_DAMAGE_SPEED_SCALE = 85;   // higher = gentler side-hit damage growth
+var SIDE_DAMAGE_MAX         = 12;
+var SIDE_LAUNCH_SPEED_MIN   = 320;  // strong side hits should actually send the target away
+var SIDE_LAUNCH_POP         = 135;  // slight upward pop so ledge hits don't degrade into shoves
+var SIDE_RECOIL_SPEED       = 55;   // attacker bounces back a touch instead of sticking
 
 // Damage softens you up: mass drops logistically with damage % so heavily
 // banged-up characters get launched way farther. At 0% damage mass ≈ 0.98;
 // at 100% damage mass ≈ 0.32 (roughly 30% of original, per spec).
 function damageMass(d) {
   return 0.3 + 0.7 / (1 + Math.exp((d - 50) / 15));
+}
+
+function sideExitDamage(vx) {
+  return Math.min(SIDE_DAMAGE_MAX,
+    Math.max(0, (Math.abs(vx) - SIDE_DAMAGE_SPEED_MIN) / SIDE_DAMAGE_SPEED_SCALE));
+}
+
+function applySideLaunch(attacker, defender, launchDir, elasticVAttacker, elasticVDefender) {
+  var defenderSpeed = Math.max(Math.abs(elasticVDefender), SIDE_LAUNCH_SPEED_MIN);
+  defender.vx = launchDir * defenderSpeed;
+  defender.vy = Math.min(defender.vy, -SIDE_LAUNCH_POP);
+  defender.onGround = false;
+  attacker.vx = -launchDir * Math.min(Math.abs(elasticVAttacker), SIDE_RECOIL_SPEED);
 }
 
 /* ── Canvas + engine bootstrap ─────────────────────────────── */
@@ -156,6 +174,7 @@ var MOODS = {
   frisky: { dwellMin: 0.25, dwellMax: 0.9, idleChance: 0.10, walkChance: 0.45, jumpChance: 0.30, dashChance: 0.15, label: 'FRISKY' }
 };
 var CPU_MODES = ['off', 'chill', 'normal', 'frisky'];
+var NEXT_ENTITY_ID = 1;
 
 /* ── Drawing helpers (from lakehousemath) ──────────────────── */
 function roundRectPath(cx, x, y, w, h, r) {
@@ -428,6 +447,7 @@ function makeArena(seed) {
 /* ── Entity factory ────────────────────────────────────────── */
 function makeEntity(charId, x, y, isCPU, mood) {
   return {
+    eid: NEXT_ENTITY_ID++,
     charId: charId,
     x: x, y: y,
     vx: 0, vy: 0,
@@ -481,7 +501,8 @@ var state = {
   tapDir: 0,               // -1 / +1, last direction the player tapped (for double-tap dash)
   tapTimer: 0,             // counts down DASH_DOUBLE_TAP_WINDOW
   winner: null,            // entity or null (null = game over / no winner)
-  confetti: []             // particles on the results screen
+  confetti: [],
+  sideHitCooldowns: Object.create(null)
 };
 
 function slotActive(s) {
@@ -495,6 +516,7 @@ function activeSlotCount() {
 }
 
 function startPlay() {
+  NEXT_ENTITY_ID = 1;
   state.seed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
   state.platforms = makeArena(state.seed);
   state.entities = [];
@@ -513,6 +535,7 @@ function startPlay() {
   state.respawnFlash = 0;
   state.winner = null;
   state.confetti = [];
+  state.sideHitCooldowns = Object.create(null);
   state.phase = 'play';
   state.phaseTime = 0;
 }
@@ -715,8 +738,10 @@ function stepEntity(e, dt) {
       else if (e.vx < 0) e.vx = Math.min(0, e.vx + dec);
     }
     var maxV = MOVE_MAX * moveMul;
-    if (e.vx >  maxV) e.vx =  maxV;
-    if (e.vx < -maxV) e.vx = -maxV;
+    // Preserve externally applied launch momentum until friction/opposite input
+    // bleeds it off; only cap deliberate self-propelled movement.
+    if (e.vx > maxV && pressingRight && !pressingLeft) e.vx = maxV;
+    if (e.vx < -maxV && pressingLeft && !pressingRight) e.vx = -maxV;
   }
   if (e.dashCooldown > 0) e.dashCooldown = Math.max(0, e.dashCooldown - dt);
 
@@ -814,28 +839,64 @@ function resolveEntityPairs() {
         stomp(B, A);
       } else {
         // Side bump: push apart by mass-weighted share of the x-overlap, then
-        // apply a restitution-scaled elastic collision along x.
+        // solve a 1D x-axis collision. Equal masses now swap velocity, so a
+        // dash into a stationary opponent transfers momentum cleanly.
         var overlap = Math.min(ax1, bx1) - Math.max(ax0, bx0);
         if (overlap > 0) {
           var dir = A.x < B.x ? -1 : 1;
           var mA = damageMass(A.damage), mB = damageMass(B.damage);
           var totalMass = mA + mB;
+          var aWasDashing = A.dashT > 0;
+          var bWasDashing = B.dashT > 0;
           // Heavier entity moves less during push-apart.
           A.x += dir * overlap * (mB / totalMass);
           B.x -= dir * overlap * (mA / totalMass);
-          // Elastic collision with restitution = SIDE_ELASTICITY.
-          var dvRel = A.vx - B.vx;
-          A.vx -= dvRel * SIDE_ELASTICITY * (2 * mB / totalMass);
-          B.vx += dvRel * SIDE_ELASTICITY * (2 * mA / totalMass);
-          // Threshold uses approach speed, not post-bounce speed — rewards the bonk
-          // itself so two standing-still characters don't gift each other damage.
-          if (Math.abs(dvRel) > 120) {
-            A.damage += DAMAGE_PER_SIDE_BUMP;
-            B.damage += DAMAGE_PER_SIDE_BUMP;
+          var uA = A.vx, uB = B.vx;
+          var relApproach = uA - uB;
+          var vA = ((mA - SIDE_RESTITUTION * mB) * uA + (1 + SIDE_RESTITUTION) * mB * uB) / totalMass;
+          var vB = ((mB - SIDE_RESTITUTION * mA) * uB + (1 + SIDE_RESTITUTION) * mA * uA) / totalMass;
+          A.vx = vA;
+          B.vx = vB;
+
+          // Impact stops the dash lock so transferred momentum persists.
+          if (A.dashT > 0) A.dashT = 0;
+          if (B.dashT > 0) B.dashT = 0;
+
+          // Strong committed hits should create an actual launch, not just
+          // degrade into ground shoving on the next frame.
+          if (Math.abs(relApproach) > SIDE_DAMAGE_SPEED_MIN) {
+            var launchDir = relApproach > 0 ? 1 : -1;
+            var launchB = aWasDashing && !bWasDashing;
+            var launchA = bWasDashing && !aWasDashing;
+            if (!launchA && !launchB) {
+              launchB = Math.abs(vB) >= Math.abs(vA);
+              launchA = !launchB;
+            }
+            if (launchB) applySideLaunch(A, B, launchDir, vA, vB);
+            else applySideLaunch(B, A, -launchDir, vB, vA);
+          }
+
+          // Damage follows exit speed, so the character launched away faster
+          // takes more punishment than the one that got stopped.
+          var pairKey = A.eid < B.eid ? (A.eid + ':' + B.eid) : (B.eid + ':' + A.eid);
+          if (Math.abs(relApproach) > SIDE_DAMAGE_SPEED_MIN && !state.sideHitCooldowns[pairKey]) {
+            A.damage += sideExitDamage(vA);
+            B.damage += sideExitDamage(vB);
+            state.sideHitCooldowns[pairKey] = 0.12;
           }
         }
       }
     }
+  }
+}
+
+function decaySideHitCooldowns(dt) {
+  var keys = Object.keys(state.sideHitCooldowns);
+  for (var i = 0; i < keys.length; i++) {
+    var key = keys[i];
+    var next = state.sideHitCooldowns[key] - dt;
+    if (next <= 0) delete state.sideHitCooldowns[key];
+    else state.sideHitCooldowns[key] = next;
   }
 }
 
@@ -1180,6 +1241,7 @@ function updatePlay(dt) {
   if (remaining > 0.08) remaining = 0.08;
   while (remaining > 0) {
     var dts = Math.min(step, remaining);
+    decaySideHitCooldowns(dts);
     for (var i = 0; i < state.entities.length; i++) {
       if (!state.entities[i].ko) stepEntity(state.entities[i], dts);
     }
