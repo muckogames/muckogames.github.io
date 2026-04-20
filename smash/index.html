@@ -106,6 +106,15 @@ var CHARACTERS = {
 };
 var CHAR_IDS = ['samster', 'duck', 'hippo', 'nik', 'lekan', 'basil', 'mucko', 'rocket'];
 
+// CPU difficulty "moods" — drive AI dwell time and jump frequency.
+// idleChance + walkChance + jumpChance must sum to 1.
+var MOODS = {
+  chill:  { dwellMin: 1.0, dwellMax: 2.2, idleChance: 0.50, walkChance: 0.40, jumpChance: 0.10, label: 'CHILL'  },
+  normal: { dwellMin: 0.5, dwellMax: 1.4, idleChance: 0.25, walkChance: 0.55, jumpChance: 0.20, label: 'NORMAL' },
+  frisky: { dwellMin: 0.25, dwellMax: 0.9, idleChance: 0.10, walkChance: 0.50, jumpChance: 0.40, label: 'FRISKY' }
+};
+var CPU_MODES = ['off', 'chill', 'normal', 'frisky'];
+
 /* ── Drawing helpers (from lakehousemath) ──────────────────── */
 function roundRectPath(cx, x, y, w, h, r) {
   var rr = Math.min(r || 0, Math.abs(w) / 2, Math.abs(h) / 2);
@@ -257,7 +266,7 @@ function makeArena(seed) {
 }
 
 /* ── Entity factory ────────────────────────────────────────── */
-function makeEntity(charId, x, y, isCPU) {
+function makeEntity(charId, x, y, isCPU, mood) {
   return {
     charId: charId,
     x: x, y: y,
@@ -270,28 +279,65 @@ function makeEntity(charId, x, y, isCPU) {
     stocks: 3,     // unused until Stage 4
     isCPU: !!isCPU,
     bob: 0,
-    jumpHeldPrev: false,
-    prevFootY: y + FEET_OFFSET
+    prevFootY: y + FEET_OFFSET,
+    ai: isCPU ? {
+      mood: mood || MOODS.normal,
+      state: 'idle',        // 'idle' | 'walk_left' | 'walk_right' | 'jump'
+      timer: 0.3,
+      inputLeft: false,
+      inputRight: false,
+      inputJumpPressed: false,
+      inputJumpHeld: false,
+      jumpCooldown: 0
+    } : null
   };
 }
 
 /* ── Top-level state ───────────────────────────────────────── */
+// Slots drive the lobby. Slot 0 is the human player; 1..3 are CPUs.
+// player mode: 'play' | 'spectator'
+// cpu mode:    'off'  | 'chill' | 'normal' | 'frisky'
 var state = {
   phase: 'title',          // 'title' | 'select' | 'play'
   phaseTime: 0,
-  selectIndex: 0,
+  slots: [
+    { kind: 'player', charIdx: 0, mode: 'play' },
+    { kind: 'cpu',    charIdx: 1, mode: 'normal' },
+    { kind: 'cpu',    charIdx: 2, mode: 'off' },
+    { kind: 'cpu',    charIdx: 3, mode: 'off' }
+  ],
   entities: [],
   platforms: [],
   seed: 0,
   respawnFlash: 0          // global "you just respawned" tint timer
 };
 
+function slotActive(s) {
+  if (s.kind === 'player') return s.mode === 'play';
+  return s.mode !== 'off';
+}
+function activeSlotCount() {
+  var n = 0;
+  for (var i = 0; i < state.slots.length; i++) if (slotActive(state.slots[i])) n++;
+  return n;
+}
+
 function startPlay() {
   state.seed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
   state.platforms = makeArena(state.seed);
-  var startX = W / 2;
-  var startY = 120;
-  state.entities = [makeEntity(CHAR_IDS[state.selectIndex], startX, startY, false)];
+  state.entities = [];
+  // Spawn active fighters spaced across the stage.
+  var activeSlots = [];
+  for (var i = 0; i < state.slots.length; i++) if (slotActive(state.slots[i])) activeSlots.push(state.slots[i]);
+  var n = activeSlots.length;
+  for (var j = 0; j < n; j++) {
+    var s = activeSlots[j];
+    var sx = (W * (j + 1)) / (n + 1);
+    var sy = 80 + (j % 2) * 40;
+    var isCPU = s.kind === 'cpu';
+    var mood = isCPU ? MOODS[s.mode] : null;
+    state.entities.push(makeEntity(CHAR_IDS[s.charIdx], sx, sy, isCPU, mood));
+  }
   state.respawnFlash = 0;
   state.phase = 'play';
   state.phaseTime = 0;
@@ -318,29 +364,78 @@ function jumpPressed() {
   return kp;
 }
 
+/* ── CPU AI: picks new behaviour once per frame, latches inputs ─ */
+function cpuThink(e, dt) {
+  var s = e.ai;
+  s.jumpCooldown = Math.max(0, s.jumpCooldown - dt);
+  s.timer -= dt;
+
+  // Edge avoidance: if near a blast zone and on the ground, steer inward.
+  // The floor runs x ∈ [120, 680]; blast zones are at x < -60 and x > W+60.
+  var nearLeft  = e.x < 170 && e.onGround;
+  var nearRight = e.x > W - 170 && e.onGround;
+  if (nearLeft)  { s.state = 'walk_right'; s.timer = Math.max(s.timer, 0.6); }
+  if (nearRight) { s.state = 'walk_left';  s.timer = Math.max(s.timer, 0.6); }
+
+  if (s.timer <= 0) {
+    var m = s.mood;
+    var r = Math.random();
+    if      (r < m.idleChance)                       s.state = 'idle';
+    else if (r < m.idleChance + m.walkChance * 0.5)  s.state = 'walk_left';
+    else if (r < m.idleChance + m.walkChance)        s.state = 'walk_right';
+    else                                             s.state = 'jump';
+    s.timer = m.dwellMin + Math.random() * (m.dwellMax - m.dwellMin);
+  }
+
+  s.inputLeft       = s.state === 'walk_left';
+  s.inputRight      = s.state === 'walk_right';
+  s.inputJumpPressed = false;
+  s.inputJumpHeld    = false;
+
+  if (s.state === 'jump') {
+    // Keep pushing toward the center if we jumped while hugging an edge,
+    // otherwise drift in the current facing direction.
+    if      (nearLeft)               s.inputRight = true;
+    else if (nearRight)              s.inputLeft  = true;
+    s.inputJumpHeld = true;
+    if (e.onGround && s.jumpCooldown <= 0) {
+      s.inputJumpPressed = true;
+      s.jumpCooldown = 0.4;
+    }
+  }
+}
+
 /* ── Physics step ──────────────────────────────────────────── */
 function stepEntity(e, dt) {
-  if (!e.isCPU) {
-    var accel = e.onGround ? MOVE_ACCEL_GROUND : MOVE_ACCEL_AIR;
-    var pressingLeft  = playerLeft();
-    var pressingRight = playerRight();
-    if (pressingLeft && !pressingRight)  { e.vx -= accel * dt; e.facing = 'left'; }
-    if (pressingRight && !pressingLeft)  { e.vx += accel * dt; e.facing = 'right'; }
-    if (!pressingLeft && !pressingRight && e.onGround) {
-      var dec = GROUND_FRIC * dt;
-      if (e.vx > 0)      e.vx = Math.max(0, e.vx - dec);
-      else if (e.vx < 0) e.vx = Math.min(0, e.vx + dec);
-    }
-    if (jumpPressed() && e.onGround) {
-      e.vy = -JUMP_VEL;
-      e.onGround = false;
-      beep(380, 0.14, 0.09, 'triangle');
-    }
-    // Short-hop: release button while still rising → clamp
-    if (!jumpHeld() && e.vy < -JUMP_CUT) e.vy = -JUMP_CUT;
-    if (e.vx >  MOVE_MAX) e.vx =  MOVE_MAX;
-    if (e.vx < -MOVE_MAX) e.vx = -MOVE_MAX;
+  var pressingLeft, pressingRight, jp, jh;
+  if (e.isCPU) {
+    pressingLeft  = e.ai.inputLeft;
+    pressingRight = e.ai.inputRight;
+    jp = e.ai.inputJumpPressed;
+    jh = e.ai.inputJumpHeld;
+    e.ai.inputJumpPressed = false; // consume so multi-substep doesn't re-jump
+  } else {
+    pressingLeft  = playerLeft();
+    pressingRight = playerRight();
+    jp = jumpPressed();
+    jh = jumpHeld();
   }
+  var accel = e.onGround ? MOVE_ACCEL_GROUND : MOVE_ACCEL_AIR;
+  if (pressingLeft && !pressingRight)  { e.vx -= accel * dt; e.facing = 'left'; }
+  if (pressingRight && !pressingLeft)  { e.vx += accel * dt; e.facing = 'right'; }
+  if (!pressingLeft && !pressingRight && e.onGround) {
+    var dec = GROUND_FRIC * dt;
+    if (e.vx > 0)      e.vx = Math.max(0, e.vx - dec);
+    else if (e.vx < 0) e.vx = Math.min(0, e.vx + dec);
+  }
+  if (jp && e.onGround) {
+    e.vy = -JUMP_VEL;
+    e.onGround = false;
+    if (!e.isCPU) beep(380, 0.14, 0.09, 'triangle');
+  }
+  if (!jh && e.vy < -JUMP_CUT) e.vy = -JUMP_CUT;
+  if (e.vx >  MOVE_MAX) e.vx =  MOVE_MAX;
+  if (e.vx < -MOVE_MAX) e.vx = -MOVE_MAX;
 
   // Gravity + terminal velocity
   e.vy += GRAVITY * dt;
@@ -382,7 +477,9 @@ function stepEntity(e, dt) {
 }
 
 /* ── Touch controls (mobile D-pad + jump button) ───────────── */
-function mobileControlsOn() { return TOUCH_UI && state.phase === 'play'; }
+function mobileControlsOn() {
+  return TOUCH_UI && state.phase === 'play' && state.slots[0].mode === 'play';
+}
 
 function mobileLayout() {
   return {
@@ -502,81 +599,153 @@ function updateTitle(dt) {
   }
 }
 
-/* ── Character select ──────────────────────────────────────── */
+/* ── Character select (4-slot lobby) ───────────────────────── */
+// Layout: four vertical cards across the screen. Each card has:
+//   - slot label at top (P1 / CPU 1 / CPU 2 / CPU 3)
+//   - left ◀ / right ▶ arrow pills that cycle the character
+//   - portrait in the middle
+//   - mode pill at bottom (PLAY/SPECTATOR for P1, OFF/CHILL/NORMAL/FRISKY for CPU)
+// Start button at the bottom. Needs at least one active fighter.
 function selectLayout() {
-  // 4 tiles per row, 2 rows. Tile ~150 wide, ~150 tall, centered.
-  var cols = 4, rows = 2;
-  var tileW = 148, tileH = 150;
-  var hGap = 14, vGap = 14;
-  var gridW = cols * tileW + (cols - 1) * hGap;
-  var gridH = rows * tileH + (rows - 1) * vGap;
-  var x0 = (W - gridW) / 2;
-  var y0 = 140;
-  var tiles = [];
-  for (var i = 0; i < CHAR_IDS.length; i++) {
-    var r = Math.floor(i / cols), c = i % cols;
-    tiles.push({
-      id: CHAR_IDS[i],
-      x: x0 + c * (tileW + hGap),
-      y: y0 + r * (tileH + vGap),
-      w: tileW, h: tileH
+  var cardW = 180, cardH = 380, gap = 10;
+  var total = cardW * 4 + gap * 3;
+  var x0 = (W - total) / 2;
+  var y0 = 92;
+  var cards = [];
+  for (var i = 0; i < 4; i++) {
+    var cx = x0 + i * (cardW + gap);
+    cards.push({
+      slotIndex: i,
+      x: cx, y: y0, w: cardW, h: cardH,
+      portrait:  { x: cx + 18, y: y0 + 72,  w: cardW - 36, h: 200 },
+      leftArrow: { x: cx + 8,  y: y0 + 152, w: 28, h: 36 },
+      rightArrow:{ x: cx + cardW - 36, y: y0 + 152, w: 28, h: 36 },
+      modePill:  { x: cx + 16, y: y0 + cardH - 56, w: cardW - 32, h: 42 }
     });
   }
   return {
-    tiles: tiles,
-    startBtn: { x: W / 2 - 120, y: y0 + gridH + 20, w: 240, h: 54 }
+    cards: cards,
+    startBtn: { x: W / 2 - 120, y: y0 + cardH + 18, w: 240, h: 50 }
   };
 }
+function hit(r) { return mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h; }
+
+function slotModeLabel(s) {
+  if (s.kind === 'player') return s.mode === 'play' ? 'PLAY' : 'SPECTATE';
+  return MOODS[s.mode] ? MOODS[s.mode].label : 'OFF';
+}
+function slotModeColor(s) {
+  if (s.kind === 'player') return s.mode === 'play' ? '#5ec867' : '#9aa5ad';
+  if (s.mode === 'off')    return '#9aa5ad';
+  if (s.mode === 'chill')  return '#84b5e0';
+  if (s.mode === 'normal') return '#f2c85a';
+  if (s.mode === 'frisky') return '#e2744b';
+  return '#9aa5ad';
+}
+function cycleCharacter(slot, dir) {
+  slot.charIdx = (slot.charIdx + CHAR_IDS.length + dir) % CHAR_IDS.length;
+}
+function cycleMode(slot) {
+  if (slot.kind === 'player') {
+    slot.mode = slot.mode === 'play' ? 'spectator' : 'play';
+  } else {
+    var i = CPU_MODES.indexOf(slot.mode);
+    slot.mode = CPU_MODES[(i + 1) % CPU_MODES.length];
+  }
+}
+
 function drawSelect() {
   drawBackground();
-  fillRoundRect(ctx, 20, 18, W - 40, 96, 20, 'rgba(16,30,46,0.78)', 'rgba(255,239,190,0.45)', 2);
-  drawText(ctx, 'PICK YOUR FIGHTER', W / 2, 62, '#ffd86f', 34, 'center', 'bold');
-  drawText(ctx, 'Arrows / tap to choose \u2022 Space or START to begin', W / 2, 92, '#d9e6ef', 13, 'center', 'bold');
+  fillRoundRect(ctx, 20, 12, W - 40, 70, 18, 'rgba(16,30,46,0.82)', 'rgba(255,239,190,0.5)', 2);
+  drawText(ctx, 'PICK YOUR FIGHTERS', W / 2, 46, '#ffd86f', 26, 'center', 'bold');
+  drawText(ctx, 'Tap ◀ / ▶ to switch fighter \u2022 tap the mode pill to change it',
+    W / 2, 68, '#d9e6ef', 12, 'center', 'bold');
 
   var L = selectLayout();
-  for (var i = 0; i < L.tiles.length; i++) {
-    var t = L.tiles[i];
-    var isHover = mx >= t.x && mx <= t.x + t.w && my >= t.y && my <= t.y + t.h;
-    var isSelected = i === state.selectIndex;
-    var fill = isSelected ? '#fff6d6' : (isHover ? 'rgba(255,246,214,0.85)' : 'rgba(247,238,216,0.94)');
-    var stroke = isSelected ? '#d8982a' : 'rgba(130,92,38,0.5)';
-    fillRoundRect(ctx, t.x, t.y, t.w, t.h, 18, fill, stroke, isSelected ? 4 : 2);
-    // Sprite centered-ish
-    drawCharacter(ctx, t.id, t.x + t.w / 2, t.y + 78, 'right', state.phaseTime * 4 + i, 1.1);
-    drawText(ctx, CHARACTERS[t.id].name, t.x + t.w / 2, t.y + t.h - 16, '#5a3d16', 15, 'center', 'bold');
+  for (var i = 0; i < L.cards.length; i++) {
+    var c = L.cards[i];
+    var slot = state.slots[i];
+    var active = slotActive(slot);
+
+    var cardFill = active ? 'rgba(255,246,214,0.96)' : 'rgba(217,210,193,0.65)';
+    var cardStroke = active ? '#d8982a' : 'rgba(90,70,34,0.4)';
+    fillRoundRect(ctx, c.x, c.y, c.w, c.h, 18, cardFill, cardStroke, active ? 3 : 2);
+
+    // Slot label header
+    var labelColor = slot.kind === 'player' ? '#2c5ea8' : '#7b4f1a';
+    fillRoundRect(ctx, c.x + 14, c.y + 14, c.w - 28, 36, 12, labelColor, null);
+    var slotName = slot.kind === 'player' ? 'PLAYER 1' : ('CPU ' + i);
+    drawText(ctx, slotName, c.x + c.w / 2, c.y + 38, '#fff4cf', 17, 'center', 'bold');
+
+    // Portrait + cycle arrows
+    if (active) {
+      drawCharacter(ctx, CHAR_IDS[slot.charIdx],
+        c.x + c.w / 2, c.y + 180, 'right', state.phaseTime * 4 + i, 1.35);
+      drawText(ctx, CHARACTERS[CHAR_IDS[slot.charIdx]].name,
+        c.x + c.w / 2, c.y + 232, '#5a3d16', 14, 'center', 'bold');
+    } else {
+      drawText(ctx, slot.kind === 'player' ? '(spectating)' : '(off)',
+        c.x + c.w / 2, c.y + 180, '#6a5d44', 16, 'center', 'bold');
+    }
+
+    var arrowFill = active ? 'rgba(255,228,170,0.9)' : 'rgba(200,200,200,0.6)';
+    fillRoundRect(ctx, c.leftArrow.x,  c.leftArrow.y,  c.leftArrow.w,  c.leftArrow.h, 10, arrowFill, '#7b4f1a', 2);
+    fillRoundRect(ctx, c.rightArrow.x, c.rightArrow.y, c.rightArrow.w, c.rightArrow.h, 10, arrowFill, '#7b4f1a', 2);
+    drawText(ctx, '◀', c.leftArrow.x  + c.leftArrow.w  / 2, c.leftArrow.y  + 24, '#5a3d16', 18, 'center', 'bold');
+    drawText(ctx, '▶', c.rightArrow.x + c.rightArrow.w / 2, c.rightArrow.y + 24, '#5a3d16', 18, 'center', 'bold');
+
+    // Mode pill
+    fillRoundRect(ctx, c.modePill.x, c.modePill.y, c.modePill.w, c.modePill.h, 14,
+      slotModeColor(slot), '#322010', 2);
+    drawText(ctx, slotModeLabel(slot), c.x + c.w / 2, c.modePill.y + 28,
+      '#20160a', 17, 'center', 'bold');
   }
 
-  // Start button
+  // Start button — disabled if no active fighters
   var B = L.startBtn;
-  var startHover = mx >= B.x && mx <= B.x + B.w && my >= B.y && my <= B.y + B.h;
-  fillRoundRect(ctx, B.x, B.y, B.w, B.h, 18, startHover ? '#ffd86f' : '#f2c85a', '#7b4f1a', 3);
-  drawText(ctx, 'START', B.x + B.w / 2, B.y + 36, '#3a2608', 24, 'center', 'bold');
+  var canStart = activeSlotCount() >= 1;
+  var startHover = hit(B);
+  var sfill = !canStart ? 'rgba(150,140,120,0.8)'
+    : (startHover ? '#ffd86f' : '#f2c85a');
+  fillRoundRect(ctx, B.x, B.y, B.w, B.h, 18, sfill, '#7b4f1a', 3);
+  drawText(ctx, canStart ? 'START' : 'NEED A FIGHTER', B.x + B.w / 2, B.y + 34,
+    '#3a2608', canStart ? 24 : 18, 'center', 'bold');
 }
+
 function updateSelect(dt) {
   state.phaseTime += dt;
 
-  if (eat('ArrowLeft')  || eat('KeyA')) state.selectIndex = (state.selectIndex + CHAR_IDS.length - 1) % CHAR_IDS.length;
-  if (eat('ArrowRight') || eat('KeyD')) state.selectIndex = (state.selectIndex + 1) % CHAR_IDS.length;
-  if (eat('ArrowUp')    || eat('KeyW')) state.selectIndex = (state.selectIndex + CHAR_IDS.length - 4) % CHAR_IDS.length;
-  if (eat('ArrowDown')  || eat('KeyS')) state.selectIndex = (state.selectIndex + 4) % CHAR_IDS.length;
-  if (eat('Space') || eat('Enter')) { startPlay(); return; }
+  if (eat('Space') || eat('Enter')) {
+    if (activeSlotCount() >= 1) { startPlay(); return; }
+  }
   if (eat('Escape')) { state.phase = 'title'; state.phaseTime = 0; return; }
 
-  if (mclk) {
-    mclk = false;
-    var L = selectLayout();
-    // Tile click: first select, second confirm.
-    for (var i = 0; i < L.tiles.length; i++) {
-      var t = L.tiles[i];
-      if (mx >= t.x && mx <= t.x + t.w && my >= t.y && my <= t.y + t.h) {
-        if (state.selectIndex === i) { startPlay(); return; }
-        state.selectIndex = i;
-        return;
-      }
+  if (!mclk) return;
+  mclk = false;
+  var L = selectLayout();
+
+  for (var i = 0; i < L.cards.length; i++) {
+    var c = L.cards[i];
+    var slot = state.slots[i];
+    if (hit(c.leftArrow))  {
+      if (!slotActive(slot) && slot.kind === 'cpu') slot.mode = 'normal';
+      cycleCharacter(slot, -1); return;
     }
-    var B = L.startBtn;
-    if (mx >= B.x && mx <= B.x + B.w && my >= B.y && my <= B.y + B.h) { startPlay(); return; }
+    if (hit(c.rightArrow)) {
+      if (!slotActive(slot) && slot.kind === 'cpu') slot.mode = 'normal';
+      cycleCharacter(slot, +1); return;
+    }
+    if (hit(c.modePill))   { cycleMode(slot); return; }
+    if (hit(c.portrait))   {
+      // Tap portrait as convenience: cycle character forward.
+      if (!slotActive(slot) && slot.kind === 'cpu') slot.mode = 'normal';
+      else cycleCharacter(slot, +1);
+      return;
+    }
   }
+
+  var B = L.startBtn;
+  if (hit(B) && activeSlotCount() >= 1) { startPlay(); return; }
 }
 
 /* ── Play screen ───────────────────────────────────────────── */
@@ -584,10 +753,15 @@ function updatePlay(dt) {
   state.phaseTime += dt;
   if (state.respawnFlash > 0) state.respawnFlash = Math.max(0, state.respawnFlash - dt);
 
+  // CPU AI ticks once per render frame; inputs are latched into entity.ai.*
+  for (var a = 0; a < state.entities.length; a++) {
+    var e = state.entities[a];
+    if (e.isCPU) cpuThink(e, dt);
+  }
+
   // Fixed-step simulation with accumulator
   var step = 1 / 60;
   var remaining = dt;
-  // Cap in case of long frames so physics doesn't explode
   if (remaining > 0.08) remaining = 0.08;
   while (remaining > 0) {
     var dts = Math.min(step, remaining);
