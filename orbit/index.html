@@ -178,6 +178,18 @@ var trail         = [];
 var TRAIL_MAX     = 2000;
 var trailSkip     = 0;
 
+// ── Burn engine ───────────────────────────────────────────────────────────────
+// 1 DU/TU ≈ 0.163 km/s, so 18 DU/TU ≈ 2.9 km/s starting budget.
+var DV_START      = 18;
+var THRUST_MAG    = 3;    // DU/TU² main (prograde/retro)
+var STEER_MAG     = 1;    // DU/TU² lateral
+var DU_PER_TU_TO_KMPS = 0.1629; // 384400 km / (27.32*86400 s)
+var dvBudget      = DV_START;
+var thrustFwd     = 0;    // -1 retro, 0 off, +1 prograde — set per frame
+var thrustLat     = 0;    // -1 left push, 0, +1 right push
+var flameParts    = [];   // {x,y,vx,vy,life,maxLife,size,r,g,b}
+var FLAME_MAX     = 200;
+
 // Time multiplier
 var TIME_MULTS = [1, 2, 5, 10];
 var timeMultIdx = 0;
@@ -198,6 +210,10 @@ function startSim(idx) {
   simT = 0;
   trail = [];
   trailSkip = 0;
+  dvBudget = DV_START;
+  flameParts = [];
+  thrustFwd = 0;
+  thrustLat = 0;
   phase = 'sim';
 }
 
@@ -223,12 +239,66 @@ function stepPhysics(dt) {
   var ax = -GM_E * dex / re3 - GM_M * dmx / rm3;
   var ay = -GM_E * dey / re3 - GM_M * dmy / rm3;
 
+  // Thrust acceleration (prograde/retro along velocity, lateral perpendicular)
+  if (dvBudget > 0 && (thrustFwd !== 0 || thrustLat !== 0)) {
+    var vl = Math.sqrt(scVX * scVX + scVY * scVY);
+    if (vl > 0.001) {
+      var fxh = scVX / vl, fyh = scVY / vl;
+      // Left-hand perpendicular (rotating velocity +90° counterclockwise)
+      var lxh = -fyh, lyh = fxh;
+      ax += thrustFwd * THRUST_MAG * fxh + thrustLat * STEER_MAG * lxh;
+      ay += thrustFwd * THRUST_MAG * fyh + thrustLat * STEER_MAG * lyh;
+      var dvSpent = (Math.abs(thrustFwd) * THRUST_MAG + Math.abs(thrustLat) * STEER_MAG) * dt;
+      dvBudget -= dvSpent;
+      if (dvBudget < 0) dvBudget = 0;
+    }
+  }
+
   // Velocity half-step then position full step (symplectic Euler)
   scVX += ax * dt;
   scVY += ay * dt;
   scX  += scVX * dt;
   scY  += scVY * dt;
   simT += dt;
+}
+
+// ── Flame / puff particles (visual only, real-time) ──────────────────────────
+function spawnFlameBurst(px, py, baseVX, baseVY, count, life, size, r, g, b, spread) {
+  for (var i = 0; i < count; i++) {
+    if (flameParts.length > FLAME_MAX) flameParts.shift();
+    var jx = (Math.random() - 0.5) * spread;
+    var jy = (Math.random() - 0.5) * spread;
+    var lj = life * (0.6 + Math.random() * 0.6);
+    flameParts.push({
+      x: px, y: py,
+      vx: baseVX + jx, vy: baseVY + jy,
+      life: lj, maxLife: lj,
+      size: size * (0.7 + Math.random() * 0.6),
+      r: r, g: g, b: b
+    });
+  }
+}
+
+function updateFlameParts(rdt) {
+  for (var i = flameParts.length - 1; i >= 0; i--) {
+    var p = flameParts[i];
+    p.x += p.vx * rdt;
+    p.y += p.vy * rdt;
+    p.life -= rdt;
+    if (p.life <= 0) flameParts.splice(i, 1);
+  }
+}
+
+function drawFlameParts() {
+  for (var i = 0; i < flameParts.length; i++) {
+    var p = flameParts[i];
+    var a = p.life / p.maxLife;
+    if (a < 0) a = 0;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size * (0.4 + a * 0.6), 0, PI2);
+    ctx.fillStyle = 'rgba(' + p.r + ',' + p.g + ',' + p.b + ',' + (a * 0.8) + ')';
+    ctx.fill();
+  }
 }
 
 // ── UI layout ──────────────────────────────────────────────────────────────────
@@ -334,7 +404,8 @@ function drawSelect() {
   ctx.font = '11px sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'alphabetic';
-  ctx.fillText('Press T during simulation to change time speed', W / 2, orbitBtnY(ORBITS.length) + 14);
+  ctx.fillText('Space / \u2191 burn  \u2193 retro  \u2190\u2192 steer   \u2022   T time  \u2022  R back',
+               W / 2, orbitBtnY(ORBITS.length) + 14);
 }
 
 // ── Draw: simulation ───────────────────────────────────────────────────────────
@@ -407,6 +478,9 @@ function drawSim() {
   ctx.textBaseline = 'top';
   ctx.fillText('Moon', mpx, mpy + 10);
 
+  // Flame particles (behind spacecraft)
+  drawFlameParts();
+
   // Spacecraft
   var spx = sx(scX), spy = sy(scY);
   var vlen = Math.sqrt(scVX * scVX + scVY * scVY);
@@ -434,6 +508,26 @@ function drawSim() {
   var timeHover = hitRect(TIME_BTN.x, TIME_BTN.y, TIME_BTN.w, TIME_BTN.h);
   drawBtn(TIME_BTN.x, TIME_BTN.y, TIME_BTN.w, TIME_BTN.h, multLabel, timeHover);
 
+  // ΔV meter — top center
+  var dvFrac = dvBudget / DV_START;
+  if (dvFrac < 0) dvFrac = 0;
+  var meterW = 160, meterH = 10;
+  var meterX = (W - meterW) / 2, meterY = 16;
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  ctx.fillRect(meterX, meterY, meterW, meterH);
+  var barColor = dvFrac > 0.3 ? '#8fa' : (dvFrac > 0.1 ? '#fc6' : '#f66');
+  ctx.fillStyle = barColor;
+  ctx.fillRect(meterX, meterY, meterW * dvFrac, meterH);
+  ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(meterX + 0.5, meterY + 0.5, meterW - 1, meterH - 1);
+  ctx.fillStyle = 'rgba(255,255,255,0.75)';
+  ctx.font = '11px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  var dvKmps = (dvBudget * DU_PER_TU_TO_KMPS).toFixed(2);
+  ctx.fillText('\u0394V ' + dvKmps + ' km/s', W / 2, meterY + meterH + 4);
+
   // Info strip
   ctx.fillStyle = 'rgba(255,255,255,0.3)';
   ctx.font = '11px sans-serif';
@@ -441,6 +535,11 @@ function drawSim() {
   ctx.textBaseline = 'bottom';
   var days = simT * 27.32;
   ctx.fillText('T + ' + days.toFixed(2) + ' days', 10, H - 10);
+
+  // Current speed, km/s
+  var spdKmps = (Math.sqrt(scVX * scVX + scVY * scVY) * DU_PER_TU_TO_KMPS).toFixed(2);
+  ctx.textAlign = 'center';
+  ctx.fillText(spdKmps + ' km/s', W / 2, H - 10);
 
   if (curOrbit) {
     ctx.textAlign = 'right';
@@ -458,6 +557,15 @@ function loop(ts) {
   if (!lastTs) lastTs = ts;
   var elapsed = Math.min((ts - lastTs) / 1000, SIM_REAL_STEP * 8);
   lastTs = ts;
+
+  // Burn input (read once per frame from held keys)
+  thrustFwd = 0; thrustLat = 0;
+  if (phase === 'sim' && dvBudget > 0) {
+    if (K['Space'] || K['ArrowUp']) thrustFwd = 1;
+    else if (K['ArrowDown'])        thrustFwd = -1;
+    if (K['ArrowLeft'])  thrustLat = -1;
+    if (K['ArrowRight']) thrustLat = 1;
+  }
 
   // Physics
   if (phase === 'sim') {
@@ -478,7 +586,39 @@ function loop(ts) {
       }
       simDebt -= SIM_REAL_STEP;
     }
+
+    // Spawn flame particles proportional to thrust — tied to real time so the
+    // visual rate stays steady regardless of time multiplier.
+    if (dvBudget > 0) {
+      var vlen2 = Math.sqrt(scVX * scVX + scVY * scVY);
+      if (vlen2 > 0.001) {
+        var ndx2 = scVX / vlen2, ndy2 = -scVY / vlen2; // screen-space unit (y-flip)
+        var spx2 = sx(scX), spy2 = sy(scY);
+        // Prograde flame: emits from tail (back of ship) in retrograde direction
+        if (thrustFwd === 1) {
+          var tailX = spx2 - ndx2 * 4, tailY = spy2 - ndy2 * 4;
+          spawnFlameBurst(tailX, tailY, -ndx2 * 60, -ndy2 * 60, 3, 0.45, 3, 255, 180, 60, 40);
+          spawnFlameBurst(tailX, tailY, -ndx2 * 40, -ndy2 * 40, 2, 0.3,  2, 255, 240, 160, 30);
+        }
+        // Retrograde: flame from nose, pointing forward
+        if (thrustFwd === -1) {
+          var noseX = spx2 + ndx2 * 9, noseY = spy2 + ndy2 * 9;
+          spawnFlameBurst(noseX, noseY, ndx2 * 50, ndy2 * 50, 2, 0.3, 2, 160, 220, 255, 25);
+        }
+        // Lateral puffs — on the side opposite to push direction (reaction)
+        // thrustLat = +1 means push right (in velocity frame); exhaust leaves the left side.
+        if (thrustLat !== 0) {
+          var lxh2 = ndy2, lyh2 = -ndx2; // screen-space left perpendicular
+          var sideX = spx2 - thrustLat * lxh2 * 4;
+          var sideY = spy2 - thrustLat * lyh2 * 4;
+          spawnFlameBurst(sideX, sideY, -thrustLat * lxh2 * 40, -thrustLat * lyh2 * 40,
+                          1, 0.25, 2, 220, 230, 240, 20);
+        }
+      }
+    }
   }
+
+  updateFlameParts(elapsed);
 
   // Input
   if (phase === 'select') {
