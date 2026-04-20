@@ -84,6 +84,24 @@ canvas.addEventListener('click', function(e) {
   updatePointer(e.clientX, e.clientY);
   mclk = true;
 });
+canvas.addEventListener('mousedown', function(e) {
+  updatePointer(e.clientX, e.clientY);
+  if (!pointerDown) { pointerDown = true; pointerJust = true; pointerDX = mx; pointerDY = my; }
+});
+canvas.addEventListener('mousemove', function(e) {
+  updatePointer(e.clientX, e.clientY);
+});
+canvas.addEventListener('mouseup', function(e) {
+  updatePointer(e.clientX, e.clientY);
+  if (pointerDown) { pointerDown = false; pointerUp = true; }
+});
+
+// Unified pointer state (mouse + first-touch) for drag gestures in the
+// placement phase. Held-touch burn buttons use activeTouches below.
+var pointerDown = false;    // true while primary pointer is pressed
+var pointerJust = false;    // true for one frame on press edge
+var pointerUp   = false;    // true for one frame on release edge
+var pointerDX   = 0, pointerDY = 0;  // position at pressdown
 
 // Multi-touch tracking — every active touch keeps a canvas-space (x,y) so the
 // burn buttons can read held state per frame.
@@ -101,6 +119,7 @@ canvas.addEventListener('touchstart', function(e) {
     mx = p.x; my = p.y;
   }
   mclk = true;
+  if (!pointerDown) { pointerDown = true; pointerJust = true; pointerDX = mx; pointerDY = my; }
 }, { passive: false });
 canvas.addEventListener('touchmove', function(e) {
   e.preventDefault();
@@ -116,6 +135,10 @@ function endTouches(e) {
   for (var i = 0; i < e.changedTouches.length; i++) {
     delete activeTouches[e.changedTouches[i].identifier];
   }
+  // Only release the unified pointer when no touches remain.
+  var any = false;
+  for (var id in activeTouches) { any = true; break; }
+  if (!any && pointerDown) { pointerDown = false; pointerUp = true; }
 }
 canvas.addEventListener('touchend',    endTouches, { passive: false });
 canvas.addEventListener('touchcancel', endTouches, { passive: false });
@@ -201,6 +224,17 @@ var ORBITS = [
     moonAngle0: 0,
     speed: 2,      // 2× = 0.02 TU/s
     trailEvery: 2
+  },
+  {
+    name:   'Custom Orbit',
+    desc:   'Tap to place your spacecraft, then drag to set velocity',
+    color:  '#d9f',
+    trailRGB: [220, 170, 255],
+    custom: true,
+    sx: 0, sy: 0, vx: 0, vy: 0,
+    moonAngle0: 0,
+    speed: 2,
+    trailEvery: 2
   }
 ];
 
@@ -226,6 +260,15 @@ var thrustLat     = 0;    // -1 left push, 0, +1 right push
 var flameParts    = [];   // {x,y,vx,vy,life,maxLife,size,r,g,b}
 var FLAME_MAX     = 200;
 
+// ── Placement (custom orbit) state ────────────────────────────────────────────
+var placeHasPos    = false;
+var placeHasVel    = false;
+var placeScX       = 0, placeScY = 0;
+var placeVX        = 0, placeVY  = 0;
+var placeDragging  = false;
+var PLACE_VEL_SCALE = 0.05;  // DU/TU per screen pixel of drag
+var PLACE_MIN_DRAG  = 8;     // pixels below this = tap, not drag
+
 // Time multiplier
 var TIME_MULTS = [1, 2, 5, 10];
 var timeMultIdx = 0;
@@ -250,6 +293,31 @@ function startSim(idx) {
   flameParts = [];
   thrustFwd = 0;
   thrustLat = 0;
+  phase = 'sim';
+}
+
+function startPlace(idx) {
+  curOrbit      = ORBITS[idx];
+  placeHasPos   = false;
+  placeHasVel   = false;
+  placeScX = 0; placeScY = 0;
+  placeVX  = 0; placeVY  = 0;
+  placeDragging = false;
+  moonAngle0    = 0;  // show Moon at +x while placing
+  phase         = 'place';
+}
+
+function launchFromPlace() {
+  scX  = placeScX;  scY  = placeScY;
+  scVX = placeVX;   scVY = placeVY;
+  simT = 0;
+  trail = [];
+  trailSkip = 0;
+  dvBudget = DV_START;
+  flameParts = [];
+  thrustFwd = 0;
+  thrustLat = 0;
+  moonAngle0 = 0;
   phase = 'sim';
 }
 
@@ -348,6 +416,8 @@ function hitRect(bx, by, bw, bh) {
 
 var BACK_BTN  = { x: 10,      y: 10, w: 74, h: 28, label: '\u2190 Back' };
 var TIME_BTN  = { x: W - 94,  y: 10, w: 84, h: 28, label: '1\u00d7' };
+var RESET_BTN  = { x: W - 94,  y: 10, w: 84, h: 28, label: 'Reset' };
+var LAUNCH_BTN = { x: (W - 220) / 2, y: H - 82, w: 220, h: 54, label: 'LAUNCH' };
 
 // Burn buttons — held-touch controls for iPad
 var BURN_BTN  = { cx: W - 100, cy: H - 110, r: 58 };  // main prograde
@@ -471,6 +541,140 @@ function drawSelect() {
   ctx.textBaseline = 'alphabetic';
   ctx.fillText('Space / \u2191 burn  \u2193 retro  \u2190\u2192 steer   \u2022   T time  \u2022  R back',
                W / 2, orbitBtnY(ORBITS.length) + 14);
+}
+
+// ── Draw: placement phase ──────────────────────────────────────────────────────
+function drawVelArrow(fromX, fromY, toX, toY, color) {
+  var dx = toX - fromX, dy = toY - fromY;
+  var len = Math.sqrt(dx * dx + dy * dy);
+  if (len < 1) return;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(fromX, fromY);
+  ctx.lineTo(toX, toY);
+  ctx.stroke();
+  // Arrowhead
+  var ax = dx / len, ay = dy / len;
+  var perp_x = -ay, perp_y = ax;
+  var hx = toX - ax * 10, hy = toY - ay * 10;
+  ctx.beginPath();
+  ctx.moveTo(toX, toY);
+  ctx.lineTo(hx + perp_x * 5, hy + perp_y * 5);
+  ctx.lineTo(hx - perp_x * 5, hy - perp_y * 5);
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+}
+
+function drawPlace() {
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+  drawStars(130, 0.45);
+
+  // Moon orbit guide
+  ctx.beginPath();
+  ctx.arc(CX, CY, MOON_R * SCALE, 0, PI2);
+  ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // Earth exclusion ring (visual hint that you can't place inside)
+  ctx.beginPath();
+  ctx.arc(CX, CY, 0.10 * SCALE, 0, PI2);
+  ctx.setLineDash([4, 4]);
+  ctx.strokeStyle = 'rgba(255,80,80,0.35)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Earth
+  var ex = sx(0), ey = sy(0);
+  ctx.beginPath();
+  ctx.arc(ex, ey, 24, 0, PI2);
+  var eg = ctx.createRadialGradient(ex - 7, ey - 7, 2, ex, ey, 24);
+  eg.addColorStop(0, '#5caaff');
+  eg.addColorStop(0.5, '#1a6fff');
+  eg.addColorStop(1, '#0830a0');
+  ctx.fillStyle = eg;
+  ctx.fill();
+
+  // Moon at +x
+  var mp = moonPos(0);
+  var mpx = sx(mp.x), mpy = sy(mp.y);
+  ctx.beginPath();
+  ctx.arc(mpx, mpy, 7, 0, PI2);
+  var mg = ctx.createRadialGradient(mpx - 2, mpy - 2, 0, mpx, mpy, 7);
+  mg.addColorStop(0, '#ddd');
+  mg.addColorStop(1, '#666');
+  ctx.fillStyle = mg;
+  ctx.fill();
+
+  // Spacecraft + velocity indicator
+  if (placeHasPos) {
+    var shipSX = sx(placeScX), shipSY = sy(placeScY);
+    // Live drag preview takes precedence over committed velocity
+    if (placeDragging) {
+      drawVelArrow(shipSX, shipSY, mx, my, '#fff');
+      // Show live speed
+      var liveDX = mx - shipSX, liveDY = my - shipSY;
+      var liveLen = Math.sqrt(liveDX * liveDX + liveDY * liveDY);
+      var liveDU  = liveLen * PLACE_VEL_SCALE;
+      var liveKmps = (liveDU * DU_PER_TU_TO_KMPS).toFixed(2);
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.font = 'bold 13px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(liveDU.toFixed(2) + ' DU/TU (' + liveKmps + ' km/s)', mx + 10, my - 8);
+    } else if (placeHasVel) {
+      // Render committed velocity at same scale as drag
+      var velPX = placeVX / PLACE_VEL_SCALE;
+      var velPY = -placeVY / PLACE_VEL_SCALE;
+      drawVelArrow(shipSX, shipSY, shipSX + velPX, shipSY + velPY, '#d9f');
+    }
+    // Ship dot
+    fillCircle(shipSX, shipSY, 4, '#fff');
+    ctx.beginPath();
+    ctx.arc(shipSX, shipSY, 8, 0, PI2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
+  // HUD buttons
+  var backHover = hitRect(BACK_BTN.x, BACK_BTN.y, BACK_BTN.w, BACK_BTN.h);
+  drawBtn(BACK_BTN.x, BACK_BTN.y, BACK_BTN.w, BACK_BTN.h, BACK_BTN.label, backHover);
+  var resetHover = hitRect(RESET_BTN.x, RESET_BTN.y, RESET_BTN.w, RESET_BTN.h);
+  drawBtn(RESET_BTN.x, RESET_BTN.y, RESET_BTN.w, RESET_BTN.h, RESET_BTN.label, resetHover);
+
+  // Launch button (enabled only with pos + velocity)
+  var launchReady = placeHasPos && placeHasVel;
+  var launchHover = hitRect(LAUNCH_BTN.x, LAUNCH_BTN.y, LAUNCH_BTN.w, LAUNCH_BTN.h);
+  ctx.beginPath();
+  ctx.roundRect(LAUNCH_BTN.x, LAUNCH_BTN.y, LAUNCH_BTN.w, LAUNCH_BTN.h, 12);
+  ctx.fillStyle = launchReady
+    ? (launchHover ? 'rgba(150,255,170,0.25)' : 'rgba(150,255,170,0.14)')
+    : 'rgba(255,255,255,0.05)';
+  ctx.fill();
+  ctx.strokeStyle = launchReady ? '#9fd' : 'rgba(255,255,255,0.2)';
+  ctx.lineWidth = launchReady ? 2.5 : 1;
+  ctx.stroke();
+  ctx.fillStyle = launchReady ? '#9fd' : 'rgba(255,255,255,0.3)';
+  ctx.font = 'bold 22px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('LAUNCH', LAUNCH_BTN.x + LAUNCH_BTN.w / 2, LAUNCH_BTN.y + LAUNCH_BTN.h / 2);
+
+  // Hint text
+  ctx.font = '13px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = 'rgba(255,255,255,0.55)';
+  var hint;
+  if (!placeHasPos)      hint = 'Tap anywhere outside Earth to place your spacecraft';
+  else if (!placeHasVel) hint = 'Drag from the ship to set its initial velocity';
+  else                   hint = 'Drag to re-aim, or tap LAUNCH to begin the simulation';
+  ctx.fillText(hint, W / 2, 50);
 }
 
 // ── Draw: simulation ───────────────────────────────────────────────────────────
@@ -701,12 +905,51 @@ function loop(ts) {
     if (mclk) {
       for (var j = 0; j < ORBITS.length; j++) {
         if (hitRect(BTN_X, orbitBtnY(j), BTN_W, BTN_H)) {
-          startSim(j);
+          if (ORBITS[j].custom) startPlace(j);
+          else                  startSim(j);
           mclk = false;
           break;
         }
       }
     }
+  } else if (phase === 'place') {
+    // Press edge: check buttons first, then play field
+    if (pointerJust) {
+      if (hitRect(BACK_BTN.x, BACK_BTN.y, BACK_BTN.w, BACK_BTN.h)) {
+        phase = 'select';
+      } else if (hitRect(RESET_BTN.x, RESET_BTN.y, RESET_BTN.w, RESET_BTN.h)) {
+        placeHasPos = false; placeHasVel = false; placeDragging = false;
+      } else if (placeHasPos && placeHasVel &&
+                 hitRect(LAUNCH_BTN.x, LAUNCH_BTN.y, LAUNCH_BTN.w, LAUNCH_BTN.h)) {
+        launchFromPlace();
+      } else if (!placeHasPos) {
+        // Tap on playfield to place spacecraft — require it's outside Earth.
+        var ppx = (mx - CX) / SCALE;
+        var ppy = (CY - my) / SCALE;
+        var dEarth = Math.sqrt(ppx * ppx + ppy * ppy);
+        if (dEarth > 0.10 && dEarth < 1.2) {
+          placeScX = ppx; placeScY = ppy;
+          placeHasPos = true;
+          placeDragging = true;   // allow immediate drag to set velocity
+        }
+      } else {
+        // Already placed — start a (re-)drag to adjust velocity
+        placeDragging = true;
+      }
+    }
+    // Release edge: commit velocity if user actually dragged
+    if (pointerUp && placeDragging) {
+      var shipSX = sx(placeScX), shipSY = sy(placeScY);
+      var ddx = mx - shipSX, ddy = my - shipSY;
+      var dragDist = Math.sqrt(ddx * ddx + ddy * ddy);
+      if (dragDist > PLACE_MIN_DRAG) {
+        placeVX =  ddx * PLACE_VEL_SCALE;
+        placeVY = -ddy * PLACE_VEL_SCALE;  // y-flip
+        placeHasVel = true;
+      }
+      placeDragging = false;
+    }
+    if (JP['KeyR']) phase = 'select';
   } else if (phase === 'sim') {
     if (mclk) {
       if (hitRect(BACK_BTN.x, BACK_BTN.y, BACK_BTN.w, BACK_BTN.h)) {
@@ -723,10 +966,13 @@ function loop(ts) {
 
   // Draw
   ctx.clearRect(0, 0, W, H);
-  if (phase === 'select') drawSelect();
-  else drawSim();
+  if      (phase === 'select') drawSelect();
+  else if (phase === 'place')  drawPlace();
+  else                          drawSim();
 
   mclk = false;
+  pointerJust = false;
+  pointerUp = false;
   for (var k in JP) JP[k] = false;
 
   requestAnimationFrame(loop);
