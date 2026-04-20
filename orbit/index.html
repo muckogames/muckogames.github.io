@@ -286,6 +286,7 @@ var ORBITS = [
     color:   '#9ff',
     trailRGB: [150, 240, 255],
     program: true,
+    story: "Lekan: 'Two burns, minimum fuel. This is how you do it right.'",
     // Start in circular LEO; first burn fires at t=0.
     sx: R_LEO, sy: 0, vx: 0, vy: Math.sqrt(GM_E / R_LEO),
     moonAngle0: 0,
@@ -304,6 +305,7 @@ var ORBITS = [
     color:   '#fe8',
     trailRGB: [255, 230, 140],
     program: true,
+    story: "Samster: 'The Moon! Lekan says there is cheese up there. I choose to believe him.'",
     sx: R_LEO, sy: 0, vx: 0, vy: Math.sqrt(GM_E / R_LEO),
     moonAngle0: TLI_MOON_ANGLE0,
     speed: 3,
@@ -321,6 +323,7 @@ var ORBITS = [
     color:   '#f8a',
     trailRGB: [255, 136, 170],
     program: true,
+    story: "Lekan: 'One burn. If anything goes wrong, gravity brings you home. That is the beauty of it.'",
     sx: R_LEO, sy: 0, vx: 0, vy: Math.sqrt(GM_E / R_LEO),
     moonAngle0: FR_MOON_ANGLE0,
     speed: 3,
@@ -346,11 +349,12 @@ var trailSkip     = 0;
 // 1 DU/TU ≈ 0.163 km/s, so 18 DU/TU ≈ 2.9 km/s starting budget.
 var DV_START      = 18;
 var THRUST_MAG    = 3;    // DU/TU² main (prograde/retro)
-var STEER_MAG     = 1;    // DU/TU² lateral
 var DU_PER_TU_TO_KMPS = 0.1629; // 384400 km / (27.32*86400 s)
 var dvBudget      = DV_START;
 var thrustFwd     = 0;    // -1 retro, 0 off, +1 prograde — set per frame
-var thrustLat     = 0;    // -1 left push, 0, +1 right push
+var rotDir        = 0;    // -1 CW, 0 off, +1 CCW — set per frame
+var ROT_RATE      = 1.8;  // radians per real second (RCS rotation, no ΔV cost)
+var scAngle       = 0;    // spacecraft heading in physics coords (radians, 0=right, π/2=up)
 var flameParts    = [];   // {x,y,vx,vy,life,maxLife,size,r,g,b}
 var FLAME_MAX     = 200;
 
@@ -385,6 +389,75 @@ var timeMultIdx = 0;
 var BASE_SPEED  = 0.01; // TU per real second at 1× (each orbit has a speed multiplier)
 var SIM_DT      = 1 / 3600; // integration step (TU) — fine grain for accuracy
 
+// ── Orbit predictor ────────────────────────────────────────────────────────────
+var predPts  = [];    // {sx, sy, f} coast trajectory dots  (f: 0=near → 1=far)
+var predMkrs = [];    // {sx, sy, type:'apo'|'peri'} apoapsis / periapsis markers
+var showPred = true;  // toggled from OPT panel
+
+// ── Options panel (Phase 4.5 / 5 / 6) ────────────────────────────────────────
+var showOpts   = false;
+var autoOrient = false;   // auto-rotate toward burn direction before firing
+
+// Physics multiplier presets — index 1 (earth) or 2 (moon) is the 1× default
+var EARTH_MASS_STEPS = [0.5, 1.0, 2.0, 4.0];
+var MOON_MASS_STEPS  = [0.0, 0.5, 1.0, 2.0, 4.0];
+var THRUST_STEPS     = [0.5, 1.0, 2.0, 4.0];
+var earthMassIdx = 1;   // 1.0×
+var moonMassIdx  = 2;   // 1.0×
+var thrustIdx    = 1;   // 1.0×
+var skinIdx      = 0;   // 0=capsule  1=saturn v
+
+// ── Narration (Phase 6) ───────────────────────────────────────────────────────
+var narration  = '';   // text currently shown in toast
+var narrationT = 0;    // real seconds remaining
+var narrated   = {};   // {eventId: true} — prevents re-triggering per session
+
+// ── Achievement system ────────────────────────────────────────────────────────
+var achStore = {};
+try { achStore = JSON.parse(localStorage.getItem('orbit_ach') || '{}'); } catch(e) {}
+var achToast  = '';   // achievement badge text
+var achToastT = 0;    // real seconds remaining
+
+function unlockAch(id, label) {
+  if (achStore[id]) return;
+  achStore[id] = true;
+  try { localStorage.setItem('orbit_ach', JSON.stringify(achStore)); } catch(e) {}
+  achToast  = '\u2605 ' + label;
+  achToastT = 3.5;
+}
+
+var NARRATION_EVENTS = [
+  { id: 'moon_soi',
+    check: function() {
+      var mp = moonPos(simT); var dx = scX - mp.x, dy = scY - mp.y;
+      return dx * dx + dy * dy < 0.14 * 0.14;
+    },
+    text: "Lekan: 'Entering lunar sphere of influence.'",
+    ach:  { id: 'lunar_tourist', label: 'Lunar Tourist' } },
+  { id: 'escape_vel',
+    check: function() {
+      var v2 = scVX * scVX + scVY * scVY;
+      var r  = Math.sqrt(scX * scX + scY * scY);
+      return v2 > 2.0 * GM_E * EARTH_MASS_STEPS[earthMassIdx] / r;
+    },
+    text: "Lekan: 'Escape velocity. You are no longer bound to Earth.'",
+    ach:  { id: 'escape_artist', label: 'Escape Artist' } },
+  { id: 'close_earth',
+    check: function() { return scX * scX + scY * scY < 0.065 * 0.065; },
+    text: "Samster: 'Too close! Pull up!'" },
+  { id: 'moon_encounter',
+    check: function() {
+      var mp = moonPos(simT); var dx = scX - mp.x, dy = scY - mp.y;
+      return dx * dx + dy * dy < 0.06 * 0.06;
+    },
+    text: "Samster: 'The Moon is HUGE up close!'" },
+  { id: 'high_speed',
+    check: function() {
+      return scVX * scVX + scVY * scVY > 30 * 30;
+    },
+    text: "Lekan: 'Impressive velocity. Watch the periapsis.'" }
+];
+
 function moonPos(t) {
   var a = moonAngle0 + MOON_W * t;
   return { x: MOON_R * Math.cos(a), y: MOON_R * Math.sin(a) };
@@ -407,9 +480,11 @@ function startSim(idx) {
   dvBudget = DV_START;
   flameParts = [];
   thrustFwd = 0;
-  thrustLat = 0;
+  rotDir = 0;
+  scAngle = Math.atan2(o.vy, o.vx);
   autopilot = 'off';
   autoLockFrames = 0;
+  narrated = {};
   phase = 'sim';
 }
 
@@ -433,9 +508,11 @@ function launchFromPlace() {
   dvBudget = DV_START;
   flameParts = [];
   thrustFwd = 0;
-  thrustLat = 0;
+  rotDir = 0;
+  scAngle = Math.atan2(scVY, scVX);
   autopilot = 'off';
   autoLockFrames = 0;
+  narrated = {};
   moonAngle0 = 0;
   phase = 'sim';
 }
@@ -452,14 +529,17 @@ function startProgram(idx) {
   dvBudget = DV_START;
   flameParts = [];
   thrustFwd = 0;
-  thrustLat = 0;
+  rotDir = 0;
+  scAngle = Math.atan2(o.vy, o.vx);
   autopilot = 'off';
   autoLockFrames = 0;
+  narrated = {};
   programNextBurn  = 0;
   programPrevDr    = null;
   programPrevDrm   = null;
   programAnnounce  = '';
   programAnnounceT = 0;
+  if (o.story) { narration = o.story; narrationT = 5.5; }
   phase = 'sim';
 }
 
@@ -471,6 +551,7 @@ function applyImpulsiveBurn(burn) {
   var dvMag = burn.dv || 0;
 
   if (burn.mode === 'circularize_moon') {
+    unlockAch('moon_walker', 'Moon Walker');
     // Slow spacecraft to Moon-centered circular velocity at current altitude.
     var mp1 = moonPos(simT);
     var mv1 = moonVel(simT);
@@ -480,7 +561,7 @@ function applyImpulsiveBurn(burn) {
     var vr1  = Math.sqrt(rvx1 * rvx1 + rvy1 * rvy1);
     if (rm1 < 0.01) rm1 = 0.01;
     if (vr1 < 0.0001) return;
-    var vcirc = Math.sqrt(GM_M / rm1);
+    var vcirc = Math.sqrt(GM_M * MOON_MASS_STEPS[moonMassIdx] / rm1);
     dvMag = vr1 - vcirc;              // positive ⇒ retrograde slowdown
     dx = -rvx1 / vr1; dy = -rvy1 / vr1;
   } else if (burn.dir === 'prograde' || burn.dir === 'retrograde') {
@@ -555,7 +636,7 @@ function tickProgram() {
 }
 
 // Auto-circularize controller — called once per animation frame (not per
-// physics sub-step), sets thrustFwd / thrustLat to drive the orbit toward a
+// physics sub-step), sets thrustFwd / rotDir to drive the orbit toward a
 // circle at the current radius around the selected primary.
 var AUTO_DV_TOL      = 0.08;  // DU/TU — below this, treat orbit as circular
 var AUTO_LOCK_FRAMES = 18;    // consecutive in-tolerance frames before shutoff
@@ -563,18 +644,17 @@ var AUTO_SOI         = 0.14;  // rm below which Moon becomes the target
 var AUTO_PROG_THRESH = 0.04;  // Δv projection needed to fire prograde/retro
 var AUTO_LAT_THRESH  = 0.02;  // ... to fire lateral steering
 
-function stepAutopilot() {
+function stepAutopilot(elapsed) {
   thrustFwd = 0;
-  thrustLat = 0;
   if (autopilot !== 'on' || phase !== 'sim' || dvBudget <= 0) return;
 
   // Pick target body. Inside Moon's sphere of influence → Moon, else Earth.
-  var cx = 0, cy = 0, cvx = 0, cvy = 0, GM = GM_E;
+  var cx = 0, cy = 0, cvx = 0, cvy = 0, GM = GM_E * EARTH_MASS_STEPS[earthMassIdx];
   var mp = moonPos(simT), mv = moonVel(simT);
   var rmx = scX - mp.x, rmy = scY - mp.y;
   var rm  = Math.sqrt(rmx * rmx + rmy * rmy);
   if (rm < AUTO_SOI) {
-    cx = mp.x; cy = mp.y; cvx = mv.x; cvy = mv.y; GM = GM_M;
+    cx = mp.x; cy = mp.y; cvx = mv.x; cvy = mv.y; GM = GM_M * MOON_MASS_STEPS[moonMassIdx];
     autoTarget = 'moon';
   } else {
     autoTarget = 'earth';
@@ -583,14 +663,13 @@ function stepAutopilot() {
   // State relative to primary
   var rx = scX - cx, ry = scY - cy;
   var r  = Math.sqrt(rx * rx + ry * ry);
-  if (r < 0.008) return;                    // too close — bail out, don't thrust into body
+  if (r < 0.008) return;
   var rvx = scVX - cvx, rvy = scVY - cvy;
 
-  // Angular momentum sign picks the desired direction of travel; if the craft
-  // is nearly radial, fall back to CCW so the controller has a defined target.
+  // Angular momentum sign picks direction of travel
   var angMom = rx * rvy - ry * rvx;
   var dir    = angMom >= 0 ? 1 : -1;
-  var tx = -ry / r, ty = rx / r;             // CCW tangent
+  var tx = -ry / r, ty = rx / r;
   if (dir < 0) { tx = -tx; ty = -ty; }
 
   // Required impulse: Δv = v_circ*tangent − v_relative
@@ -604,26 +683,35 @@ function stepAutopilot() {
     if (autoLockFrames >= AUTO_LOCK_FRAMES) {
       autopilot = 'off';
       autoLockFrames = 0;
+      if (!narrated['auto_done']) {
+        narrated['auto_done'] = true;
+        narration  = "Lekan: 'Orbit stabilized.'";
+        narrationT = 4.0;
+        unlockAch('smooth_op', 'Smooth Operator');
+      }
     }
-    return;                                   // idle — no burn needed
+    return;
   }
   autoLockFrames = 0;
 
-  // Decompose Δv onto the ship's prograde and lateral axes (defined by
-  // *craft-frame* velocity, not relative velocity — that matches what thrust
-  // buttons do in the physics step).
-  var vl = Math.sqrt(scVX * scVX + scVY * scVY);
-  if (vl < 0.01) { thrustFwd = 1; return; }   // essentially stopped — kick forward
-  var fx = scVX / vl, fy = scVY / vl;
-  var lx = -fy, ly = fx;                      // 90° CCW of forward
+  // Orient craft toward desired ΔV direction, then fire when aligned
+  var desiredAngle = Math.atan2(dvy, dvx); // physics coords (y-up)
+  var angleDiff = desiredAngle - scAngle;
+  // Normalize to [-π, π]
+  while (angleDiff >  Math.PI) angleDiff -= PI2;
+  while (angleDiff < -Math.PI) angleDiff += PI2;
 
-  var progComp = dvx * fx + dvy * fy;
-  var latComp  = dvx * lx + dvy * ly;
-
-  if (progComp >  AUTO_PROG_THRESH) thrustFwd =  1;
-  else if (progComp < -AUTO_PROG_THRESH) thrustFwd = -1;
-  if (latComp  >  AUTO_LAT_THRESH)  thrustLat =  1;
-  else if (latComp  < -AUTO_LAT_THRESH)  thrustLat = -1;
+  var maxRot = ROT_RATE * elapsed;
+  if (Math.abs(angleDiff) < 0.05) {
+    // Aligned — fire main engine
+    scAngle = desiredAngle;
+    thrustFwd = 1;
+  } else {
+    // Rotate toward target heading, emit RCS puffs
+    var aRot = angleDiff > 0 ? 1 : -1;
+    scAngle += aRot * Math.min(maxRot, Math.abs(angleDiff));
+    rotDir = aRot;
+  }
 }
 
 // Symplectic Euler: v += a*dt, x += v*dt  (conserves energy far better than plain Euler)
@@ -645,22 +733,21 @@ function stepPhysics(dt) {
   var re3 = re * re * re;
   var rm3 = rm * rm * rm;
 
-  var ax = -GM_E * dex / re3 - GM_M * dmx / rm3;
-  var ay = -GM_E * dey / re3 - GM_M * dmy / rm3;
+  var geM = GM_E * EARTH_MASS_STEPS[earthMassIdx];
+  var gmM = GM_M * MOON_MASS_STEPS[moonMassIdx];
+  var ax = -geM * dex / re3 - gmM * dmx / rm3;
+  var ay = -geM * dey / re3 - gmM * dmy / rm3;
 
-  // Thrust acceleration (prograde/retro along velocity, lateral perpendicular)
-  if (dvBudget > 0 && (thrustFwd !== 0 || thrustLat !== 0)) {
-    var vl = Math.sqrt(scVX * scVX + scVY * scVY);
-    if (vl > 0.001) {
-      var fxh = scVX / vl, fyh = scVY / vl;
-      // Left-hand perpendicular (rotating velocity +90° counterclockwise)
-      var lxh = -fyh, lyh = fxh;
-      ax += thrustFwd * THRUST_MAG * fxh + thrustLat * STEER_MAG * lxh;
-      ay += thrustFwd * THRUST_MAG * fyh + thrustLat * STEER_MAG * lyh;
-      var dvSpent = (Math.abs(thrustFwd) * THRUST_MAG + Math.abs(thrustLat) * STEER_MAG) * dt;
-      dvBudget -= dvSpent;
-      if (dvBudget < 0) dvBudget = 0;
-    }
+  // Thrust acceleration along spacecraft heading (scAngle), no lateral steer
+  if (dvBudget > 0 && thrustFwd !== 0) {
+    var tMag = THRUST_MAG * THRUST_STEPS[thrustIdx];
+    var headX = Math.cos(scAngle); // physics coords (y-up)
+    var headY = Math.sin(scAngle);
+    ax += thrustFwd * tMag * headX;
+    ay += thrustFwd * tMag * headY;
+    var dvSpent = Math.abs(thrustFwd) * tMag * dt;
+    dvBudget -= dvSpent;
+    if (dvBudget < 0) dvBudget = 0;
   }
 
   // Velocity half-step then position full step (symplectic Euler)
@@ -669,6 +756,146 @@ function stepPhysics(dt) {
   scX  += scVX * dt;
   scY  += scVY * dt;
   simT += dt;
+}
+
+// ── Orbit predictor — coast trajectory preview ───────────────────────────────
+// Runs physics forward 0.2 TU without thrust; stores dots + apo/peri markers.
+function computePredictor() {
+  predPts  = [];
+  predMkrs = [];
+  var PRED_TOTAL = 0.20;
+  var PRED_STEPS = 500;
+  var PRED_SKIP  = 4;       // store every 4th point → ~125 dots
+  var pdt  = PRED_TOTAL / PRED_STEPS;
+  var px = scX, py = scY, pvx = scVX, pvy = scVY, pt = simT;
+  var prevDr = px * pvx + py * pvy;
+  var nApo = 0, nPeri = 0;
+  var geP = GM_E * EARTH_MASS_STEPS[earthMassIdx];
+  var gmP = GM_M * MOON_MASS_STEPS[moonMassIdx];
+
+  for (var i = 1; i <= PRED_STEPS; i++) {
+    var mpa  = moonAngle0 + MOON_W * pt;
+    var mx2  = MOON_R * Math.cos(mpa), my2 = MOON_R * Math.sin(mpa);
+    var dex  = px, dey = py;
+    var dmx2 = px - mx2, dmy2 = py - my2;
+    var re   = Math.sqrt(dex * dex + dey * dey); if (re < 0.001) re = 0.001;
+    var rm2  = Math.sqrt(dmx2 * dmx2 + dmy2 * dmy2); if (rm2 < 0.001) rm2 = 0.001;
+    pvx += (-geP * dex / (re*re*re) - gmP * dmx2 / (rm2*rm2*rm2)) * pdt;
+    pvy += (-geP * dey / (re*re*re) - gmP * dmy2 / (rm2*rm2*rm2)) * pdt;
+    px  += pvx * pdt;
+    py  += pvy * pdt;
+    pt  += pdt;
+    var dr = px * pvx + py * pvy;
+    if (nApo  < 2 && prevDr > 0 && dr <= 0) { predMkrs.push({ sx: sx(px), sy: sy(py), type: 'apo'  }); nApo++;  }
+    if (nPeri < 2 && prevDr < 0 && dr >= 0) { predMkrs.push({ sx: sx(px), sy: sy(py), type: 'peri' }); nPeri++; }
+    prevDr = dr;
+    if (i % PRED_SKIP === 0) predPts.push({ sx: sx(px), sy: sy(py), f: i / PRED_STEPS });
+  }
+}
+
+function drawPredictor() {
+  var n = predPts.length;
+  for (var i = 0; i < n; i++) {
+    var p = predPts[i];
+    var a = (1 - p.f) * 0.55;
+    ctx.beginPath();
+    ctx.arc(p.sx, p.sy, 1.5, 0, PI2);
+    ctx.fillStyle = 'rgba(255,255,255,' + a.toFixed(2) + ')';
+    ctx.fill();
+  }
+  for (var j = 0; j < predMkrs.length; j++) {
+    var m = predMkrs[j];
+    var mc = m.type === 'apo' ? '255,175,55' : '90,215,255';
+    ctx.beginPath();
+    ctx.arc(m.sx, m.sy, 4, 0, PI2);
+    ctx.strokeStyle = 'rgba(' + mc + ',0.8)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(' + mc + ',0.8)';
+    ctx.font = '9px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(m.type === 'apo' ? 'APO' : 'PER', m.sx, m.sy - 5);
+  }
+}
+
+// ── Spacecraft shape (skin-aware) ─────────────────────────────────────────────
+function drawSpacecraftShape(spx, spy, ndx, ndy) {
+  if (skinIdx === 0) {
+    // Capsule: classic triangle
+    var nose = 9, wing = 4;
+    ctx.beginPath();
+    ctx.moveTo(spx + ndx * nose, spy + ndy * nose);
+    ctx.lineTo(spx - ndy * wing - ndx * 4, spy - ndx * wing - ndy * 4);
+    ctx.lineTo(spx + ndy * wing - ndx * 4, spy + ndx * wing - ndy * 4);
+    ctx.closePath();
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+  } else if (skinIdx === 1) {
+    // Saturn V: tapered rocket body with engine bell and stage band
+    var rx = -ndy, ry = ndx;   // craft-right in screen (90° CCW of heading)
+    var L = 14, Wn = 1.2, Wb = 2.8;
+    // White body
+    ctx.beginPath();
+    ctx.moveTo(spx + ndx * L,                spy + ndy * L);
+    ctx.lineTo(spx + rx * Wn + ndx * (L-3),  spy + ry * Wn + ndy * (L-3));
+    ctx.lineTo(spx + rx * Wb - ndx * 2,      spy + ry * Wb - ndy * 2);
+    ctx.lineTo(spx - rx * Wb - ndx * 2,      spy - ry * Wb - ndy * 2);
+    ctx.lineTo(spx - rx * Wn + ndx * (L-3),  spy - ry * Wn + ndy * (L-3));
+    ctx.closePath();
+    ctx.fillStyle = '#f2f2f0';
+    ctx.fill();
+    // Engine bell (brass/gold)
+    ctx.beginPath();
+    ctx.moveTo(spx + rx * Wb - ndx * 2,        spy + ry * Wb - ndy * 2);
+    ctx.lineTo(spx + rx * (Wb + 2) - ndx * 6,  spy + ry * (Wb + 2) - ndy * 6);
+    ctx.lineTo(spx - rx * (Wb + 2) - ndx * 6,  spy - ry * (Wb + 2) - ndy * 6);
+    ctx.lineTo(spx - rx * Wb - ndx * 2,        spy - ry * Wb - ndy * 2);
+    ctx.closePath();
+    ctx.fillStyle = '#c88830';
+    ctx.fill();
+    // Stage separation band
+    ctx.beginPath();
+    ctx.moveTo(spx + rx * (Wn + 1) + ndx * 4, spy + ry * (Wn + 1) + ndy * 4);
+    ctx.lineTo(spx - rx * (Wn + 1) + ndx * 4, spy - ry * (Wn + 1) + ndy * 4);
+    ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  } else if (skinIdx === 2) {
+    // Duck Dieb's Escape Pod: round yellow body, green head, orange bill, bandit mask
+    var rx3 = -ndy, ry3 = ndx;
+    // Yellow body
+    ctx.beginPath();
+    ctx.arc(spx - ndx * 2, spy - ndy * 2, 6.5, 0, PI2);
+    ctx.fillStyle = '#ffe135';
+    ctx.fill();
+    ctx.strokeStyle = '#b89000';
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+    // Green mallard head
+    ctx.beginPath();
+    ctx.arc(spx + ndx * 2.5, spy + ndy * 2.5, 3.5, 0, PI2);
+    ctx.fillStyle = '#2d8040';
+    ctx.fill();
+    // Bandit mask (dark oval)
+    ctx.beginPath();
+    ctx.arc(spx + ndx * 2.5, spy + ndy * 2.5, 2, 0, PI2);
+    ctx.fillStyle = 'rgba(12,12,12,0.72)';
+    ctx.fill();
+    // White eye gleam
+    ctx.beginPath();
+    ctx.arc(spx + ndx * 2.5 + rx3 * 0.8, spy + ndy * 2.5 + ry3 * 0.8, 0.9, 0, PI2);
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+    // Orange bill
+    ctx.beginPath();
+    ctx.moveTo(spx + ndx * 6 + rx3 * 1.5, spy + ndy * 6 + ry3 * 1.5);
+    ctx.lineTo(spx + ndx * 6 - rx3 * 1.5, spy + ndy * 6 - ry3 * 1.5);
+    ctx.lineTo(spx + ndx * 10, spy + ndy * 10);
+    ctx.closePath();
+    ctx.fillStyle = '#ff8c00';
+    ctx.fill();
+  }
 }
 
 // ── Flame / puff particles (visual only, real-time) ──────────────────────────
@@ -721,6 +948,7 @@ function hitRect(bx, by, bw, bh) {
 
 var BACK_BTN  = { x: 10,      y: 10, w: 74, h: 28, label: '\u2190 Back' };
 var TIME_BTN  = { x: W - 94,  y: 10, w: 84, h: 28, label: '1\u00d7' };
+var OPT_BTN   = { x: W - 184, y: 10, w: 80, h: 28, label: 'OPT' };
 var RESET_BTN  = { x: W - 94,  y: 10, w: 84, h: 28, label: 'Reset' };
 var LAUNCH_BTN = { x: (W - 220) / 2, y: H - 82, w: 220, h: 54, label: 'LAUNCH' };
 
@@ -766,7 +994,11 @@ function drawEarthSprite(ex, ey, R, simTime) {
   ctx.fillStyle = eg;
   ctx.fill();
 
-  // Continents (front hemisphere only)
+  // Continents — clipped to sphere so polar blobs don't overflow the edge
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(ex, ey, R, 0, PI2);
+  ctx.clip();
   var rot = simTime * EARTH_ROT_RATE;
   for (var i = 0; i < CONTINENTS.length; i++) {
     var c = CONTINENTS[i];
@@ -785,6 +1017,7 @@ function drawEarthSprite(ex, ey, R, simTime) {
     ctx.fill();
   }
   ctx.globalAlpha = 1;
+  ctx.restore();
 
   // Rim highlight
   ctx.beginPath();
@@ -893,8 +1126,8 @@ function drawSelect() {
   ctx.strokeStyle = 'rgba(255,255,255,0.1)';
   ctx.lineWidth = 1;
   ctx.stroke();
-  fillCircle(diag_cx, diag_cy, 13, '#2a6fff');
-  fillCircle(diag_cx + 62, diag_cy, 4, '#999');
+  drawEarthSprite(diag_cx, diag_cy, 13, 0);
+  drawMoonSprite(diag_cx + 62, diag_cy, 4);
 
   // Orbit buttons
   for (var i = 0; i < ORBITS.length; i++) {
@@ -925,7 +1158,7 @@ function drawSelect() {
   ctx.font = '11px sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'alphabetic';
-  ctx.fillText('Space / \u2191 burn  \u2193 retro  \u2190\u2192 steer   \u2022   T time  \u2022  R back',
+  ctx.fillText('Space / \u2191 burn  \u2193 retro  \u2190\u2192 rotate   \u2022   T time  \u2022  O options  \u2022  R back',
                W / 2, orbitBtnY(ORBITS.length) + 14);
 }
 
@@ -1100,27 +1333,17 @@ function drawSim() {
   ctx.textBaseline = 'top';
   ctx.fillText('Moon', mpx, mpy + 10);
 
+  // Orbit predictor — coast trajectory dots + apo/peri markers
+  if (showPred) drawPredictor();
+
   // Flame particles (behind spacecraft)
   drawFlameParts();
 
-  // Spacecraft
+  // Spacecraft — points toward scAngle (absolute heading, skin-aware)
   var spx = sx(scX), spy = sy(scY);
-  var vlen = Math.sqrt(scVX * scVX + scVY * scVY);
-  if (vlen > 0.01) {
-    // Draw as small triangle pointing in velocity direction
-    var ndx = (scVX / vlen);
-    var ndy = -(scVY / vlen); // flip y for screen
-    var nose = 9, wing = 4;
-    ctx.beginPath();
-    ctx.moveTo(spx + ndx * nose, spy + ndy * nose);
-    ctx.lineTo(spx - ndy * wing - ndx * 4, spy - ndx * wing - ndy * 4);
-    ctx.lineTo(spx + ndy * wing - ndx * 4, spy + ndx * wing - ndy * 4);
-    ctx.closePath();
-    ctx.fillStyle = '#fff';
-    ctx.fill();
-  } else {
-    fillCircle(spx, spy, 3, '#fff');
-  }
+  var ndx = Math.cos(scAngle);
+  var ndy = -Math.sin(scAngle); // y-flip: physics y-up → screen y-down
+  drawSpacecraftShape(spx, spy, ndx, ndy);
 
   // HUD buttons
   var backHover = hitRect(BACK_BTN.x, BACK_BTN.y, BACK_BTN.w, BACK_BTN.h);
@@ -1130,12 +1353,15 @@ function drawSim() {
   var timeHover = hitRect(TIME_BTN.x, TIME_BTN.y, TIME_BTN.w, TIME_BTN.h);
   drawBtn(TIME_BTN.x, TIME_BTN.y, TIME_BTN.w, TIME_BTN.h, multLabel, timeHover);
 
+  var optHover = hitRect(OPT_BTN.x, OPT_BTN.y, OPT_BTN.w, OPT_BTN.h);
+  drawBtn(OPT_BTN.x, OPT_BTN.y, OPT_BTN.w, OPT_BTN.h, showOpts ? 'OPT \u25b2' : 'OPT \u25bc', optHover || showOpts);
+
   // Burn control buttons (held-touch)
   var fuelOK = dvBudget > 0;
   drawRoundBtn(BURN_BTN.cx,  BURN_BTN.cy,  BURN_BTN.r,  'BURN',  thrustFwd === 1,  '255,180,60', fuelOK);
   drawRoundBtn(RETRO_BTN.cx, RETRO_BTN.cy, RETRO_BTN.r, 'RETRO', thrustFwd === -1, '160,220,255', fuelOK);
-  drawRoundBtn(LEFT_BTN.cx,  LEFT_BTN.cy,  LEFT_BTN.r,  '\u25c0', thrustLat === -1, '220,230,240', fuelOK);
-  drawRoundBtn(RIGHT_BTN.cx, RIGHT_BTN.cy, RIGHT_BTN.r, '\u25b6', thrustLat === 1,  '220,230,240', fuelOK);
+  drawRoundBtn(LEFT_BTN.cx,  LEFT_BTN.cy,  LEFT_BTN.r,  '\u25c0', rotDir === 1,  '220,230,240', true);
+  drawRoundBtn(RIGHT_BTN.cx, RIGHT_BTN.cy, RIGHT_BTN.r, '\u25b6', rotDir === -1, '220,230,240', true);
   drawRoundBtn(AUTO_BTN.cx,  AUTO_BTN.cy,  AUTO_BTN.r,  'AUTO',  autopilot === 'on', '140,255,200', fuelOK);
 
   // ΔV meter — top center
@@ -1210,6 +1436,118 @@ function drawSim() {
       ctx.fillText('Program complete', W / 2, 72);
     }
   }
+
+  // Narration toast (Phase 6)
+  if (narrationT > 0 && narration) {
+    var na = Math.min(1, narrationT / 0.5);
+    ctx.beginPath();
+    ctx.roundRect(W / 2 - 195, 90, 390, 34, 8);
+    ctx.fillStyle = 'rgba(12,16,28,' + (na * 0.82).toFixed(2) + ')';
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,240,195,' + na.toFixed(2) + ')';
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(narration, W / 2, 107);
+  }
+
+  // Achievement toast — gold, bottom-center, fades in/out
+  if (achToastT > 0 && achToast) {
+    var aa = Math.min(1, achToastT / 0.5);
+    ctx.beginPath();
+    ctx.roundRect(W / 2 - 135, H - 62, 270, 30, 8);
+    ctx.fillStyle = 'rgba(255,210,0,' + (aa * 0.15).toFixed(2) + ')';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,210,0,' + (aa * 0.45).toFixed(2) + ')';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,225,80,' + aa.toFixed(2) + ')';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(achToast, W / 2, H - 47);
+  }
+
+  // Options panel overlay
+  if (showOpts) drawOptionsPanel();
+}
+
+// ── Options panel ─────────────────────────────────────────────────────────────
+function drawOptionsPanel() {
+  var PX = W / 2 - 165, PY = 48, PW = 330, rowH = 36;
+  var skinNames = ['Capsule', 'Saturn V', 'Duck Dieb'];
+  var rows = [
+    { label: 'Auto-Orient', val: autoOrient ? 'ON' : 'OFF',
+      color: autoOrient ? '#8ef' : '#aaa' },
+    { label: 'Trajectory',  val: showPred ? 'ON' : 'OFF',
+      color: showPred ? '#8ef' : '#aaa' },
+    { label: 'Earth mass',  val: EARTH_MASS_STEPS[earthMassIdx] + '\u00d7',
+      color: earthMassIdx === 1 ? '#aaa' : '#fa8' },
+    { label: 'Moon mass',   val: MOON_MASS_STEPS[moonMassIdx] + '\u00d7',
+      color: moonMassIdx  === 2 ? '#aaa' : '#fa8' },
+    { label: 'Thrust',      val: THRUST_STEPS[thrustIdx] + '\u00d7',
+      color: thrustIdx    === 1 ? '#aaa' : '#fa8' },
+    { label: 'Spacecraft',  val: skinNames[skinIdx],
+      color: '#bdf' }
+  ];
+  var PH = 54 + rows.length * rowH;
+
+  ctx.beginPath();
+  ctx.roundRect(PX, PY, PW, PH, 12);
+  ctx.fillStyle = 'rgba(6,10,22,0.93)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  ctx.fillStyle = 'rgba(255,255,255,0.65)';
+  ctx.font = 'bold 12px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText('OPTIONS', W / 2, PY + 22);
+
+  for (var i = 0; i < rows.length; i++) {
+    var ry = PY + 36 + i * rowH;
+    var rHov = hitRect(PX + 8, ry, PW - 16, rowH - 2);
+    if (rHov) {
+      ctx.beginPath();
+      ctx.roundRect(PX + 8, ry, PW - 16, rowH - 2, 6);
+      ctx.fillStyle = 'rgba(255,255,255,0.06)';
+      ctx.fill();
+    }
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(rows[i].label, PX + 20, ry + (rowH - 2) / 2);
+    ctx.fillStyle = rows[i].color;
+    ctx.font = 'bold 13px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(rows[i].val, PX + PW - 20, ry + (rowH - 2) / 2);
+  }
+
+  ctx.fillStyle = 'rgba(255,255,255,0.22)';
+  ctx.font = '10px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText('tap a row to cycle value', W / 2, PY + PH - 8);
+}
+
+function handleOptsClick() {
+  var PX = W / 2 - 165, PY = 48, PW = 330, rowH = 36;
+  var nRows = 6;
+  for (var i = 0; i < nRows; i++) {
+    var ry = PY + 36 + i * rowH;
+    if (hitRect(PX + 8, ry, PW - 16, rowH - 2)) {
+      if      (i === 0) { autoOrient   = !autoOrient; }
+      else if (i === 1) { showPred     = !showPred; }
+      else if (i === 2) { earthMassIdx = (earthMassIdx + 1) % EARTH_MASS_STEPS.length; }
+      else if (i === 3) { moonMassIdx  = (moonMassIdx  + 1) % MOON_MASS_STEPS.length;  }
+      else if (i === 4) { thrustIdx    = (thrustIdx    + 1) % THRUST_STEPS.length;     }
+      else if (i === 5) { skinIdx      = (skinIdx      + 1) % 3; }
+      break;
+    }
+  }
 }
 
 // ── Game loop ─────────────────────────────────────────────────────────────────
@@ -1222,21 +1560,67 @@ function loop(ts) {
   var elapsed = Math.min((ts - lastTs) / 1000, SIM_REAL_STEP * 8);
   lastTs = ts;
 
-  // Burn input (read once per frame from held keys + held touches).
-  // Autopilot, when on, overrides manual thrust.
-  thrustFwd = 0; thrustLat = 0;
-  if (phase === 'sim' && dvBudget > 0) {
-    if (autopilot === 'on') {
-      stepAutopilot();
-    } else {
-      var touchBurn  = touchOverCircle(BURN_BTN.cx,  BURN_BTN.cy,  BURN_BTN.r);
-      var touchRetro = touchOverCircle(RETRO_BTN.cx, RETRO_BTN.cy, RETRO_BTN.r);
-      var touchLeft  = touchOverCircle(LEFT_BTN.cx,  LEFT_BTN.cy,  LEFT_BTN.r);
-      var touchRight = touchOverCircle(RIGHT_BTN.cx, RIGHT_BTN.cy, RIGHT_BTN.r);
-      if (K['Space'] || K['ArrowUp'] || touchBurn)  thrustFwd = 1;
-      else if (K['ArrowDown'] || touchRetro)        thrustFwd = -1;
-      if (K['ArrowLeft']  || touchLeft)  thrustLat = -1;
-      if (K['ArrowRight'] || touchRight) thrustLat = 1;
+  // ── Burn / rotation input ─────────────────────────────────────────────────
+  thrustFwd = 0; rotDir = 0;
+  if (phase === 'sim') {
+    // Mouse/pointer aim: hold on playfield → orient toward cursor and fire.
+    var mouseAiming = false;
+    if (pointerDown) {
+      var overCtrl =
+        hitRect(BACK_BTN.x, BACK_BTN.y, BACK_BTN.w, BACK_BTN.h) ||
+        hitRect(TIME_BTN.x, TIME_BTN.y, TIME_BTN.w, TIME_BTN.h) ||
+        hitRect(OPT_BTN.x,  OPT_BTN.y,  OPT_BTN.w,  OPT_BTN.h) ||
+        Math.hypot(mx - BURN_BTN.cx,  my - BURN_BTN.cy)  <= BURN_BTN.r  + 8 ||
+        Math.hypot(mx - RETRO_BTN.cx, my - RETRO_BTN.cy) <= RETRO_BTN.r + 8 ||
+        Math.hypot(mx - LEFT_BTN.cx,  my - LEFT_BTN.cy)  <= LEFT_BTN.r  + 8 ||
+        Math.hypot(mx - RIGHT_BTN.cx, my - RIGHT_BTN.cy) <= RIGHT_BTN.r + 8 ||
+        Math.hypot(mx - AUTO_BTN.cx,  my - AUTO_BTN.cy)  <= AUTO_BTN.r  + 8;
+      if (!overCtrl) {
+        var aimSpx = sx(scX), aimSpy = sy(scY);
+        var aimDx = mx - aimSpx, aimDy = my - aimSpy;
+        if (aimDx * aimDx + aimDy * aimDy > 25) {
+          scAngle = Math.atan2(-aimDy, aimDx); // screen→physics: flip y
+          if (dvBudget > 0) thrustFwd = 1;
+          mouseAiming = true;
+          if (autopilot === 'on') { autopilot = 'off'; autoLockFrames = 0; }
+        }
+      }
+    }
+
+    if (!mouseAiming) {
+      if (autopilot === 'on') {
+        // stepAutopilot applies rotation to scAngle directly and sets rotDir for puffs
+        stepAutopilot(elapsed);
+      } else {
+        var touchBurn  = touchOverCircle(BURN_BTN.cx,  BURN_BTN.cy,  BURN_BTN.r);
+        var touchRetro = touchOverCircle(RETRO_BTN.cx, RETRO_BTN.cy, RETRO_BTN.r);
+        var touchLeft  = touchOverCircle(LEFT_BTN.cx,  LEFT_BTN.cy,  LEFT_BTN.r);
+        var touchRight = touchOverCircle(RIGHT_BTN.cx, RIGHT_BTN.cy, RIGHT_BTN.r);
+        if (dvBudget > 0) {
+          if (K['Space'] || K['ArrowUp'] || touchBurn)  thrustFwd = 1;
+          else if (K['ArrowDown'] || touchRetro)        thrustFwd = -1;
+        }
+        if (K['ArrowLeft']  || touchLeft)  rotDir = 1;   // CCW
+        if (K['ArrowRight'] || touchRight) rotDir = -1;  // CW
+        // Apply manual rotation (free — RCS, no ΔV)
+        if (rotDir !== 0) scAngle += rotDir * ROT_RATE * elapsed;
+        // Auto-orient: rotate toward burn direction before firing (when no manual rotation)
+        if (autoOrient && rotDir === 0 && thrustFwd !== 0) {
+          var vla = Math.sqrt(scVX * scVX + scVY * scVY);
+          if (vla > 0.01) {
+            var aoAng = thrustFwd === 1 ? Math.atan2(scVY, scVX) : Math.atan2(-scVY, -scVX);
+            var aoDiff = aoAng - scAngle;
+            while (aoDiff >  Math.PI) aoDiff -= PI2;
+            while (aoDiff < -Math.PI) aoDiff += PI2;
+            if (Math.abs(aoDiff) > 0.05) {
+              var aoRot = aoDiff > 0 ? 1 : -1;
+              scAngle += aoRot * Math.min(ROT_RATE * elapsed, Math.abs(aoDiff));
+              rotDir = aoRot;
+              thrustFwd = 0;
+            }
+          }
+        }
+      }
     }
   }
 
@@ -1260,34 +1644,53 @@ function loop(ts) {
       simDebt -= SIM_REAL_STEP;
     }
 
-    // Spawn flame particles proportional to thrust — tied to real time so the
-    // visual rate stays steady regardless of time multiplier.
-    if (dvBudget > 0) {
-      var vlen2 = Math.sqrt(scVX * scVX + scVY * scVY);
-      if (vlen2 > 0.001) {
-        var ndx2 = scVX / vlen2, ndy2 = -scVY / vlen2; // screen-space unit (y-flip)
-        var spx2 = sx(scX), spy2 = sy(scY);
-        // Prograde flame: emits from tail (back of ship) in retrograde direction
-        if (thrustFwd === 1) {
-          var tailX = spx2 - ndx2 * 4, tailY = spy2 - ndy2 * 4;
-          spawnFlameBurst(tailX, tailY, -ndx2 * 60, -ndy2 * 60, 3, 0.45, 3, 255, 180, 60, 40);
-          spawnFlameBurst(tailX, tailY, -ndx2 * 40, -ndy2 * 40, 2, 0.3,  2, 255, 240, 160, 30);
-        }
-        // Retrograde: flame from nose, pointing forward
-        if (thrustFwd === -1) {
-          var noseX = spx2 + ndx2 * 9, noseY = spy2 + ndy2 * 9;
-          spawnFlameBurst(noseX, noseY, ndx2 * 50, ndy2 * 50, 2, 0.3, 2, 160, 220, 255, 25);
-        }
-        // Lateral puffs — on the side opposite to push direction (reaction)
-        // thrustLat = +1 means push right (in velocity frame); exhaust leaves the left side.
-        if (thrustLat !== 0) {
-          var lxh2 = ndy2, lyh2 = -ndx2; // screen-space left perpendicular
-          var sideX = spx2 - thrustLat * lxh2 * 4;
-          var sideY = spy2 - thrustLat * lyh2 * 4;
-          spawnFlameBurst(sideX, sideY, -thrustLat * lxh2 * 40, -thrustLat * lyh2 * 40,
-                          1, 0.25, 2, 220, 230, 240, 20);
-        }
+    // Orbit predictor — recompute every frame from current state
+    if (showPred) computePredictor();
+
+    // Narration + achievement event checks — run once per batch
+    for (var ni = 0; ni < NARRATION_EVENTS.length; ni++) {
+      var nev = NARRATION_EVENTS[ni];
+      if (!narrated[nev.id] && nev.check()) {
+        narrated[nev.id] = true;
+        narration  = nev.text;
+        narrationT = 4.2;
+        if (nev.ach) unlockAch(nev.ach.id, nev.ach.label);
       }
+    }
+    // First-burn achievement
+    if (thrustFwd !== 0 && dvBudget > 0) unlockAch('first_burn', 'First Burn');
+
+    // Spawn flame particles — tied to real time so visual rate is independent of time mult.
+    var fhx = Math.cos(scAngle), fhy = -Math.sin(scAngle); // heading in screen coords (y-flip)
+    var spx2 = sx(scX), spy2 = sy(scY);
+    // Main engine flames (exhaust opposite to thrust direction)
+    if (dvBudget > 0 && thrustFwd !== 0) {
+      if (thrustFwd === 1) {
+        // Prograde: exhaust from tail
+        var tailX = spx2 - fhx * 4, tailY = spy2 - fhy * 4;
+        spawnFlameBurst(tailX, tailY, -fhx * 60, -fhy * 60, 3, 0.45, 3, 255, 180, 60, 40);
+        spawnFlameBurst(tailX, tailY, -fhx * 40, -fhy * 40, 2, 0.3,  2, 255, 240, 160, 30);
+      } else {
+        // Retro: exhaust from nose
+        var noseX = spx2 + fhx * 9, noseY = spy2 + fhy * 9;
+        spawnFlameBurst(noseX, noseY, fhx * 50, fhy * 50, 2, 0.3, 2, 160, 220, 255, 25);
+      }
+    }
+    // RCS puffs when rotating — light gray gas jets from nose and tail
+    if (rotDir !== 0) {
+      // craft-right in screen: 90° CCW of heading = (-fhy, fhx)
+      var crx = -fhy, cry = fhx;
+      // rotDir +1 = CCW: reaction force on craft-right side of nose, craft-left of tail
+      spawnFlameBurst(
+        spx2 + fhx * 6 + crx * rotDir * 3,
+        spy2 + fhy * 6 + cry * rotDir * 3,
+        crx * rotDir * 28, cry * rotDir * 28,
+        1, 0.22, 1.5, 200, 205, 215, 12);
+      spawnFlameBurst(
+        spx2 - fhx * 5 - crx * rotDir * 3,
+        spy2 - fhy * 5 - cry * rotDir * 3,
+        -crx * rotDir * 28, -cry * rotDir * 28,
+        1, 0.22, 1.5, 200, 205, 215, 12);
     }
   }
 
@@ -1295,6 +1698,14 @@ function loop(ts) {
   if (programAnnounceT > 0) {
     programAnnounceT -= elapsed;
     if (programAnnounceT < 0) programAnnounceT = 0;
+  }
+  if (narrationT > 0) {
+    narrationT -= elapsed;
+    if (narrationT < 0) narrationT = 0;
+  }
+  if (achToastT > 0) {
+    achToastT -= elapsed;
+    if (achToastT < 0) achToastT = 0;
   }
 
   // Input
@@ -1351,10 +1762,16 @@ function loop(ts) {
   } else if (phase === 'sim') {
     if (mclk) {
       if (hitRect(BACK_BTN.x, BACK_BTN.y, BACK_BTN.w, BACK_BTN.h)) {
-        phase = 'select';
+        phase = 'select'; showOpts = false;
         mclk = false;
       } else if (hitRect(TIME_BTN.x, TIME_BTN.y, TIME_BTN.w, TIME_BTN.h)) {
         timeMultIdx = (timeMultIdx + 1) % TIME_MULTS.length;
+        mclk = false;
+      } else if (hitRect(OPT_BTN.x, OPT_BTN.y, OPT_BTN.w, OPT_BTN.h)) {
+        showOpts = !showOpts;
+        mclk = false;
+      } else if (showOpts) {
+        handleOptsClick();
         mclk = false;
       } else {
         var dAuto = Math.hypot(mx - AUTO_BTN.cx, my - AUTO_BTN.cy);
@@ -1365,9 +1782,10 @@ function loop(ts) {
         }
       }
     }
-    if (JP['KeyR']) phase = 'select';
+    if (JP['KeyR']) { phase = 'select'; showOpts = false; }
     if (JP['KeyT']) timeMultIdx = (timeMultIdx + 1) % TIME_MULTS.length;
     if (JP['KeyA']) { autopilot = (autopilot === 'on') ? 'off' : 'on'; autoLockFrames = 0; }
+    if (JP['KeyO']) showOpts = !showOpts;
   }
 
   // Draw

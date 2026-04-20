@@ -160,39 +160,49 @@ The "good" initial conditions for a free-return from r=0.12 DU:
 
 ---
 
-## Phase 5 — Customization Panel
+## Phase 4 predictor + Phases 4.5 / 5 / 6 — COMPLETE ✅
 
-A collapsible panel (toggle with C key or button):
+### Orbit Predictor (Phase 4 follow-up)
+- `computePredictor()` runs 500 coast-only physics steps (0.20 TU ahead) every frame
+- Draws ~125 fading white dots and APO/PER markers (amber/blue circles with labels)
+- `predPts` / `predMkrs` arrays; uses same `EARTH_MASS_STEPS` / `MOON_MASS_STEPS` multipliers
 
-```
-┌─── Customize ──────────────────┐
-│ Earth mass:   [======] 1.0×    │
-│ Moon mass:    [===   ] 0.5×    │
-│ Moon orbit:   [=====] 1.0×     │
-│ Time scale:   [=====] 1.0×     │
-│ Thrust power: [====  ] 0.8×    │
-│ Gravity:      [=====] 1.0×     │
-└────────────────────────────────┘
-```
+### Options Panel (Phase 4.5 + 5 + 6 combined)
+- OPT button (top-right HUD), also toggled with O key; `showOpts` flag
+- **Auto-Orient**: when on, BURN/RETRO auto-rotates toward prograde/retrograde before firing
+  (emits RCS puffs during rotation); overrides manual rotation key while aligning
+- **Trajectory**: show/hide the orbit predictor projection (ON by default)
+- **Earth mass** multiplier: 0.5× / 1× / 2× / 4× (default 1×)
+- **Moon mass** multiplier: 0 / 0.5× / 1× / 2× / 4× (default 1×)
+- **Thrust** multiplier: 0.5× / 1× / 2× / 4× (default 1×)
+- **Spacecraft skin**: Capsule (white triangle) / Saturn V (tapered body + brass engine bell + stage band) / Duck Dieb (yellow body + mallard head + bandit mask)
+- `handleOptsClick()` cycles each row on tap; `drawOptionsPanel()` renders the overlay
 
-Implementation:
-- Slider component: `{id, label, min, max, value, param}` array
-- `param` is a key in a `PARAMS` object that the physics reads
-- Sliders update PARAMS in real-time; physics immediately reflects changes
-- "Reset to defaults" button
+### Narration (Phase 6)
+- `NARRATION_EVENTS` array checked once per sim batch: Moon SOI entry, escape velocity, dangerously close to Earth, close Moon encounter, high speed
+- "Orbit stabilized" fires when `stepAutopilot` shuts off naturally
+- Toast overlay at y=90 fades in/out; `narrated` dict prevents re-trigger per session
+- Story flavor text per flight program shown as narration toast at program launch
 
-Each slider should show an educational label like "Earth mass (affects orbital speed)"
+### Achievements (Phase 6)
+- Stored in `localStorage` key `orbit_ach`; unlocked once per install
+- Gold achievement toast at bottom-center (fades in/out, 3.5s)
+- `unlockAch(id, label)` — idempotent, persists to localStorage
+- Achievements: First Burn, Lunar Tourist (Moon SOI), Escape Artist (escape velocity), Smooth Operator (autopilot stabilize), Moon Walker (circularize around Moon)
 
 ---
 
-## Phase 6 — Muckoification
+## Phase 5 — Customization Panel — COMPLETE ✅ (merged into OPT panel above)
 
-Add Mucko characters once the physics engine is solid:
+---
 
-- **Spacecraft skin options**: choose between generic capsule, "Samster's Rocket", "Saturn V" (already a character in the universe), or "Duck Dieb's escape pod"
-- **Narration/dialog**: Lekan or Samster provide commentary when spacecraft reaches key events (Moon orbit, periapsis, escape velocity)
-- **Mission flavor**: each flight program gets a story premise ("Samster needs to get to the Moon to recover the stolen cheese")
-- **High score / achievement system**: fastest Moon orbit insertion, smallest ΔV Hohmann transfer, most figure-8 loops without crashing
+## Phase 6 — Muckoification — COMPLETE ✅ (partial; merged into OPT panel + narration above)
+
+Remaining Muckoification ideas for later:
+- **More skins**: "Samster's Rocket" (hamster silhouette?), "Duck Dieb's Escape Pod"
+- **More narration events**: first figure-8 Moon encounter, Hohmann circularization complete, full orbit of Moon
+- **Mission flavor text**: story premise per flight program ("Samster needs to reach the Moon to recover the stolen cheese")
+- **Achievement system**: fastest Moon insertion, smallest ΔV Hohmann, most figure-8 loops without crashing
 
 ---
 
