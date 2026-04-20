@@ -354,6 +354,15 @@ var thrustLat     = 0;    // -1 left push, 0, +1 right push
 var flameParts    = [];   // {x,y,vx,vy,life,maxLife,size,r,g,b}
 var FLAME_MAX     = 200;
 
+// ── Autopilot (auto-circularize) ─────────────────────────────────────────────
+// Bang-bang feedback controller: picks Earth or Moon as target (whichever body
+// is closer in orbital terms), then fires thrust to drive the orbit toward a
+// circle at the current radius. Turns itself off on tolerance hit or when the
+// ΔV budget runs out.
+var autopilot       = 'off';   // 'off' | 'on'
+var autoTarget      = 'earth'; // 'earth' | 'moon' — last target picked (for badge)
+var autoLockFrames  = 0;       // consecutive in-tolerance frames before shutoff
+
 // ── Placement (custom orbit) state ────────────────────────────────────────────
 var placeHasPos    = false;
 var placeHasVel    = false;
@@ -399,6 +408,8 @@ function startSim(idx) {
   flameParts = [];
   thrustFwd = 0;
   thrustLat = 0;
+  autopilot = 'off';
+  autoLockFrames = 0;
   phase = 'sim';
 }
 
@@ -423,6 +434,8 @@ function launchFromPlace() {
   flameParts = [];
   thrustFwd = 0;
   thrustLat = 0;
+  autopilot = 'off';
+  autoLockFrames = 0;
   moonAngle0 = 0;
   phase = 'sim';
 }
@@ -440,6 +453,8 @@ function startProgram(idx) {
   flameParts = [];
   thrustFwd = 0;
   thrustLat = 0;
+  autopilot = 'off';
+  autoLockFrames = 0;
   programNextBurn  = 0;
   programPrevDr    = null;
   programPrevDrm   = null;
@@ -537,6 +552,78 @@ function tickProgram() {
     programPrevDr  = null;
     programPrevDrm = null;
   }
+}
+
+// Auto-circularize controller — called once per animation frame (not per
+// physics sub-step), sets thrustFwd / thrustLat to drive the orbit toward a
+// circle at the current radius around the selected primary.
+var AUTO_DV_TOL      = 0.08;  // DU/TU — below this, treat orbit as circular
+var AUTO_LOCK_FRAMES = 18;    // consecutive in-tolerance frames before shutoff
+var AUTO_SOI         = 0.14;  // rm below which Moon becomes the target
+var AUTO_PROG_THRESH = 0.04;  // Δv projection needed to fire prograde/retro
+var AUTO_LAT_THRESH  = 0.02;  // ... to fire lateral steering
+
+function stepAutopilot() {
+  thrustFwd = 0;
+  thrustLat = 0;
+  if (autopilot !== 'on' || phase !== 'sim' || dvBudget <= 0) return;
+
+  // Pick target body. Inside Moon's sphere of influence → Moon, else Earth.
+  var cx = 0, cy = 0, cvx = 0, cvy = 0, GM = GM_E;
+  var mp = moonPos(simT), mv = moonVel(simT);
+  var rmx = scX - mp.x, rmy = scY - mp.y;
+  var rm  = Math.sqrt(rmx * rmx + rmy * rmy);
+  if (rm < AUTO_SOI) {
+    cx = mp.x; cy = mp.y; cvx = mv.x; cvy = mv.y; GM = GM_M;
+    autoTarget = 'moon';
+  } else {
+    autoTarget = 'earth';
+  }
+
+  // State relative to primary
+  var rx = scX - cx, ry = scY - cy;
+  var r  = Math.sqrt(rx * rx + ry * ry);
+  if (r < 0.008) return;                    // too close — bail out, don't thrust into body
+  var rvx = scVX - cvx, rvy = scVY - cvy;
+
+  // Angular momentum sign picks the desired direction of travel; if the craft
+  // is nearly radial, fall back to CCW so the controller has a defined target.
+  var angMom = rx * rvy - ry * rvx;
+  var dir    = angMom >= 0 ? 1 : -1;
+  var tx = -ry / r, ty = rx / r;             // CCW tangent
+  if (dir < 0) { tx = -tx; ty = -ty; }
+
+  // Required impulse: Δv = v_circ*tangent − v_relative
+  var vcirc = Math.sqrt(GM / r);
+  var dvx   = tx * vcirc - rvx;
+  var dvy   = ty * vcirc - rvy;
+  var dvMag = Math.sqrt(dvx * dvx + dvy * dvy);
+
+  if (dvMag < AUTO_DV_TOL) {
+    autoLockFrames++;
+    if (autoLockFrames >= AUTO_LOCK_FRAMES) {
+      autopilot = 'off';
+      autoLockFrames = 0;
+    }
+    return;                                   // idle — no burn needed
+  }
+  autoLockFrames = 0;
+
+  // Decompose Δv onto the ship's prograde and lateral axes (defined by
+  // *craft-frame* velocity, not relative velocity — that matches what thrust
+  // buttons do in the physics step).
+  var vl = Math.sqrt(scVX * scVX + scVY * scVY);
+  if (vl < 0.01) { thrustFwd = 1; return; }   // essentially stopped — kick forward
+  var fx = scVX / vl, fy = scVY / vl;
+  var lx = -fy, ly = fx;                      // 90° CCW of forward
+
+  var progComp = dvx * fx + dvy * fy;
+  var latComp  = dvx * lx + dvy * ly;
+
+  if (progComp >  AUTO_PROG_THRESH) thrustFwd =  1;
+  else if (progComp < -AUTO_PROG_THRESH) thrustFwd = -1;
+  if (latComp  >  AUTO_LAT_THRESH)  thrustLat =  1;
+  else if (latComp  < -AUTO_LAT_THRESH)  thrustLat = -1;
 }
 
 // Symplectic Euler: v += a*dt, x += v*dt  (conserves energy far better than plain Euler)
@@ -642,6 +729,7 @@ var BURN_BTN  = { cx: W - 100, cy: H - 110, r: 58 };  // main prograde
 var RETRO_BTN = { cx: W - 100, cy: H - 220, r: 34 };
 var LEFT_BTN  = { cx:   80,    cy: H - 110, r: 48 };
 var RIGHT_BTN = { cx:  190,    cy: H - 110, r: 48 };
+var AUTO_BTN  = { cx:   80,    cy: H - 220, r: 34 };   // mirrors RETRO on the left
 
 // ── Drawing helpers ───────────────────────────────────────────────────────────
 function fillCircle(x, y, r, color) {
@@ -1048,6 +1136,7 @@ function drawSim() {
   drawRoundBtn(RETRO_BTN.cx, RETRO_BTN.cy, RETRO_BTN.r, 'RETRO', thrustFwd === -1, '160,220,255', fuelOK);
   drawRoundBtn(LEFT_BTN.cx,  LEFT_BTN.cy,  LEFT_BTN.r,  '\u25c0', thrustLat === -1, '220,230,240', fuelOK);
   drawRoundBtn(RIGHT_BTN.cx, RIGHT_BTN.cy, RIGHT_BTN.r, '\u25b6', thrustLat === 1,  '220,230,240', fuelOK);
+  drawRoundBtn(AUTO_BTN.cx,  AUTO_BTN.cy,  AUTO_BTN.r,  'AUTO',  autopilot === 'on', '140,255,200', fuelOK);
 
   // ΔV meter — top center
   var dvFrac = dvBudget / DV_START;
@@ -1088,6 +1177,16 @@ function drawSim() {
     ctx.fillText(curOrbit.name, W - 10, H - 10);
   }
 
+  // Auto-circularize badge (takes precedence over flight-program badge)
+  if (autopilot === 'on') {
+    ctx.fillStyle = 'rgba(140,255,200,0.8)';
+    ctx.font = 'bold 11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    var tgtLabel = autoTarget === 'moon' ? 'MOON' : 'EARTH';
+    ctx.fillText('\u2022 AUTO CIRC \u2192 ' + tgtLabel + ' \u2022', W / 2, 54);
+  }
+
   // Flight-program autopilot badge + burn announcement
   if (curOrbit && curOrbit.program) {
     ctx.fillStyle = 'rgba(150,240,255,0.65)';
@@ -1123,17 +1222,22 @@ function loop(ts) {
   var elapsed = Math.min((ts - lastTs) / 1000, SIM_REAL_STEP * 8);
   lastTs = ts;
 
-  // Burn input (read once per frame from held keys + held touches)
+  // Burn input (read once per frame from held keys + held touches).
+  // Autopilot, when on, overrides manual thrust.
   thrustFwd = 0; thrustLat = 0;
   if (phase === 'sim' && dvBudget > 0) {
-    var touchBurn  = touchOverCircle(BURN_BTN.cx,  BURN_BTN.cy,  BURN_BTN.r);
-    var touchRetro = touchOverCircle(RETRO_BTN.cx, RETRO_BTN.cy, RETRO_BTN.r);
-    var touchLeft  = touchOverCircle(LEFT_BTN.cx,  LEFT_BTN.cy,  LEFT_BTN.r);
-    var touchRight = touchOverCircle(RIGHT_BTN.cx, RIGHT_BTN.cy, RIGHT_BTN.r);
-    if (K['Space'] || K['ArrowUp'] || touchBurn)  thrustFwd = 1;
-    else if (K['ArrowDown'] || touchRetro)        thrustFwd = -1;
-    if (K['ArrowLeft']  || touchLeft)  thrustLat = -1;
-    if (K['ArrowRight'] || touchRight) thrustLat = 1;
+    if (autopilot === 'on') {
+      stepAutopilot();
+    } else {
+      var touchBurn  = touchOverCircle(BURN_BTN.cx,  BURN_BTN.cy,  BURN_BTN.r);
+      var touchRetro = touchOverCircle(RETRO_BTN.cx, RETRO_BTN.cy, RETRO_BTN.r);
+      var touchLeft  = touchOverCircle(LEFT_BTN.cx,  LEFT_BTN.cy,  LEFT_BTN.r);
+      var touchRight = touchOverCircle(RIGHT_BTN.cx, RIGHT_BTN.cy, RIGHT_BTN.r);
+      if (K['Space'] || K['ArrowUp'] || touchBurn)  thrustFwd = 1;
+      else if (K['ArrowDown'] || touchRetro)        thrustFwd = -1;
+      if (K['ArrowLeft']  || touchLeft)  thrustLat = -1;
+      if (K['ArrowRight'] || touchRight) thrustLat = 1;
+    }
   }
 
   // Physics
@@ -1252,10 +1356,18 @@ function loop(ts) {
       } else if (hitRect(TIME_BTN.x, TIME_BTN.y, TIME_BTN.w, TIME_BTN.h)) {
         timeMultIdx = (timeMultIdx + 1) % TIME_MULTS.length;
         mclk = false;
+      } else {
+        var dAuto = Math.hypot(mx - AUTO_BTN.cx, my - AUTO_BTN.cy);
+        if (dAuto <= AUTO_BTN.r) {
+          autopilot = (autopilot === 'on') ? 'off' : 'on';
+          autoLockFrames = 0;
+          mclk = false;
+        }
       }
     }
     if (JP['KeyR']) phase = 'select';
     if (JP['KeyT']) timeMultIdx = (timeMultIdx + 1) % TIME_MULTS.length;
+    if (JP['KeyA']) { autopilot = (autopilot === 'on') ? 'off' : 'on'; autoLockFrames = 0; }
   }
 
   // Draw
