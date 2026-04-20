@@ -117,17 +117,27 @@ canvas.addEventListener('click', function(e) {
 });
 
 /* ── Characters (copied from lakehousemath) ────────────────── */
+// Per-character physics multipliers (omit for default 1.0).
+//   moveMul scales walk accel + max speed
+//   jumpMul scales jump velocity (and the jump-cut clamp)
+//   dashMul scales dash velocity
+// Pras the Koala is intentionally, comically slow — he's "in hour 19 of a
+// 22-hour nap" and barely moves. Picking him is a joke.
 var CHARACTERS = {
   samster: { name: 'Samster',        color: '#dfc18e', accent: '#8d5f35', outline: '#4f311d', sprite: 'hamster' },
-  duck:    { name: 'Duck Dieb',      color: '#f3f1eb', accent: '#161616', outline: '#2a2217', sprite: 'duck' },
+  duck:    { name: 'Duck Dieb',      color: '#8b6030', accent: '#2a7a38', outline: '#3c2814', sprite: 'duck' },
   hippo:   { name: 'Hippo',          color: '#8f7ea8', accent: '#63557b', outline: '#40324c', sprite: 'hippo' },
   nik:     { name: 'Nik',            color: '#83c7e3', accent: '#3f7da0', outline: '#24506d', sprite: 'seal' },
   lekan:   { name: 'Lekan',          color: '#f4f4f4', accent: '#242424', outline: '#202020', sprite: 'panda' },
   basil:   { name: 'Basil',          color: '#d1b48d', accent: '#48683c', outline: '#4d3726', sprite: 'keeper' },
   mucko:   { name: 'Captain Mucko',  color: '#d8a95a', accent: '#8f2f2f', outline: '#5f3914', sprite: 'captain' },
-  rocket:  { name: 'Saturn V',       color: '#ededed', accent: '#d76039', outline: '#373737', sprite: 'rocket' }
+  rocket:  { name: 'Saturn V',       color: '#ededed', accent: '#d76039', outline: '#373737', sprite: 'rocket' },
+  digory:  { name: 'Digory',         color: '#f7f5f0', accent: '#18181c', outline: '#3a2c20', sprite: 'digory' },
+  jlong:   { name: 'J. Long',        color: '#f0c84d', accent: '#bf8834', outline: '#5a3a14', sprite: 'giraffe' },
+  pras:    { name: 'Pras the Koala', color: '#9aa1a8', accent: '#3a3f48', outline: '#2c2f36', sprite: 'koala',
+             moveMul: 0.06, jumpMul: 0.18, dashMul: 0.10 }
 };
-var CHAR_IDS = ['samster', 'duck', 'hippo', 'nik', 'lekan', 'basil', 'mucko', 'rocket'];
+var CHAR_IDS = ['samster', 'duck', 'hippo', 'nik', 'lekan', 'basil', 'mucko', 'rocket', 'digory', 'jlong', 'pras'];
 
 // CPU difficulty "moods" — drive AI dwell time and jump frequency.
 // idleChance + walkChance + jumpChance must sum to 1.
@@ -193,13 +203,22 @@ function drawCharacter(cx, id, x, y, facing, bob, shadowScale) {
     drawCircle(cx, 4, -4, 2, '#35231b');
     drawCircle(cx, 0, 1, 2.2, '#c56f62');
   } else if (ch.sprite === 'duck') {
-    drawEllipse(cx, -2, 4, 16, 12, '#f2f0eb', ch.outline, 2);
-    drawEllipse(cx, 10, -6, 10, 9, '#f2f0eb', ch.outline, 2);
-    fillRoundRect(cx, 4, -10, 14, 6, 3, ch.accent);
-    drawCircle(cx, 9, -8, 1.8, '#f2f0eb');
-    drawEllipse(cx, 20, -2, 7, 4, '#e8a34a', '#9c5e1d', 1.4);
-    cx.fillStyle = '#202020';
-    cx.beginPath(); cx.moveTo(-12, 2); cx.lineTo(-22, 16); cx.lineTo(-6, 12); cx.closePath(); cx.fill();
+    // Mallard body — brown with darker wing shading
+    drawEllipse(cx, -2, 4, 16, 12, '#8b6030', ch.outline, 2);
+    drawEllipse(cx, -2, 5, 12, 7, '#7a5020');
+    // Tail feathers (dark, behind)
+    cx.fillStyle = '#3c2814';
+    cx.beginPath(); cx.moveTo(-12, 2); cx.lineTo(-22, 14); cx.lineTo(-6, 10); cx.closePath(); cx.fill();
+    // Dark green mallard head with iridescent highlight
+    drawCircle(cx, 10, -7, 8, '#2a7a38', ch.outline, 2);
+    drawCircle(cx, 8, -9, 3.4, 'rgba(0,200,160,0.32)');
+    // Black mask bar across the eyes
+    cx.fillStyle = '#111';
+    cx.fillRect(4, -9, 13, 4);
+    drawCircle(cx, 8, -7, 1.4, '#fff');
+    drawCircle(cx, 13, -7, 1.4, '#fff');
+    // Yellow bill
+    drawEllipse(cx, 20, -3, 7, 3.5, '#e8b800', '#9c7900', 1.4);
   } else if (ch.sprite === 'hippo') {
     drawEllipse(cx, 0, 5, 20, 15, ch.color, ch.outline, 2);
     drawCircle(cx, -9, -7, 5, ch.color, ch.outline, 2);
@@ -248,6 +267,78 @@ function drawCharacter(cx, id, x, y, facing, bob, shadowScale) {
     drawCircle(cx, 0, -2, 4, '#84cbe8', '#3f7e9a', 1.4);
     drawLine(cx, -4, 24, -8, 32, '#444', 3);
     drawLine(cx, 4, 24, 8, 32, '#444', 3);
+  } else if (ch.sprite === 'digory') {
+    // Curled tail (drawn first so the body covers the root)
+    cx.strokeStyle = '#f0e6db'; cx.lineWidth = 5; cx.lineCap = 'round';
+    cx.beginPath(); cx.moveTo(-13, 2); cx.quadraticCurveTo(-22, -6, -14, -12); cx.stroke();
+    // Cream body
+    drawEllipse(cx, 0, 5, 17, 12, '#f7f5f0', ch.outline, 2);
+    // Black saddle / spot on the back
+    drawEllipse(cx, -2, -1, 8, 5, '#18181c');
+    // Head
+    drawCircle(cx, 9, -8, 8.5, '#f7f5f0', ch.outline, 2);
+    // Floppy black ear (rotated forward)
+    cx.save();
+    cx.translate(4, -8); cx.rotate(-0.3);
+    drawEllipse(cx, 0, 2, 2.5, 5.5, '#18181c');
+    cx.restore();
+    // Tan muzzle + black nose
+    drawEllipse(cx, 14, -5, 5.5, 3.6, '#d1a17a', '#8a5a35', 1);
+    drawCircle(cx, 18, -6, 1.6, '#18181c');
+    // Eye
+    drawCircle(cx, 9, -10, 1.5, '#18181c');
+    // Collar with tag
+    cx.fillStyle = '#7a8088';
+    cx.fillRect(0, -2, 14, 2.5);
+    drawCircle(cx, 12, -0.5, 1.7, '#d0d4d8', '#444', 1);
+  } else if (ch.sprite === 'giraffe') {
+    // Body — yellow with brown spots
+    drawEllipse(cx, 0, 5, 14, 9, '#f0c84d', ch.outline, 2);
+    drawCircle(cx, -6, 3, 2.2, '#bf8834');
+    drawCircle(cx, 4, 6, 2, '#bf8834');
+    drawCircle(cx, 8, 2, 1.8, '#bf8834');
+    // Neck (vertical, gentle sway driven by bob)
+    var sway = Math.sin((bob || 0) * 0.5) * 0.08;
+    cx.save();
+    cx.translate(2, -2);
+    cx.rotate(sway);
+    fillRoundRect(cx, -3, -22, 6, 22, 2, '#f0c84d', ch.outline, 1.5);
+    drawCircle(cx, 1, -10, 1.4, '#bf8834');
+    drawCircle(cx, -1, -18, 1.3, '#bf8834');
+    // Head, mouth, eye, ossicones (tiny horns)
+    drawEllipse(cx, 0, -27, 6, 5, '#f0c84d', ch.outline, 1.5);
+    drawEllipse(cx, 4, -25, 3, 1.6, '#8a5a24');
+    drawCircle(cx, 2, -29, 1, '#1c1c1c');
+    drawLine(cx, -2, -32, -3, -36, '#8a5a24', 2);
+    drawLine(cx, 2, -32, 3, -36, '#8a5a24', 2);
+    drawCircle(cx, -3, -36, 1.2, '#d5a634');
+    drawCircle(cx, 3, -36, 1.2, '#d5a634');
+    cx.restore();
+  } else if (ch.sprite === 'koala') {
+    // Chubby gray body
+    drawEllipse(cx, 0, 6, 17, 13, '#9aa1a8', ch.outline, 2);
+    drawEllipse(cx, 0, 8, 11, 8, '#c2c8cc');
+    // Big fluffy ears
+    drawCircle(cx, -8, -8, 6, '#9aa1a8', ch.outline, 2);
+    drawCircle(cx, 8, -8, 6, '#9aa1a8', ch.outline, 2);
+    drawCircle(cx, -8, -8, 3.5, '#e6dfd2');
+    drawCircle(cx, 8, -8, 3.5, '#e6dfd2');
+    // Round head
+    drawCircle(cx, 0, -2, 9, '#9aa1a8', ch.outline, 2);
+    // Big black nose
+    drawEllipse(cx, 0, -1, 4.5, 3.5, '#1c1c1c');
+    // Sleepy closed-eye lines
+    drawLine(cx, -5, -5, -2, -5, '#1c1c1c', 1.6);
+    drawLine(cx, 2, -5, 5, -5, '#1c1c1c', 1.6);
+    // Snore Z's float above the head
+    cx.fillStyle = '#3a3f48';
+    cx.font = 'bold 11px Georgia,serif';
+    cx.textAlign = 'left';
+    cx.fillText('Z', 11, -14);
+    cx.font = 'bold 9px Georgia,serif';
+    cx.fillText('z', 17, -20);
+    cx.font = 'bold 7px Georgia,serif';
+    cx.fillText('z', 22, -25);
   }
   cx.restore();
 }
@@ -361,7 +452,7 @@ function startPlay() {
   state.seed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
   state.platforms = makeArena(state.seed);
   state.entities = [];
-  // Spawn active fighters spaced across the stage.
+  // Spawn active characters spaced across the stage.
   var activeSlots = [];
   for (var i = 0; i < state.slots.length; i++) if (slotActive(state.slots[i])) activeSlots.push(state.slots[i]);
   var n = activeSlots.length;
@@ -396,18 +487,17 @@ function respawn(e) {
   beep(180, 0.18, 0.28, 'sawtooth');
 }
 
-// Blast zones call this instead of respawn directly.
-// Decrements a stock; if the fighter has stocks left they respawn, otherwise
-// they're KO'd and removed from the match.
-function killOrRespawn(e) {
+// Edge-of-stage call: decrements a stock; if the character has stocks left
+// they respawn, otherwise they sit out the rest of the round.
+function loseStockOrRespawn(e) {
   if (e.ko) return;
   e.stocks--;
-  // KO sound (falling tone)
+  // Out-of-bounds tumble sound
   beep(220, 0.25, 0.18, 'sawtooth');
   setTimeout(function() { beep(140, 0.22, 0.22, 'sawtooth'); }, 110);
   if (e.stocks <= 0) {
     e.ko = true;
-    // Park the KO'd entity off-screen so it's never re-touched.
+    // Park the eliminated character off-screen so it's never re-touched.
     e.x = -9999; e.y = -9999;
     e.vx = 0; e.vy = 0;
     e.trail.length = 0;
@@ -425,7 +515,7 @@ function aliveEntities() {
 function checkMatchEnd() {
   var alive = aliveEntities();
   var total = state.entities.length;
-  // >1 fighter: last one standing wins. Solo practice: all KO'd → game over.
+  // >1 character: last one standing wins. Solo practice: all out → all done.
   if (total > 1 && alive.length <= 1) {
     state.winner = alive.length === 1 ? alive[0] : null;
     state.phase = 'results';
@@ -457,7 +547,8 @@ function startDash(e, dir) {
   e.facing = e.dashDir < 0 ? 'left' : 'right';
   e.dashT = DASH_DURATION;
   e.dashCooldown = DASH_DURATION + DASH_COOLDOWN;
-  e.vx = e.dashDir * DASH_VEL;
+  var dashMul = (CHARACTERS[e.charId].dashMul != null) ? CHARACTERS[e.charId].dashMul : 1;
+  e.vx = e.dashDir * DASH_VEL * dashMul;
   e.trail = [];
   if (!e.isCPU) beep(640, 0.14, 0.12, 'sawtooth');
   else          beep(520, 0.08, 0.10, 'sawtooth');
@@ -469,8 +560,8 @@ function cpuThink(e, dt) {
   s.jumpCooldown = Math.max(0, s.jumpCooldown - dt);
   s.timer -= dt;
 
-  // Edge avoidance: if near a blast zone and on the ground, steer inward.
-  // The floor runs x ∈ [120, 680]; blast zones are at x < -60 and x > W+60.
+  // Edge avoidance: if near the edge of the stage and on the ground, steer inward.
+  // The floor runs x ∈ [120, 680]; out-of-bounds is at x < -60 and x > W+60.
   var nearLeft  = e.x < 170 && e.onGround;
   var nearRight = e.x > W - 170 && e.onGround;
   if (nearLeft)  { s.state = 'walk_right'; s.timer = Math.max(s.timer, 0.6); }
@@ -553,17 +644,23 @@ function stepEntity(e, dt) {
     startDash(e, dir);
   }
 
+  // Per-character speed/jump multipliers (e.g. Pras the Koala is comically slow).
+  var ch = CHARACTERS[e.charId];
+  var moveMul = (ch.moveMul != null) ? ch.moveMul : 1;
+  var jumpMul = (ch.jumpMul != null) ? ch.jumpMul : 1;
+  var dashMul = (ch.dashMul != null) ? ch.dashMul : 1;
+
   // Dash state machine: while dashT > 0 we pin vx and skip accel/friction.
   var dashing = e.dashT > 0;
   if (dashing) {
     e.dashT = Math.max(0, e.dashT - dt);
-    e.vx = e.dashDir * DASH_VEL;
+    e.vx = e.dashDir * DASH_VEL * dashMul;
     // Record afterimage sample (kept short; reused in drawPlay)
     e.trail.push({ x: e.x, y: e.y, facing: e.facing, bob: e.bob });
     if (e.trail.length > 6) e.trail.shift();
   } else {
     if (e.trail.length > 0) e.trail.length = 0;
-    var accel = e.onGround ? MOVE_ACCEL_GROUND : MOVE_ACCEL_AIR;
+    var accel = (e.onGround ? MOVE_ACCEL_GROUND : MOVE_ACCEL_AIR) * moveMul;
     if (pressingLeft && !pressingRight)  { e.vx -= accel * dt; e.facing = 'left'; }
     if (pressingRight && !pressingLeft)  { e.vx += accel * dt; e.facing = 'right'; }
     if (!pressingLeft && !pressingRight && e.onGround && e.squashT <= 0) {
@@ -571,17 +668,18 @@ function stepEntity(e, dt) {
       if (e.vx > 0)      e.vx = Math.max(0, e.vx - dec);
       else if (e.vx < 0) e.vx = Math.min(0, e.vx + dec);
     }
-    if (e.vx >  MOVE_MAX) e.vx =  MOVE_MAX;
-    if (e.vx < -MOVE_MAX) e.vx = -MOVE_MAX;
+    var maxV = MOVE_MAX * moveMul;
+    if (e.vx >  maxV) e.vx =  maxV;
+    if (e.vx < -maxV) e.vx = -maxV;
   }
   if (e.dashCooldown > 0) e.dashCooldown = Math.max(0, e.dashCooldown - dt);
 
   if (jp && e.onGround) {
-    e.vy = -JUMP_VEL;
+    e.vy = -JUMP_VEL * jumpMul;
     e.onGround = false;
     if (!e.isCPU) beep(380, 0.14, 0.09, 'triangle');
   }
-  if (!jh && e.vy < -JUMP_CUT) e.vy = -JUMP_CUT;
+  if (!jh && e.vy < -JUMP_CUT * jumpMul) e.vy = -JUMP_CUT * jumpMul;
 
   // Gravity + terminal velocity
   e.vy += GRAVITY * dt;
@@ -610,8 +708,8 @@ function stepEntity(e, dt) {
     }
   }
 
-  // Blast zones: fall off any open side / bottom → KO or respawn
-  if (e.x < -60 || e.x > W + 60 || e.y > H + 120) killOrRespawn(e);
+  // Edge of stage: fall off any open side / bottom → respawn or sit out the round.
+  if (e.x < -60 || e.x > W + 60 || e.y > H + 120) loseStockOrRespawn(e);
 
   // Bob: step while walking, decay otherwise
   if (e.onGround && Math.abs(e.vx) > 20) e.bob += dt * 10;
@@ -800,7 +898,7 @@ function drawTitle() {
   fillRoundRect(ctx, 90, 70, 620, 230, 26, 'rgba(16,30,46,0.82)', 'rgba(255,239,190,0.55)', 2);
   drawText(ctx, 'MUCKO',  400, 145, '#ffd86f', 56, 'center', 'bold');
   drawText(ctx, 'SMASH',  400, 200, '#fff4cf', 56, 'center', 'bold');
-  drawText(ctx, 'Pick a fighter. Run. Jump. Don\u2019t fall off.', 400, 240, '#d9e6ef', 15, 'center', 'bold');
+  drawText(ctx, 'Pick a character. Run. Jump. Have a romp!', 400, 240, '#d9e6ef', 15, 'center', 'bold');
   var pulse = 0.5 + 0.5 * Math.sin(t * 4);
   drawText(ctx, TOUCH_UI ? 'TAP TO START' : 'PRESS SPACE / CLICK',
     400, 284, '#ffd86f', 18 + pulse * 2, 'center', 'bold');
@@ -820,7 +918,7 @@ function updateTitle(dt) {
 //   - left ◀ / right ▶ arrow pills that cycle the character
 //   - portrait in the middle
 //   - mode pill at bottom (PLAY/SPECTATOR for P1, OFF/CHILL/NORMAL/FRISKY for CPU)
-// Start button at the bottom. Needs at least one active fighter.
+// Start button at the bottom. Needs at least one active character.
 function selectLayout() {
   var cardW = 180, cardH = 380, gap = 10;
   var total = cardW * 4 + gap * 3;
@@ -872,8 +970,8 @@ function cycleMode(slot) {
 function drawSelect() {
   drawBackground();
   fillRoundRect(ctx, 20, 12, W - 40, 70, 18, 'rgba(16,30,46,0.82)', 'rgba(255,239,190,0.5)', 2);
-  drawText(ctx, 'PICK YOUR FIGHTERS', W / 2, 46, '#ffd86f', 26, 'center', 'bold');
-  drawText(ctx, 'Tap ◀ / ▶ to switch fighter \u2022 tap the mode pill to change it',
+  drawText(ctx, 'PICK YOUR CHARACTERS', W / 2, 46, '#ffd86f', 26, 'center', 'bold');
+  drawText(ctx, 'Tap ◀ / ▶ to switch character \u2022 tap the mode pill to change it',
     W / 2, 68, '#d9e6ef', 12, 'center', 'bold');
 
   var L = selectLayout();
@@ -916,14 +1014,14 @@ function drawSelect() {
       '#20160a', 17, 'center', 'bold');
   }
 
-  // Start button — disabled if no active fighters
+  // Start button — disabled if no active characters
   var B = L.startBtn;
   var canStart = activeSlotCount() >= 1;
   var startHover = hit(B);
   var sfill = !canStart ? 'rgba(150,140,120,0.8)'
     : (startHover ? '#ffd86f' : '#f2c85a');
   fillRoundRect(ctx, B.x, B.y, B.w, B.h, 18, sfill, '#7b4f1a', 3);
-  drawText(ctx, canStart ? 'START' : 'NEED A FIGHTER', B.x + B.w / 2, B.y + 34,
+  drawText(ctx, canStart ? 'START' : 'NEED A CHARACTER', B.x + B.w / 2, B.y + 34,
     '#3a2608', canStart ? 24 : 18, 'center', 'bold');
 }
 
@@ -1091,10 +1189,10 @@ function drawPlay() {
     ctx.fillRect(0, 0, W, H);
   }
 
-  // HUD strip: one card per fighter with name, stocks, damage %.
-  drawFighterHud();
+  // HUD strip: one card per character with name, stocks, damage %.
+  drawCharacterHud();
 
-  // HUD: back hint (top-right so it doesn't collide with fighter cards)
+  // HUD: back hint (top-right so it doesn't collide with character cards)
   drawText(ctx, 'Esc: back to select', W - 12, 20, '#14314a', 12, 'right', 'bold');
 
   if (mobileControlsOn()) drawMobileControls();
@@ -1107,7 +1205,7 @@ function damageColor(d) {
   if (d < 150) return '#b02727';
   return '#821010';
 }
-function drawFighterHud() {
+function drawCharacterHud() {
   var es = state.entities;
   var n = es.length;
   if (n === 0) return;
@@ -1118,7 +1216,7 @@ function drawFighterHud() {
   for (var i = 0; i < n; i++) {
     var e = es[i];
     var cx = x0 + i * (cardW + gap);
-    // Darker when KO'd.
+    // Darker when sitting out the round.
     var fill = e.ko ? 'rgba(24,24,32,0.70)' : 'rgba(16,30,46,0.80)';
     var stroke = e.ko ? 'rgba(140,140,140,0.5)' : 'rgba(255,239,190,0.55)';
     fillRoundRect(ctx, cx, y, cardW, cardH, 10, fill, stroke, 1.5);
@@ -1138,7 +1236,7 @@ function drawFighterHud() {
 
     // Damage %
     if (e.ko) {
-      drawText(ctx, 'KO', cx + cardW - 10, y + 28, '#9aa5ad', 20, 'right', 'bold');
+      drawText(ctx, 'OUT', cx + cardW - 10, y + 28, '#9aa5ad', 18, 'right', 'bold');
     } else {
       drawText(ctx, Math.floor(e.damage) + '%', cx + cardW - 10, y + 28,
         damageColor(e.damage), 20, 'right', 'bold');
@@ -1244,8 +1342,8 @@ function drawResults() {
     drawText(ctx, CHARACTERS[winner.charId].name.toUpperCase(),
       W / 2, 168, '#fff4cf', 24, 'center', 'bold');
   } else {
-    drawText(ctx, 'GAME OVER', W / 2, 180, '#ffb070', 56, 'center', 'bold');
-    drawText(ctx, 'Everyone fell off.', W / 2, 220, '#fff4cf', 20, 'center', 'bold');
+    drawText(ctx, 'ALL DONE!', W / 2, 180, '#ffb070', 56, 'center', 'bold');
+    drawText(ctx, 'Everyone took a tumble!', W / 2, 220, '#fff4cf', 20, 'center', 'bold');
   }
 
   var pulse = 0.5 + 0.5 * Math.sin(state.phaseTime * 5);
