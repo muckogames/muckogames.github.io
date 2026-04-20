@@ -79,6 +79,8 @@ var KB_BASE_Y             = 360;    // bounceVy = -(KB_BASE_Y + damage * KB_SCAL
 var KB_SCALE_X            = 6;
 var KB_SCALE_Y            = 4;
 var KB_POST_INVULN        = 30;     // frames of mercy-invuln after being launched
+var KB_RATIO_MIN          = 0.6;    // clamp on sqrt(mass) stomp-ratio multiplier
+var KB_RATIO_MAX          = 1.9;
 
 // Damage softens you up: mass drops logistically with damage % so heavily
 // banged-up characters get launched way farther. At 0% damage mass ≈ 0.98;
@@ -236,24 +238,21 @@ function drawCharacter(cx, id, x, y, facing, bob, shadowScale) {
     drawCircle(cx, -3, 4, 1.6, '#6f5b88');
     drawCircle(cx, 3, 4, 1.6, '#6f5b88');
   } else if (ch.sprite === 'monkey') {
-    // Brown monkey — body, lighter belly, lighter face, curled tail
+    // Curled tail
     cx.strokeStyle = ch.color; cx.lineWidth = 4; cx.lineCap = 'round';
     cx.beginPath(); cx.moveTo(-12, 4); cx.quadraticCurveTo(-22, 0, -20, -10); cx.stroke();
     drawEllipse(cx, 0, 5, 15, 12, ch.color, ch.outline, 2);
     drawEllipse(cx, 0, 7, 9, 7, ch.accent);
-    // Head
     drawCircle(cx, 6, -7, 9, ch.color, ch.outline, 2);
-    // Round ears on sides of head
+    // Ears
     drawCircle(cx, -2, -9, 3.4, ch.color, ch.outline, 1.5);
     drawCircle(cx, 14, -9, 3.4, ch.color, ch.outline, 1.5);
     drawCircle(cx, -2, -9, 1.8, ch.accent);
     drawCircle(cx, 14, -9, 1.8, ch.accent);
-    // Lighter face mask
+    // Face mask
     drawEllipse(cx, 7, -5, 5.5, 5, ch.accent);
-    // Eyes
     drawCircle(cx, 4, -7, 1.4, '#1c1209');
     drawCircle(cx, 10, -7, 1.4, '#1c1209');
-    // Mouth line
     drawLine(cx, 5, -2, 9, -2, '#3a2612', 1.2);
   } else if (ch.sprite === 'panda') {
     drawEllipse(cx, 0, 5, 17, 13, '#f4f4f4', ch.outline, 2);
@@ -266,26 +265,24 @@ function drawCharacter(cx, id, x, y, facing, bob, shadowScale) {
     drawCircle(cx, 4, -3, 1.4, '#fff');
     drawCircle(cx, 0, 2, 2, '#1c1c1c');
   } else if (ch.sprite === 'otter') {
-    // Otter — sleek chestnut body, thick tail behind, pale belly, whiskered face
+    // Thick tail behind
     cx.strokeStyle = ch.color; cx.lineWidth = 6; cx.lineCap = 'round';
     cx.beginPath(); cx.moveTo(-12, 4); cx.quadraticCurveTo(-24, 6, -22, -2); cx.stroke();
     drawEllipse(cx, 0, 5, 17, 12, ch.color, ch.outline, 2);
     drawEllipse(cx, 0, 7, 10, 7, ch.accent);
-    // Head — round with a blunter muzzle
     drawCircle(cx, 9, -6, 9, ch.color, ch.outline, 2);
-    // Little round ears
+    // Ears
     drawCircle(cx, 3, -13, 2.2, ch.color, ch.outline, 1.2);
     drawCircle(cx, 13, -13, 2.2, ch.color, ch.outline, 1.2);
-    // Pale muzzle + nose
+    // Muzzle + nose
     drawEllipse(cx, 13, -4, 5, 3.2, ch.accent);
     drawCircle(cx, 16, -4, 1.5, '#1c1209');
-    // Eyes
     drawCircle(cx, 7, -8, 1.4, '#1c1209');
     drawCircle(cx, 12, -8, 1.4, '#1c1209');
     // Whiskers
     drawLine(cx, 14, -3, 20, -4, '#d8b985', 1);
     drawLine(cx, 14, -2, 20, -1, '#d8b985', 1);
-    // Little paw peek
+    // Paw peek
     drawEllipse(cx, -6, 15, 3, 2, ch.outline);
     drawEllipse(cx, 6, 15, 3, 2, ch.outline);
   } else if (ch.sprite === 'captain') {
@@ -783,7 +780,7 @@ function stomp(jumper, landee) {
   // Mass ratio — heavier (less damaged) jumper launching a lighter (more
   // damaged) landee gets extra oomph. Sqrt keeps it from blowing up.
   var massRatio = Math.sqrt(damageMass(jumper.damage) / damageMass(landee.damage));
-  var ratioMul = Math.min(1.9, Math.max(0.6, massRatio));
+  var ratioMul = Math.min(KB_RATIO_MAX, Math.max(KB_RATIO_MIN, massRatio));
   landee.vx = dir * (KB_BASE_X + landee.damage * KB_SCALE_X) * ratioMul;
   landee.vy = -(KB_BASE_Y + landee.damage * KB_SCALE_Y) * ratioMul;
   landee.onGround = false;
@@ -822,16 +819,16 @@ function resolveEntityPairs() {
         if (overlap > 0) {
           var dir = A.x < B.x ? -1 : 1;
           var mA = damageMass(A.damage), mB = damageMass(B.damage);
-          var mt = mA + mB;
+          var totalMass = mA + mB;
           // Heavier entity moves less during push-apart.
-          A.x += dir * overlap * (mB / mt);
-          B.x -= dir * overlap * (mA / mt);
+          A.x += dir * overlap * (mB / totalMass);
+          B.x -= dir * overlap * (mA / totalMass);
           // Elastic collision with restitution = SIDE_ELASTICITY.
           var dvRel = A.vx - B.vx;
-          A.vx -= dvRel * SIDE_ELASTICITY * (2 * mB / mt);
-          B.vx += dvRel * SIDE_ELASTICITY * (2 * mA / mt);
-          // Small rub-damage on side bumps, but only when both are moving toward each
-          // other fast enough to actually bonk. Avoids gift-wrapping damage for standing still.
+          A.vx -= dvRel * SIDE_ELASTICITY * (2 * mB / totalMass);
+          B.vx += dvRel * SIDE_ELASTICITY * (2 * mA / totalMass);
+          // Threshold uses approach speed, not post-bounce speed — rewards the bonk
+          // itself so two standing-still characters don't gift each other damage.
           if (Math.abs(dvRel) > 120) {
             A.damage += DAMAGE_PER_SIDE_BUMP;
             B.damage += DAMAGE_PER_SIDE_BUMP;
