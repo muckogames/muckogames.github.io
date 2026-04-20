@@ -1,6 +1,6 @@
 # Orbital Mechanics Simulator — Feature Roadmap
 
-## Where We Are (Phase 1 — Implemented)
+## Where We Are (Phases 1 & 2 — Implemented)
 
 `orbit/index.html` is a self-contained browser game (no build step, iOS 12 Safari compatible).
 
@@ -19,6 +19,16 @@
 - **Phase state machine**: `select` → `sim` (R key or Back button to return)
 - **iOS 12 compatible**: no `??`, `?.`, `.at()`, no CSS `inset`/`gap`/`aspect-ratio`; `roundRect` polyfill; `visualViewport` resize handler; DPR capped at 1.5
 
+### Phase 2 additions (burn engine + free placement)
+- **Thrust integration** in `stepPhysics`: prograde/retro along velocity (±THRUST_MAG = 3 DU/TU²), lateral perpendicular (±STEER_MAG = 1 DU/TU²). ΔV budget drains per sub-step proportional to applied thrust; engine cuts off at zero budget.
+- **Starting ΔV** = 18 DU/TU ≈ 2.9 km/s (constant `DV_START`). Conversion factor `DU_PER_TU_TO_KMPS = 0.1629`.
+- **Flame / puff particles** (`flameParts` array, capped at 200): emit in real time from the spacecraft tail for prograde, nose for retrograde, side opposite push for lateral. Updated by real elapsed seconds so the visual rate is independent of the time multiplier.
+- **Keyboard**: Space / Arrow-Up = prograde, Arrow-Down = retrograde, Arrow-Left/Right = lateral steer.
+- **Touch**: four on-canvas circular buttons during `sim` — BURN, RETRO, ◀, ▶ — driven by a new multi-touch `activeTouches` map. Buttons glow when held, dim when ΔV=0.
+- **HUD**: top-center ΔV meter (color-graded green → amber → red) with km/s readout; km/s speed strip at bottom-center.
+- **Free placement** phase: new `phase = 'place'` triggered by the "Custom Orbit" entry on the select screen. Tap outside Earth to place; drag ship-to-pointer arrow sets velocity (`PLACE_VEL_SCALE = 0.05 DU/TU per screen pixel`); LAUNCH commits. Reset clears placement.
+- **Unified pointer state** (`pointerDown / pointerJust / pointerUp`) drives the drag gesture across both mouse and touch.
+
 ### Key File Structure
 ```
 orbit/index.html     — entire game, self-contained
@@ -35,48 +45,17 @@ orbit/PLAN.md        — this file
 
 ---
 
-## Phase 2 — Spacecraft Controls (Next Up)
+## Phase 2 — Spacecraft Controls (COMPLETE ✅)
 
-### 2a. Free Placement / Initial Velocity Input
-Goal: let user tap to place spacecraft and swipe to set velocity.
+Implemented as described below. Commit history on branch `claude/orbital-sim-next-phase-uRrqr`:
+1. Keyboard burn engine + ΔV meter + flame particles
+2. On-screen touch burn buttons (BURN, RETRO, ◀, ▶)
+3. Free-placement "Custom Orbit" phase with drag-to-aim
 
-Implementation sketch:
-- Add a `phase = 'place'` before `'sim'`
-- In `place` phase: tap to set position (show spacecraft dot), then tap-drag from it to set velocity vector (show arrow)
-- Display current speed in DU/TU and km/s equivalents (1 DU/TU = 384400/27.32days ≈ 1.025 km/s)
-- "Launch" button commits to `phase = 'sim'`
-- Alternatively: a numeric input panel for x/y position and vx/vy
-
-### 2b. Burn Engine (Main Thruster)
-Goal: hold Space/button to prograde burn; arrow keys to steer.
-
-**Burn visual**: replicate the flame effect from Rocket Trail / flametrail. In `rockettrail/index.html` there is a flame particle system — adapt it or create a simpler version:
-- Emit 3–5 particles per frame from spacecraft tail
-- Each particle: position slightly behind spacecraft (retrograde direction), velocity = spacecraft velocity + retrograde component + random spread
-- Fade particles by alpha over 0.3–0.5 seconds of sim time
-- Color: orange/yellow core, red edges
-
-**Steering thrusters**:
-- Left/right arrow keys → small lateral burns (perpendicular to velocity)
-- Visual: small gray/white puff circles (2–4px radius) appear on the corresponding side of spacecraft
-- Puffs fade over 0.2 seconds
-
-**Control inputs to add**:
-```
-Space (held)       → prograde burn (dv/dt proportional to THRUST constant)
-Arrow Left/Right   → lateral steering burn (smaller thrust)
-Arrow Up           → prograde (same as space)
-Arrow Down         → retrograde burn
-```
-
-**Delta-V tracking**:
-- Show remaining ΔV budget as a bar or number (in km/s)
-- Start with a generous budget (e.g., 3.0 km/s ≈ 2.93 DU/TU) so player can experiment freely
-- Each burn depletes budget: `dv_budget -= THRUST * dt * TIME_MULTS[idx] * orbitSpeed`
-
-**THRUST constant**: ~ 3 DU/TU² is a reasonable value (gives noticeable change over a few seconds of hold)
-
-**Mobile controls**: On-screen burn button (large, bottom-center) and left/right steer buttons
+Possible follow-ups for the burn system if desired later:
+- Refillable ΔV (fuel pickup mini-game or timed replenishment)
+- Numeric initial-velocity panel on the place screen for precision missions
+- Tap-and-hold on the ship in sim to see an auto-paused velocity vector
 
 ---
 
