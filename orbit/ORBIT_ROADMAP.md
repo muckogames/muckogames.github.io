@@ -56,6 +56,12 @@ Possible follow-ups for the burn system if desired later:
 - Refillable ΔV (fuel pickup mini-game or timed replenishment)
 - Numeric initial-velocity panel on the place screen for precision missions
 - Tap-and-hold on the ship in sim to see an auto-paused velocity vector
+- **Hidable "engine boost" control menu**: toggled from a gear/settings icon,
+  with a slider or preset buttons to juice up THRUST_MAG / STEER_MAG beyond
+  the safe tuned values. Alternative framing: an "ascent stage" mode with
+  ~10× thrust for a limited ΔV window (the tuned base thrust remains the
+  default so the free-placement and program trajectories stay physically
+  reasonable).
 
 ---
 

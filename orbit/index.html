@@ -225,6 +225,15 @@ var TLI_HALF_PERIOD = Math.PI * Math.sqrt(A_TLI * A_TLI * A_TLI / GM_E); // ≈ 
 // Phase Moon so it's at (-1,0) when spacecraft reaches apoapsis
 var TLI_MOON_ANGLE0 = Math.PI - MOON_W * (0.003 + TLI_HALF_PERIOD);    // ≈ 1.91 rad
 
+// Free Return: transfer apoapsis short of Moon's orbit. Moon phased for a
+// distant swing-by that nudges the trajectory — no second burn needed.
+var R_FR_APO       = 0.88;
+var A_FR           = (R_LEO + R_FR_APO) / 2;
+var V_FR_PERI      = Math.sqrt(GM_E * (2 / R_LEO - 1 / A_FR));
+var FR_TLI_DV      = V_FR_PERI - Math.sqrt(GM_E / R_LEO);
+var FR_HALF_PERIOD = Math.PI * Math.sqrt(A_FR * A_FR * A_FR / GM_E);
+var FR_MOON_ANGLE0 = Math.PI - MOON_W * (0.003 + FR_HALF_PERIOD);
+
 var ORBITS = [
   {
     name:  'Low Earth Orbit',
@@ -305,6 +314,21 @@ var ORBITS = [
       { trigger: 'periapsis_moon', mode: 'circularize_moon',
         label: 'LOI — Lunar Orbit Insertion' }
     ]
+  },
+  {
+    name:    'Free Return',
+    desc:    'Apollo 13-style: one burn out, swing past the Moon, coast home',
+    color:   '#f8a',
+    trailRGB: [255, 136, 170],
+    program: true,
+    sx: R_LEO, sy: 0, vx: 0, vy: Math.sqrt(GM_E / R_LEO),
+    moonAngle0: FR_MOON_ANGLE0,
+    speed: 3,
+    trailEvery: 2,
+    burns: [
+      { trigger: 'time', t: 0.003, dir: 'prograde', dv: FR_TLI_DV,
+        label: 'TLI \u2014 single burn, coast home' }
+    ]
   }
 ];
 
@@ -321,8 +345,8 @@ var trailSkip     = 0;
 // ── Burn engine ───────────────────────────────────────────────────────────────
 // 1 DU/TU ≈ 0.163 km/s, so 18 DU/TU ≈ 2.9 km/s starting budget.
 var DV_START      = 18;
-var THRUST_MAG    = 6;    // DU/TU² main (prograde/retro)
-var STEER_MAG     = 2;    // DU/TU² lateral
+var THRUST_MAG    = 3;    // DU/TU² main (prograde/retro)
+var STEER_MAG     = 1;    // DU/TU² lateral
 var DU_PER_TU_TO_KMPS = 0.1629; // 384400 km / (27.32*86400 s)
 var dvBudget      = DV_START;
 var thrustFwd     = 0;    // -1 retro, 0 off, +1 prograde — set per frame
@@ -600,9 +624,9 @@ function drawFlameParts() {
 }
 
 // ── UI layout ──────────────────────────────────────────────────────────────────
-var BTN_W = 330, BTN_H = 60;
+var BTN_W = 330, BTN_H = 54;
 var BTN_X = (W - BTN_W) / 2;
-function orbitBtnY(i) { return 310 + i * 82; }
+function orbitBtnY(i) { return 290 + i * 68; }
 
 function hitRect(bx, by, bw, bh) {
   return mx >= bx && mx <= bx + bw && my >= by && my <= by + bh;
@@ -722,11 +746,11 @@ function drawSelect() {
     ctx.font = 'bold 15px sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
-    ctx.fillText(o.name, BTN_X + 16, by + 23);
+    ctx.fillText(o.name, BTN_X + 16, by + 21);
 
     ctx.fillStyle = 'rgba(255,255,255,0.48)';
     ctx.font = '12px sans-serif';
-    ctx.fillText(o.desc, BTN_X + 16, by + 43);
+    ctx.fillText(o.desc, BTN_X + 16, by + 40);
   }
 
   ctx.fillStyle = 'rgba(255,255,255,0.28)';
