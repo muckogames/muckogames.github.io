@@ -1,0 +1,102 @@
+{
+  "seed": 24187732,
+  "arenaSeed": -1622775059,
+  "stocks": 3,
+  "roster": [
+    {
+      "charId": "samster",
+      "genome": {
+        "dwellMin": 0.05,
+        "dwellMax": 0.08,
+        "idleChance": 0.04249047960271127,
+        "jumpChance": 0.46932394441915676,
+        "dashChance": 0.3542599151632021,
+        "chaseBias": 0.8726461968246885,
+        "edgeBuffer": 120.87828119337905,
+        "airborneCenterBias": 0.7918801646213978,
+        "preferredRange": 152.33620180086606,
+        "rangeSlack": 151.70001087222687,
+        "jumpRange": 200.69901774301977,
+        "jumpAboveBias": 63.2271206937517,
+        "dashRange": 67.0789282836623,
+        "aggression": 1.146796033038839,
+        "retreatAtDamage": 98.58322926799379,
+        "retreatBias": 0.25363712134223987,
+        "facingStickiness": 0.5377318778552217,
+        "pressureBonus": 0.759102296209894,
+        "jumpCooldown": 0.4511148768471321
+      }
+    },
+    {
+      "charId": "samster",
+      "genome": {
+        "dwellMin": 0.05,
+        "dwellMax": 0.23075210928334855,
+        "idleChance": 0,
+        "jumpChance": 0.726471843861509,
+        "dashChance": 0.26523877694249676,
+        "chaseBias": 0.8478229090059177,
+        "edgeBuffer": 120.0493479395623,
+        "airborneCenterBias": 0.6943019294141777,
+        "preferredRange": 144.9510907479715,
+        "rangeSlack": 125.53734929685709,
+        "jumpRange": 172.74588916493224,
+        "jumpAboveBias": 57.614320071992275,
+        "dashRange": 66.05112515116956,
+        "aggression": 0.9721248287400145,
+        "retreatAtDamage": 106.15058737743372,
+        "retreatBias": 0.36995512109634093,
+        "facingStickiness": 0.5172289457447141,
+        "pressureBonus": 0.7251195138099137,
+        "jumpCooldown": 0.639530231389217
+      }
+    }
+  ],
+  "swapped": true,
+  "summary": {
+    "seed": 24187732,
+    "arenaSeed": 2672192237,
+    "time": 74.99999999999703,
+    "stepCount": 4500,
+    "winnerId": 1,
+    "resultReason": "timeout",
+    "players": [
+      {
+        "id": 0,
+        "charId": "samster",
+        "name": "Samster",
+        "stocks": 1,
+        "damage": 45.449578152727184,
+        "alive": true,
+        "stats": {
+          "damageDealt": 24.140113214344485,
+          "damageTaken": 114.11060910762981,
+          "sideDamageDealt": 6.140113214344482,
+          "stompDamageDealt": 18,
+          "kos": 0,
+          "deaths": 2,
+          "selfKos": 0,
+          "stocksLost": 2
+        }
+      },
+      {
+        "id": 1,
+        "charId": "samster",
+        "name": "Samster",
+        "stocks": 3,
+        "damage": 24.140113214344485,
+        "alive": true,
+        "stats": {
+          "damageDealt": 114.11060910762981,
+          "damageTaken": 24.140113214344485,
+          "sideDamageDealt": 6.11060910762981,
+          "stompDamageDealt": 108,
+          "kos": 2,
+          "deaths": 0,
+          "selfKos": 0,
+          "stocksLost": 0
+        }
+      }
+    ]
+  }
+}

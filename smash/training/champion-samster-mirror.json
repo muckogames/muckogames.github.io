@@ -1,0 +1,49 @@
+{
+  "label": "samster-mirror-champion",
+  "trainedAt": "2026-04-21",
+  "notes": "Evolved via smash/train.js from resumed mirror-match training; beats Sim.HEURISTIC_DEFAULTS in headless evaluation.",
+  "eval": {
+    "matchup": "samster vs samster",
+    "seconds": 75,
+    "stocks": 3,
+    "avgScoreVsDefaultsOver24": 316.0385798167482
+  },
+  "sourceCheckpoint": {
+    "generation": 23,
+    "bestFitness": 205.62648561842144,
+    "options": {
+      "population": 40,
+      "generations": 24,
+      "roundsPerGenome": 10,
+      "stocks": 3,
+      "maxSteps": 4500,
+      "elites": 4,
+      "parentPool": 8,
+      "mutationRate": 0.22,
+      "mutationScale": 0.14,
+      "charA": "samster",
+      "charB": "samster"
+    }
+  },
+  "genome": {
+    "dwellMin": 0.05,
+    "dwellMax": 0.08,
+    "idleChance": 0.04249047960271127,
+    "jumpChance": 0.46932394441915676,
+    "dashChance": 0.3542599151632021,
+    "chaseBias": 0.8726461968246885,
+    "edgeBuffer": 120.87828119337905,
+    "airborneCenterBias": 0.7918801646213978,
+    "preferredRange": 152.33620180086606,
+    "rangeSlack": 151.70001087222687,
+    "jumpRange": 200.69901774301977,
+    "jumpAboveBias": 63.2271206937517,
+    "dashRange": 67.0789282836623,
+    "aggression": 1.146796033038839,
+    "retreatAtDamage": 98.58322926799379,
+    "retreatBias": 0.25363712134223987,
+    "facingStickiness": 0.5377318778552217,
+    "pressureBonus": 0.759102296209894,
+    "jumpCooldown": 0.4511148768471321
+  }
+}
