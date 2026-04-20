@@ -175,12 +175,43 @@ var CHAR_IDS = ['samster', 'duck', 'hippo', 'nik', 'lekan', 'basil', 'mucko', 'r
 var MOODS = {
   chill:  { dwellMin: 1.0, dwellMax: 2.2, idleChance: 0.50, walkChance: 0.40, jumpChance: 0.10, dashChance: 0.00, label: 'CHILL'  },
   normal: { dwellMin: 0.5, dwellMax: 1.4, idleChance: 0.25, walkChance: 0.55, jumpChance: 0.20, dashChance: 0.00, label: 'NORMAL' },
-  frisky: { dwellMin: 0.25, dwellMax: 0.9, idleChance: 0.10, walkChance: 0.45, jumpChance: 0.30, dashChance: 0.15, label: 'FRISKY' }
+  frisky: { dwellMin: 0.25, dwellMax: 0.9, idleChance: 0.10, walkChance: 0.45, jumpChance: 0.30, dashChance: 0.15, label: 'FRISKY' },
+  hard:   { label: 'HARD' }
 };
-var CPU_MODES = ['off', 'chill', 'normal', 'frisky'];
+var CPU_MODES = ['off', 'chill', 'normal', 'frisky', 'hard'];
+var HARD_MODE_GENOME = {
+  dwellMin: 0.05,
+  dwellMax: 0.08023069221970217,
+  idleChance: 0.02199617925777858,
+  jumpChance: 0.8063033212223671,
+  dashChance: 0.09778584812302143,
+  chaseBias: 0.8738832561531491,
+  edgeBuffer: 125.87408119417375,
+  airborneCenterBias: 0.8575250803335437,
+  preferredRange: 186.99556485472175,
+  rangeSlack: 134.76814607398813,
+  jumpRange: 154.17748241605273,
+  jumpAboveBias: 62.797452396342806,
+  dashRange: 52.56154417705283,
+  aggression: 1.2595372460641254,
+  retreatAtDamage: 111.5059016952792,
+  retreatBias: 0.10517608210496325,
+  facingStickiness: 0.6523378568186853,
+  pressureBonus: 1.006071435233136,
+  jumpCooldown: 0.4708999652252533
+};
 var NEXT_ENTITY_ID = 1;
 
 /* ── Drawing helpers (from lakehousemath) ──────────────────── */
+function clamp(v, lo, hi) {
+  return Math.max(lo, Math.min(hi, v));
+}
+function randRange(lo, hi) {
+  return lo + (hi - lo) * Math.random();
+}
+function chance(p) {
+  return Math.random() < p;
+}
 function roundRectPath(cx, x, y, w, h, r) {
   var rr = Math.min(r || 0, Math.abs(w) / 2, Math.abs(h) / 2);
   cx.beginPath();
@@ -449,7 +480,8 @@ function makeArena(seed) {
 }
 
 /* ── Entity factory ────────────────────────────────────────── */
-function makeEntity(charId, x, y, isCPU, mood) {
+function makeEntity(charId, x, y, isCPU, mode) {
+  var cpuMode = mode || 'normal';
   return {
     eid: NEXT_ENTITY_ID++,
     charId: charId,
@@ -472,7 +504,9 @@ function makeEntity(charId, x, y, isCPU, mood) {
     dashCooldown: 0,
     trail: [],          // recent {x,y,facing,bob} for afterimages (kept short)
     ai: isCPU ? {
-      mood: mood || MOODS.normal,
+      mode: cpuMode,
+      mood: MOODS[cpuMode] || MOODS.normal,
+      genome: cpuMode === 'hard' ? HARD_MODE_GENOME : null,
       state: 'idle',        // 'idle' | 'walk_left' | 'walk_right' | 'jump' | 'dash'
       timer: 0.3,
       inputLeft: false,
@@ -480,7 +514,8 @@ function makeEntity(charId, x, y, isCPU, mood) {
       inputJumpPressed: false,
       inputJumpHeld: false,
       inputDashPressed: false,
-      jumpCooldown: 0
+      jumpCooldown: 0,
+      targetId: null
     } : null
   };
 }
@@ -488,7 +523,7 @@ function makeEntity(charId, x, y, isCPU, mood) {
 /* ── Top-level state ───────────────────────────────────────── */
 // Slots drive the lobby. Slot 0 is the human player; 1..3 are CPUs.
 // player mode: 'play' | 'spectator'
-// cpu mode:    'off'  | 'chill' | 'normal' | 'frisky'
+// cpu mode:    'off'  | 'chill' | 'normal' | 'frisky' | 'hard'
 var state = {
   phase: 'title',          // 'title' | 'select' | 'play'
   phaseTime: 0,
@@ -533,8 +568,7 @@ function startPlay() {
     var sx = (W * (j + 1)) / (n + 1);
     var sy = 80 + (j % 2) * 40;
     var isCPU = s.kind === 'cpu';
-    var mood = isCPU ? MOODS[s.mode] : null;
-    state.entities.push(makeEntity(CHAR_IDS[s.charIdx], sx, sy, isCPU, mood));
+    state.entities.push(makeEntity(CHAR_IDS[s.charIdx], sx, sy, isCPU, s.mode));
   }
   state.respawnFlash = 0;
   state.winner = null;
@@ -627,9 +661,148 @@ function startDash(e, dir) {
   else          beep(520, 0.08, 0.10, 'sawtooth');
 }
 
+function getOpponentTarget(e) {
+  var best = null;
+  var bestDist = Infinity;
+  for (var i = 0; i < state.entities.length; i++) {
+    var other = state.entities[i];
+    if (other.ko || other.eid === e.eid) continue;
+    var dx = other.x - e.x;
+    var dy = other.y - e.y;
+    var dist = Math.abs(dx) + Math.abs(dy) * 0.6;
+    if (dist < bestDist) {
+      best = other;
+      bestDist = dist;
+    }
+  }
+  return best;
+}
+
+function cpuThinkHard(e, dt) {
+  var s = e.ai;
+  var g = s.genome || HARD_MODE_GENOME;
+  s.jumpCooldown = Math.max(0, s.jumpCooldown - dt);
+  s.timer -= dt;
+
+  var target = getOpponentTarget(e);
+  s.targetId = target ? target.eid : null;
+  var input = { left: false, right: false, jumpPressed: false, jumpHeld: false, dashPressed: false };
+
+  var edgeBuffer = Math.max(70, g.edgeBuffer * 0.55);
+  var panicBuffer = Math.max(42, edgeBuffer * 0.55);
+  var nearLeft = e.x < STAGE_LEFT_EDGE + edgeBuffer;
+  var nearRight = e.x > STAGE_RIGHT_EDGE - edgeBuffer;
+  var panicNearLeft = e.x < STAGE_LEFT_EDGE + panicBuffer;
+  var panicNearRight = e.x > STAGE_RIGHT_EDGE - panicBuffer;
+
+  if (!target) {
+    s.state = 'idle';
+    s.timer = 0.2;
+  } else if (e.onGround && nearLeft) {
+    s.state = 'walk_right';
+    s.timer = Math.max(s.timer, panicNearLeft ? 0.9 : 0.55);
+  } else if (e.onGround && nearRight) {
+    s.state = 'walk_left';
+    s.timer = Math.max(s.timer, panicNearRight ? 0.9 : 0.55);
+  } else if (s.timer <= 0) {
+    var dx = target.x - e.x;
+    var adx = Math.abs(dx);
+    var dy = target.y - e.y;
+    var desiredDir = dx < 0 ? -1 : 1;
+    var comfortLow = Math.max(0, g.preferredRange - g.rangeSlack);
+    var comfortHigh = g.preferredRange + g.rangeSlack;
+    var highDamage = e.damage >= g.retreatAtDamage;
+    var wantingRetreat = highDamage && adx < comfortHigh && chance(g.retreatBias);
+    var dashOpen = e.onGround && e.dashCooldown <= 0 && adx < g.dashRange;
+    var jumpOpen = e.onGround && s.jumpCooldown <= 0;
+    var jumpValue = (dy < -g.jumpAboveBias ? 0.35 : 0) + (adx < g.jumpRange ? 0.25 : 0) + g.jumpChance;
+    var dashValue = dashOpen ? (g.dashChance + g.aggression * 0.2 + (adx < comfortHigh ? g.pressureBonus : 0)) : 0;
+
+    if (chance(g.idleChance)) {
+      s.state = 'idle';
+    } else if (dashOpen && chance(clamp(dashValue, 0, 0.95))) {
+      s.state = desiredDir < 0 ? 'dash_left' : 'dash_right';
+    } else if (jumpOpen && chance(clamp(jumpValue, 0, 0.95))) {
+      s.state = 'jump';
+    } else if (wantingRetreat) {
+      s.state = desiredDir < 0 ? 'walk_right' : 'walk_left';
+    } else if (adx < comfortLow && chance(clamp(g.facingStickiness, 0, 0.95))) {
+      s.state = e.facing === 'left' ? 'walk_left' : 'walk_right';
+    } else {
+      s.state = desiredDir < 0 ? 'walk_left' : 'walk_right';
+    }
+    s.timer = randRange(g.dwellMin, g.dwellMax);
+  }
+
+  if (e.onGround) {
+    if (s.state === 'walk_left') input.left = true;
+    else if (s.state === 'walk_right') input.right = true;
+    else if (s.state === 'dash_left') {
+      input.left = true;
+      input.dashPressed = true;
+      s.state = 'walk_left';
+      s.timer = randRange(g.dwellMin, g.dwellMax);
+    } else if (s.state === 'dash_right') {
+      input.right = true;
+      input.dashPressed = true;
+      s.state = 'walk_right';
+      s.timer = randRange(g.dwellMin, g.dwellMax);
+    } else if (s.state === 'jump') {
+      if (target) {
+        if (target.x < e.x) input.left = true;
+        else input.right = true;
+      }
+      input.jumpPressed = true;
+      input.jumpHeld = true;
+      s.jumpCooldown = g.jumpCooldown;
+      s.state = 'idle';
+    }
+    if (nearLeft) {
+      input.left = false;
+      input.right = true;
+      input.dashPressed = false;
+    } else if (nearRight) {
+      input.right = false;
+      input.left = true;
+      input.dashPressed = false;
+    }
+  } else {
+    var centerBias = (W * 0.5 - e.x) / (W * 0.5);
+    if (target) {
+      if (target.x < e.x - 10) input.left = true;
+      if (target.x > e.x + 10) input.right = true;
+    }
+    if (nearLeft) {
+      input.left = false;
+      input.right = true;
+    } else if (nearRight) {
+      input.right = false;
+      input.left = true;
+    }
+    if (centerBias < -0.08 * g.airborneCenterBias) {
+      input.left = true;
+      input.right = false;
+    } else if (centerBias > 0.08 * g.airborneCenterBias) {
+      input.right = true;
+      input.left = false;
+    }
+    input.jumpHeld = true;
+  }
+
+  s.inputLeft = input.left;
+  s.inputRight = input.right;
+  s.inputJumpPressed = input.jumpPressed;
+  s.inputJumpHeld = input.jumpHeld;
+  s.inputDashPressed = input.dashPressed;
+}
+
 /* ── CPU AI: picks new behaviour once per frame, latches inputs ─ */
 function cpuThink(e, dt) {
   var s = e.ai;
+  if (s.mode === 'hard') {
+    cpuThinkHard(e, dt);
+    return;
+  }
   s.jumpCooldown = Math.max(0, s.jumpCooldown - dt);
   s.timer -= dt;
 
@@ -1053,7 +1226,7 @@ function updateTitle(dt) {
 //   - slot label at top (P1 / CPU 1 / CPU 2 / CPU 3)
 //   - left ◀ / right ▶ arrow pills that cycle the character
 //   - portrait in the middle
-//   - mode pill at bottom (PLAY/SPECTATOR for P1, OFF/CHILL/NORMAL/FRISKY for CPU)
+//   - mode pill at bottom (PLAY/SPECTATOR for P1, OFF/CHILL/NORMAL/FRISKY/HARD for CPU)
 // Start button at the bottom. Needs at least one active character.
 function selectLayout() {
   var cardW = 180, cardH = 380, gap = 10;
@@ -1089,6 +1262,7 @@ function slotModeColor(s) {
   if (s.mode === 'chill')  return '#84b5e0';
   if (s.mode === 'normal') return '#f2c85a';
   if (s.mode === 'frisky') return '#e2744b';
+  if (s.mode === 'hard')   return '#e14f7a';
   return '#9aa5ad';
 }
 function cycleCharacter(slot, dir) {

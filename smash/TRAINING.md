@@ -45,6 +45,6 @@ The replay file stores:
 - Matches use deterministic seeded RNG.
 - The first AI implementation evolves heuristic controller weights, not neural networks.
 - Timeout winner selection falls back to `stocks * 1000 - damage`.
-- `smash/training/champion-samster-mirror.json` is a curated evolved genome from a
-  resumed Samster mirror-match training run, with an evaluation summary against the
-  built-in heuristic defaults.
+- `smash/training/champion-samster-mirror.json` is the curated evolved genome currently
+  used for the live Smash `hard` CPU mode, with the training/evaluation summary that
+  produced it.

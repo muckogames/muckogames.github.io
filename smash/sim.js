@@ -88,6 +88,27 @@
     pressureBonus: 0.35,
     jumpCooldown: 0.38
   };
+  var HARD_MODE_GENOME = {
+    dwellMin: 0.05,
+    dwellMax: 0.08023069221970217,
+    idleChance: 0.02199617925777858,
+    jumpChance: 0.8063033212223671,
+    dashChance: 0.09778584812302143,
+    chaseBias: 0.8738832561531491,
+    edgeBuffer: 125.87408119417375,
+    airborneCenterBias: 0.8575250803335437,
+    preferredRange: 186.99556485472175,
+    rangeSlack: 134.76814607398813,
+    jumpRange: 154.17748241605273,
+    jumpAboveBias: 62.797452396342806,
+    dashRange: 52.56154417705283,
+    aggression: 1.2595372460641254,
+    retreatAtDamage: 111.5059016952792,
+    retreatBias: 0.10517608210496325,
+    facingStickiness: 0.6523378568186853,
+    pressureBonus: 1.006071435233136,
+    jumpCooldown: 0.4708999652252533
+  };
 
   function clone(obj) {
     return JSON.parse(JSON.stringify(obj));
@@ -871,6 +892,7 @@
     CHARACTERS: CHARACTERS,
     CHAR_IDS: CHAR_IDS,
     HEURISTIC_DEFAULTS: HEURISTIC_DEFAULTS,
+    HARD_MODE_GENOME: HARD_MODE_GENOME,
     seededRng: seededRng,
     makeArena: makeArena,
     damageMass: damageMass,
