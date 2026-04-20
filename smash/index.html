@@ -56,7 +56,13 @@ var TERM_VEL    = 1000;
 // Entity vertical pivot sits this many px above the feet.
 // drawCharacter() draws a shadow at +18 in local space.
 var FEET_OFFSET = 18;
+var HEAD_OFFSET = 28;   // pivot → top of head
 var ENTITY_W    = 30;
+
+// Stage 2b: elastic head-bounce tuning
+var STOMP_BOUNCE_MULT = 0.85;   // jumper bounces back at 85% of a normal jump
+var SIDE_ELASTICITY   = 0.35;   // fraction of x-velocity exchanged on a side bump
+var SQUASH_DURATION   = 0.24;   // seconds the landee stays squished
 
 /* ── Canvas + engine bootstrap ─────────────────────────────── */
 var canvas = document.getElementById('game');
@@ -279,6 +285,7 @@ function makeEntity(charId, x, y, isCPU, mood) {
     stocks: 3,     // unused until Stage 4
     isCPU: !!isCPU,
     bob: 0,
+    squashT: 0,      // >0 while squashed; disables horizontal input
     prevFootY: y + FEET_OFFSET,
     ai: isCPU ? {
       mood: mood || MOODS.normal,
@@ -420,10 +427,19 @@ function stepEntity(e, dt) {
     jp = jumpPressed();
     jh = jumpHeld();
   }
+  // Squash disables all horizontal input and kills walking momentum.
+  if (e.squashT > 0) {
+    e.squashT = Math.max(0, e.squashT - dt);
+    pressingLeft = false;
+    pressingRight = false;
+    jp = false;
+    if (e.onGround) e.vx *= Math.pow(0.1, dt * 8); // decay to zero over the squash
+  }
+
   var accel = e.onGround ? MOVE_ACCEL_GROUND : MOVE_ACCEL_AIR;
   if (pressingLeft && !pressingRight)  { e.vx -= accel * dt; e.facing = 'left'; }
   if (pressingRight && !pressingLeft)  { e.vx += accel * dt; e.facing = 'right'; }
-  if (!pressingLeft && !pressingRight && e.onGround) {
+  if (!pressingLeft && !pressingRight && e.onGround && e.squashT <= 0) {
     var dec = GROUND_FRIC * dt;
     if (e.vx > 0)      e.vx = Math.max(0, e.vx - dec);
     else if (e.vx < 0) e.vx = Math.min(0, e.vx + dec);
@@ -474,6 +490,56 @@ function stepEntity(e, dt) {
 
   if (e.invulnFrames > 0) e.invulnFrames--;
   e.prevFootY = newFootY;
+}
+
+/* ── Entity-vs-entity: head-bounces + side-push ───────────── */
+function stomp(jumper, landee) {
+  // Place jumper's feet just above landee's head, then bounce off.
+  jumper.y  = landee.y - HEAD_OFFSET - FEET_OFFSET - 2;
+  jumper.vy = -JUMP_VEL * STOMP_BOUNCE_MULT;
+  jumper.onGround = false;
+  landee.squashT = SQUASH_DURATION;
+  // Nudge landee's x velocity toward zero (a stomp stuns you).
+  landee.vx *= 0.3;
+  beep(520, 0.22, 0.11, 'sine');
+  setTimeout(function() { beep(780, 0.14, 0.09, 'sine'); }, 70);
+}
+
+function resolveEntityPairs() {
+  var es = state.entities;
+  for (var i = 0; i < es.length; i++) {
+    for (var j = i + 1; j < es.length; j++) {
+      var A = es[i], B = es[j];
+      // AABB overlap
+      var ax0 = A.x - A.w / 2, ax1 = A.x + A.w / 2;
+      var bx0 = B.x - B.w / 2, bx1 = B.x + B.w / 2;
+      if (ax1 < bx0 || bx1 < ax0) continue;
+      var ay0 = A.y - HEAD_OFFSET, ay1 = A.y + FEET_OFFSET;
+      var by0 = B.y - HEAD_OFFSET, by1 = B.y + FEET_OFFSET;
+      if (ay1 < by0 || by1 < ay0) continue;
+
+      // Who is higher + falling onto the other?
+      var aOnTop = (A.y < B.y) && (A.vy > 0) && (A.vy - B.vy > 40);
+      var bOnTop = (B.y < A.y) && (B.vy > 0) && (B.vy - A.vy > 40);
+
+      if (aOnTop) {
+        stomp(A, B);
+      } else if (bOnTop) {
+        stomp(B, A);
+      } else {
+        // Side bump: push apart by half the x-overlap + exchange a bit of vx.
+        var overlap = Math.min(ax1, bx1) - Math.max(ax0, bx0);
+        if (overlap > 0) {
+          var dir = A.x < B.x ? -1 : 1;
+          A.x += dir * overlap / 2;
+          B.x -= dir * overlap / 2;
+          var dv = (A.vx - B.vx) * SIDE_ELASTICITY;
+          A.vx -= dv;
+          B.vx += dv;
+        }
+      }
+    }
+  }
 }
 
 /* ── Touch controls (mobile D-pad + jump button) ───────────── */
@@ -766,6 +832,7 @@ function updatePlay(dt) {
   while (remaining > 0) {
     var dts = Math.min(step, remaining);
     for (var i = 0; i < state.entities.length; i++) stepEntity(state.entities[i], dts);
+    resolveEntityPairs();
     remaining -= dts;
   }
 
@@ -784,12 +851,27 @@ function drawPlay() {
     fillRoundRect(ctx, p.x, p.y - 4, p.w, 8, 4, '#76b552', '#4a7a2d', 1.5);
   }
 
-  // Entities (blink during invuln)
+  // Entities (blink during invuln, squash animation if recently stomped)
   for (var j = 0; j < state.entities.length; j++) {
     var e = state.entities[j];
     var blink = e.invulnFrames > 0 && (Math.floor(e.invulnFrames / 5) % 2 === 0);
     if (blink) continue;
-    drawCharacter(ctx, e.charId, e.x, e.y, e.facing, e.bob, 1);
+    if (e.squashT > 0) {
+      // Ease: peaks squished at mid-animation.
+      var p = e.squashT / SQUASH_DURATION;        // 1 → 0
+      var curve = Math.sin(p * Math.PI);          // 0 → 1 → 0
+      var sy = 1 - 0.45 * curve;                  // scaleY down
+      var sx = 1 + 0.35 * curve;                  // scaleX out a touch
+      ctx.save();
+      // Anchor around the feet so the sprite stays on the ground.
+      ctx.translate(e.x, e.y + FEET_OFFSET);
+      ctx.scale(sx, sy);
+      ctx.translate(-e.x, -(e.y + FEET_OFFSET));
+      drawCharacter(ctx, e.charId, e.x, e.y, e.facing, e.bob, 1);
+      ctx.restore();
+    } else {
+      drawCharacter(ctx, e.charId, e.x, e.y, e.facing, e.bob, 1);
+    }
   }
 
   // Respawn tint flash
