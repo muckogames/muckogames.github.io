@@ -321,8 +321,8 @@ var trailSkip     = 0;
 // ── Burn engine ───────────────────────────────────────────────────────────────
 // 1 DU/TU ≈ 0.163 km/s, so 18 DU/TU ≈ 2.9 km/s starting budget.
 var DV_START      = 18;
-var THRUST_MAG    = 3;    // DU/TU² main (prograde/retro)
-var STEER_MAG     = 1;    // DU/TU² lateral
+var THRUST_MAG    = 6;    // DU/TU² main (prograde/retro)
+var STEER_MAG     = 2;    // DU/TU² lateral
 var DU_PER_TU_TO_KMPS = 0.1629; // 384400 km / (27.32*86400 s)
 var dvBudget      = DV_START;
 var thrustFwd     = 0;    // -1 retro, 0 off, +1 prograde — set per frame
