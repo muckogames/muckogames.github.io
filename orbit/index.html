@@ -651,6 +651,86 @@ function fillCircle(x, y, r, color) {
   ctx.fill();
 }
 
+// Earth rotation: real rate is 27.32 rot/TU. Scaled 1/10 so continents drift
+// visibly but don't whirl at high time-multipliers.
+var EARTH_ROT_RATE = PI2 * 2.732;  // rad/TU
+
+// Continent blobs for the rotating Earth. (lon in radians, lat in [-1,1], r
+// = blob pixel radius at equator/front, color).
+var CONTINENTS = [
+  { lon: -1.35, lat:  0.40, r: 7,  c: '#4a8a4a' },  // N America
+  { lon: -0.95, lat: -0.30, r: 5,  c: '#3a7a3a' },  // S America
+  { lon:  0.35, lat:  0.28, r: 3,  c: '#8a7a4a' },  // Europe
+  { lon:  0.55, lat: -0.22, r: 6,  c: '#a07a3a' },  // Africa
+  { lon:  1.55, lat:  0.18, r: 9,  c: '#5a8a4a' },  // Asia
+  { lon:  2.35, lat: -0.55, r: 4,  c: '#8a6a3a' },  // Australia
+  { lon:  0.00, lat: -0.88, r: 7,  c: '#d8e4ea' }   // Antarctica cap
+];
+
+function drawEarthSprite(ex, ey, R, simTime) {
+  // Blue ocean globe
+  ctx.beginPath();
+  ctx.arc(ex, ey, R, 0, PI2);
+  var eg = ctx.createRadialGradient(ex - R * 0.3, ey - R * 0.3, R * 0.1, ex, ey, R);
+  eg.addColorStop(0, '#5caaff');
+  eg.addColorStop(0.5, '#1a6fff');
+  eg.addColorStop(1, '#0830a0');
+  ctx.fillStyle = eg;
+  ctx.fill();
+
+  // Continents (front hemisphere only)
+  var rot = simTime * EARTH_ROT_RATE;
+  for (var i = 0; i < CONTINENTS.length; i++) {
+    var c = CONTINENTS[i];
+    var lon = c.lon + rot;
+    var cl  = Math.cos(lon);
+    if (cl < 0.08) continue;             // back of globe
+    var gx  = Math.sin(lon) * Math.sqrt(1 - c.lat * c.lat);
+    var px  = ex + R * gx;
+    var py  = ey + R * -c.lat;           // screen y-down
+    var size = c.r * cl;
+    if (size < 0.4) continue;
+    ctx.beginPath();
+    ctx.arc(px, py, size, 0, PI2);
+    ctx.fillStyle = c.c;
+    ctx.globalAlpha = Math.min(1, cl * 1.2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // Rim highlight
+  ctx.beginPath();
+  ctx.arc(ex, ey, R, 0, PI2);
+  ctx.strokeStyle = 'rgba(150,210,255,0.4)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+}
+
+// Moon — lit from the Sun (fixed at +x). Right side bright, left shaded so the
+// craft's relative position to Moon/Sun reads at a glance.
+function drawMoonSprite(mpx, mpy, R) {
+  ctx.beginPath();
+  ctx.arc(mpx, mpy, R, 0, PI2);
+  var mg = ctx.createRadialGradient(mpx + R * 0.5, mpy - R * 0.2, 0,
+                                    mpx, mpy, R * 1.25);
+  mg.addColorStop(0, '#f0f0f0');
+  mg.addColorStop(0.55, '#888');
+  mg.addColorStop(1, '#333');
+  ctx.fillStyle = mg;
+  ctx.fill();
+  // Terminator — linear dark overlay on the shadow side
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(mpx, mpy, R, 0, PI2);
+  ctx.clip();
+  var tg = ctx.createLinearGradient(mpx - R, mpy, mpx + R * 0.3, mpy);
+  tg.addColorStop(0, 'rgba(0,0,0,0.55)');
+  tg.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = tg;
+  ctx.fillRect(mpx - R, mpy - R, R * 2, R * 2);
+  ctx.restore();
+}
+
 function drawRoundBtn(cx, cy, r, label, held, glowColor, enabled) {
   var a = enabled ? (held ? 0.55 : 0.28) : 0.1;
   ctx.beginPath();
@@ -806,27 +886,14 @@ function drawPlace() {
   ctx.stroke();
   ctx.setLineDash([]);
 
-  // Earth
+  // Earth (rotation paused in the placement phase — simTime = 0)
   var ex = sx(0), ey = sy(0);
-  ctx.beginPath();
-  ctx.arc(ex, ey, 24, 0, PI2);
-  var eg = ctx.createRadialGradient(ex - 7, ey - 7, 2, ex, ey, 24);
-  eg.addColorStop(0, '#5caaff');
-  eg.addColorStop(0.5, '#1a6fff');
-  eg.addColorStop(1, '#0830a0');
-  ctx.fillStyle = eg;
-  ctx.fill();
+  drawEarthSprite(ex, ey, 24, 0);
 
   // Moon at +x
   var mp = moonPos(0);
   var mpx = sx(mp.x), mpy = sy(mp.y);
-  ctx.beginPath();
-  ctx.arc(mpx, mpy, 7, 0, PI2);
-  var mg = ctx.createRadialGradient(mpx - 2, mpy - 2, 0, mpx, mpy, 7);
-  mg.addColorStop(0, '#ddd');
-  mg.addColorStop(1, '#666');
-  ctx.fillStyle = mg;
-  ctx.fill();
+  drawMoonSprite(mpx, mpy, 7);
 
   // Spacecraft + velocity indicator
   if (placeHasPos) {
@@ -924,23 +991,9 @@ function drawSim() {
     }
   }
 
-  // Earth
+  // Earth (rotating continents)
   var ex = sx(0), ey = sy(0);
-  // Blue globe base
-  ctx.beginPath();
-  ctx.arc(ex, ey, 24, 0, PI2);
-  var eg = ctx.createRadialGradient(ex - 7, ey - 7, 2, ex, ey, 24);
-  eg.addColorStop(0, '#5caaff');
-  eg.addColorStop(0.5, '#1a6fff');
-  eg.addColorStop(1, '#0830a0');
-  ctx.fillStyle = eg;
-  ctx.fill();
-  // Rim highlight
-  ctx.beginPath();
-  ctx.arc(ex, ey, 24, 0, PI2);
-  ctx.strokeStyle = 'rgba(150,210,255,0.4)';
-  ctx.lineWidth = 2;
-  ctx.stroke();
+  drawEarthSprite(ex, ey, 24, simT);
 
   ctx.fillStyle = 'rgba(255,255,255,0.7)';
   ctx.font = '11px sans-serif';
@@ -951,13 +1004,7 @@ function drawSim() {
   // Moon
   var mp  = moonPos(simT);
   var mpx = sx(mp.x), mpy = sy(mp.y);
-  ctx.beginPath();
-  ctx.arc(mpx, mpy, 7, 0, PI2);
-  var mg = ctx.createRadialGradient(mpx - 2, mpy - 2, 0, mpx, mpy, 7);
-  mg.addColorStop(0, '#ddd');
-  mg.addColorStop(1, '#666');
-  ctx.fillStyle = mg;
-  ctx.fill();
+  drawMoonSprite(mpx, mpy, 7);
 
   ctx.fillStyle = 'rgba(255,255,255,0.55)';
   ctx.font = '10px sans-serif';
