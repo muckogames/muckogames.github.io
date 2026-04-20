@@ -264,12 +264,19 @@ wants a PB&J and a good night's sleep. Purple-grey coloring. NPC in Lake House M
 "surprisingly chill once you meet him." Difficulty label "Panda Mastermind" in Hippo
 refers to him. NPC in Lake House Math.
 
-**Nik** — A seal; Lekan's distraction agent. In Hippo, using Nik causes a deafening
-yell that freezes all keepers in a zone temporarily. Light blue coloring. NPC in Lake
-House Math.
+**Nik** — A brown monkey; Lekan's distraction agent. In Hippo, using Nik causes a
+deafening yell that freezes all keepers in a zone temporarily. NPC in Lake House Math.
+(Was drawn as a seal in earlier games; canon is now brown monkey.)
 
-**Basil** — A zookeeper, reluctant and bookish ("would rather be reading"). Cheat `BASIL`
-makes him unable to see the player. NPC in Lake House Math.
+**Basil** — An otter, reluctant and bookish ("would rather be reading"). Cheat `BASIL`
+makes him unable to see the player. NPC in Lake House Math. (Was drawn as a human
+zookeeper in earlier games; canon is now otter.)
+
+**Digory** — A black-and-white fox terrier. Mostly white, with a big black spot on
+one side and a smaller black spot (the kids call it his "on/off button"); a black
+rump patch extends up the tail which ends in a white tip; his face is black with
+triangle upright ears and a bit of brown around the muzzle. Usually wears a gray
+collar with a silver tag. Appears in *Pflueger and the Hippo*.
 
 **Pras the Koala** — Referenced in Hippo's dialog as always being asleep. Immortalized
 by cheat code `PRASTHEKOALA` which slows keepers "having an epic dream."
