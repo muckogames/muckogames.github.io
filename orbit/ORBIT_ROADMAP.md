@@ -1,0 +1,286 @@
+# Orbital Mechanics Simulator — Feature Roadmap
+
+## Where We Are (Phase 1 — Implemented)
+
+`orbit/index.html` is a self-contained browser game (no build step, iOS 12 Safari compatible).
+
+### What's Working
+- **Earth** fixed at canvas center (blue gradient circle, 24px display radius)
+- **Moon** on analytical circular orbit — `pos = (cos(ω*t), sin(ω*t))` where ω = 2π rad/TU. Not simulated, not affected by spacecraft. Orbits counterclockwise.
+- **Spacecraft** integrates using symplectic Euler (energy-conserving) in true 3-body gravity from Earth + Moon
+- **Dimensionless units**: DU = Earth-Moon distance, TU = Moon orbital period. `GM_E = 4π²`, `GM_M = GM_E * 0.01230`. Eliminates floating-point scale issues.
+- **SCALE = 310 px/DU** — Moon orbit = 310px from center on 800×800 canvas
+- **Three preset orbits** (each has per-orbit speed multiplier and trail sampling rate):
+  1. **Low Earth Orbit** — circular at r=0.12 DU, period ~6.6s at 1× speed
+  2. **Figure-8 Encounter** — retrograde orbit at r=0.63 DU (period = exactly 0.5 TU = half Moon period); encounters Moon 3× per lunar month (every 1/3 TU); creates a 3-petal figure-8 pattern in the inertial frame
+  3. **Hohmann Ellipse** — periapsis 0.12 DU, apoapsis 0.55 DU; demonstrates Kepler's 2nd law (spacecraft visibly faster at periapsis)
+- **Fading orbital trail** (TRAIL_MAX = 2000 points, per-orbit sampling to cover full trajectories)
+- **Time multiplier** (1×/2×/5×/10×, T key or on-screen button)
+- **Phase state machine**: `select` → `sim` (R key or Back button to return)
+- **iOS 12 compatible**: no `??`, `?.`, `.at()`, no CSS `inset`/`gap`/`aspect-ratio`; `roundRect` polyfill; `visualViewport` resize handler; DPR capped at 1.5
+
+### Key File Structure
+```
+orbit/index.html     — entire game, self-contained
+orbit/PLAN.md        — this file
+```
+
+### Physics Architecture (important for future changes)
+- `stepPhysics(dt)` — one symplectic Euler step in TU
+- `moonPos(simT)` — analytical Moon position, no physics
+- Earth gravity: vector from Earth to spacecraft, normalized, scaled by GM_E/r²
+- Moon gravity: same but GM_M/r²
+- Guard: `if (re < 0.001) re = 0.001` — prevents singularity if craft hits body center
+- SIM_DT = 1/3600 TU per integration step; multiple steps per animation frame via nSteps
+
+---
+
+## Phase 2 — Spacecraft Controls (Next Up)
+
+### 2a. Free Placement / Initial Velocity Input
+Goal: let user tap to place spacecraft and swipe to set velocity.
+
+Implementation sketch:
+- Add a `phase = 'place'` before `'sim'`
+- In `place` phase: tap to set position (show spacecraft dot), then tap-drag from it to set velocity vector (show arrow)
+- Display current speed in DU/TU and km/s equivalents (1 DU/TU = 384400/27.32days ≈ 1.025 km/s)
+- "Launch" button commits to `phase = 'sim'`
+- Alternatively: a numeric input panel for x/y position and vx/vy
+
+### 2b. Burn Engine (Main Thruster)
+Goal: hold Space/button to prograde burn; arrow keys to steer.
+
+**Burn visual**: replicate the flame effect from Rocket Trail / flametrail. In `rockettrail/index.html` there is a flame particle system — adapt it or create a simpler version:
+- Emit 3–5 particles per frame from spacecraft tail
+- Each particle: position slightly behind spacecraft (retrograde direction), velocity = spacecraft velocity + retrograde component + random spread
+- Fade particles by alpha over 0.3–0.5 seconds of sim time
+- Color: orange/yellow core, red edges
+
+**Steering thrusters**:
+- Left/right arrow keys → small lateral burns (perpendicular to velocity)
+- Visual: small gray/white puff circles (2–4px radius) appear on the corresponding side of spacecraft
+- Puffs fade over 0.2 seconds
+
+**Control inputs to add**:
+```
+Space (held)       → prograde burn (dv/dt proportional to THRUST constant)
+Arrow Left/Right   → lateral steering burn (smaller thrust)
+Arrow Up           → prograde (same as space)
+Arrow Down         → retrograde burn
+```
+
+**Delta-V tracking**:
+- Show remaining ΔV budget as a bar or number (in km/s)
+- Start with a generous budget (e.g., 3.0 km/s ≈ 2.93 DU/TU) so player can experiment freely
+- Each burn depletes budget: `dv_budget -= THRUST * dt * TIME_MULTS[idx] * orbitSpeed`
+
+**THRUST constant**: ~ 3 DU/TU² is a reasonable value (gives noticeable change over a few seconds of hold)
+
+**Mobile controls**: On-screen burn button (large, bottom-center) and left/right steer buttons
+
+---
+
+## Phase 3 — "Flight Programs" (Scripted Missions)
+
+This is the key educational feature. Instead of free-flight presets, these are *guided scenarios* that execute specific burns at specific times/conditions.
+
+### Concept
+A flight program is an orbit preset that automatically fires burns at certain triggers:
+- **Time trigger**: burn at t = T_burn for duration T_dur
+- **Condition trigger**: burn when altitude = target_alt or when velocity angle = θ
+
+Each program plays out like a mission replay with on-screen annotations.
+
+### Proposed Flight Programs
+
+#### Program 1: Hohmann Transfer (Earth → Circular High Orbit)
+Steps:
+1. Start in circular LEO (r = 0.12 DU)
+2. At t=0, prograde burn → transfer ellipse (apoapsis at ~0.45 DU)
+3. At apoapsis, second prograde burn → circularize
+Annotation: show ΔV arrow at each burn point; display orbit shape before/after
+
+#### Program 2: Trans-Lunar Injection + Lunar Orbit Insertion
+The big one the user described:
+1. Start in LEO (r = 0.12 DU)
+2. **TLI burn** at periapsis → transfer ellipse reaching Moon's orbit
+   - V_TLI = sqrt(GM_E*(2/0.12 - 1/A_TLI)) ≈ 17.5 DU/TU (from r=0.12)
+   - Need to TIME the TLI so Moon is at apoapsis position at transfer time
+3. **LOI burn** at closest approach to Moon → lunar orbit (retrograde or prograde around Moon)
+   - This is the hardest: need to compute Moon-centered hyperbolic approach and time the burn
+   - In Moon's frame: spacecraft arrives with v_∞, fire retrograde burn to slow below escape velocity
+4. **Orbit the Moon** for a few cycles — show lunar orbit (small ellipse around Moon)
+5. **Trans-Earth Injection** — burn from Moon orbit back toward Earth
+6. Repeat (infinite loop)
+
+Implementation notes for LOI:
+- Need to detect when spacecraft is at periapsis of Moon flyby
+- Trigger condition: `d(rm)/dt` changes sign (spacecraft distance from Moon reaches minimum)
+- At periapsis: fire retrograde burn relative to Moon for duration to achieve circular orbit
+
+This requires a "periapsis detection" utility in the physics loop:
+```js
+var prevRm = Infinity;
+// in stepPhysics, after computing rm:
+if (rm > prevRm && prevRm < LOI_THRESHOLD) {
+  // just passed periapsis — fire LOI burn
+}
+prevRm = rm;
+```
+
+LOI ΔV ≈ v_∞ * (sqrt(1 + 2*GM_M/(r_periapsis*v_∞²)) - 1) (hyperbolic excess minus circular at periapsis)
+
+#### Program 3: Free Return (like Apollo 13)
+1. Start in LEO
+2. TLI burn → free-return trajectory (just enough energy to reach Moon and come back)
+3. No LOI — just swing around Moon and return
+4. Annotation: "If engine fails here, spacecraft returns to Earth automatically"
+
+For this, the TLI must be aimed specifically for the free-return (lower energy than full LOI).
+The "good" initial conditions for a free-return from r=0.12 DU:
+- V_TLI such that apoapsis just barely reaches Moon's orbit
+- Moon phased so it deflects spacecraft back toward Earth
+
+#### Program 4: Gravity Assist
+1. Start in LEO with insufficient energy to escape
+2. Time a close flyby of the Moon to gain energy
+3. After the flyby, spacecraft has enough energy to reach higher orbit or escape
+
+---
+
+## Phase 4 — Visual Polish
+
+### Earth
+- Draw continents with canvas paths (simplified outlines)
+- Rotate Earth at correct rate: 1 Earth day = 1/(27.32) TU ≈ 0.0366 TU → visually fast, maybe throttle to 1/10 speed for aesthetics
+- Or: use a simple texture-like pattern (blue oceans, green/brown land patches drawn as circles/ellipses)
+
+### Moon
+- Draw Moon phases: based on angle between Moon-Earth-Sun (assume Sun in fixed direction, e.g., +x)
+- Phase = angle of illumination → draw illuminated hemisphere as white arc
+
+### Spacecraft
+- More detailed SVG-like canvas drawing: capsule shape, solar panels
+- Burn flame already planned (Phase 2b)
+- Thruster puffs already planned (Phase 2b)
+
+### Background
+- More realistic star field (varied sizes, slight twinkle via alpha oscillation)
+- Optional: very faint Milky Way band
+
+### UI Polish
+- Speed indicator showing spacecraft velocity in km/s
+- Orbit predictor: draw the next N seconds of trajectory as a dashed line (requires copying state, running physics forward without committing, then drawing)
+- Apoapsis/periapsis markers on the predicted trajectory
+
+---
+
+## Phase 5 — Customization Panel
+
+A collapsible panel (toggle with C key or button):
+
+```
+┌─── Customize ──────────────────┐
+│ Earth mass:   [======] 1.0×    │
+│ Moon mass:    [===   ] 0.5×    │
+│ Moon orbit:   [=====] 1.0×     │
+│ Time scale:   [=====] 1.0×     │
+│ Thrust power: [====  ] 0.8×    │
+│ Gravity:      [=====] 1.0×     │
+└────────────────────────────────┘
+```
+
+Implementation:
+- Slider component: `{id, label, min, max, value, param}` array
+- `param` is a key in a `PARAMS` object that the physics reads
+- Sliders update PARAMS in real-time; physics immediately reflects changes
+- "Reset to defaults" button
+
+Each slider should show an educational label like "Earth mass (affects orbital speed)"
+
+---
+
+## Phase 6 — Muckoification
+
+Add Mucko characters once the physics engine is solid:
+
+- **Spacecraft skin options**: choose between generic capsule, "Samster's Rocket", "Saturn V" (already a character in the universe), or "Duck Dieb's escape pod"
+- **Narration/dialog**: Lekan or Samster provide commentary when spacecraft reaches key events (Moon orbit, periapsis, escape velocity)
+- **Mission flavor**: each flight program gets a story premise ("Samster needs to get to the Moon to recover the stolen cheese")
+- **High score / achievement system**: fastest Moon orbit insertion, smallest ΔV Hohmann transfer, most figure-8 loops without crashing
+
+---
+
+## Technical Notes for Next Instance
+
+### iOS 12 Compat Checklist (always apply)
+- No `??`, `?.`, `.at()`
+- No CSS `inset`, flex `gap`, `aspect-ratio`, `100svh`
+- `visualViewport` resize handler (already in place)
+- `roundRect` polyfill (already in place)
+- DPR capped at 1.5 (already in place)
+
+### Coordinate System Reminder
+- Physics coords: x right, y UP. Earth at (0,0).
+- Screen coords: x right, y DOWN. Earth at (CX=400, CY=400).
+- `sx(x) = CX + x * SCALE`, `sy(y) = CY - y * SCALE`
+- Velocity direction for screen: `ndx = vx/|v|`, `ndy = -vy/|v|` (flip y!)
+
+### Symplectic Euler Reminder
+- `v += a * dt` THEN `x += v * dt` (order matters! this is the symplectic property)
+- If you reverse the order (`x += v*dt` first) it becomes anti-symplectic (energy-increasing, unstable)
+- SIM_DT = 1/3600 TU is fine for all three current orbits; may need reduction to 1/7200 for very close Moon flybys in Phase 3
+
+### Moon Encounter Detection (needed for Phase 3 flight programs)
+```js
+var prevRm = 99;
+// inside stepPhysics, after computing rm:
+if (rm < ENCOUNTER_DIST && rm < prevRm) {
+  // approaching Moon — will trigger LOI if it's a flight program
+}
+if (rm > prevRm && rm < ENCOUNTER_DIST) {
+  // just passed periapsis of Moon encounter
+}
+prevRm = rm;
+```
+ENCOUNTER_DIST ≈ 0.15 DU (just inside Moon's SOI of 0.167 DU)
+
+### Adding a New Preset Orbit
+Add an entry to the ORBITS array with:
+- `name`, `desc`, `color` (CSS hex), `trailRGB` ([r,g,b] array)
+- `sx`, `sy`, `vx`, `vy` — initial spacecraft state in DU / DU/TU
+- `moonAngle0` — Moon's initial angle in radians (0 = right side)
+- `speed` — BASE_SPEED multiplier (1 = 0.01 TU/real-s)
+- `trailEvery` — store trail point every N animation frames
+
+### Adding a Flight Program
+Flight programs are different from preset orbits — they're scripted sequences. Suggested structure:
+```js
+var PROGRAMS = [
+  {
+    name: 'Hohmann Transfer',
+    desc: '...',
+    // Initial state (same as orbit preset):
+    sx: ..., sy: ..., vx: ..., vy: ..., moonAngle0: ...,
+    speed: 2, trailEvery: 1,
+    color: '#aff',
+    // Burn sequence:
+    burns: [
+      { triggerType: 'time', triggerVal: 0.0, direction: 'prograde', dv: 5.2 },
+      { triggerType: 'apoapsis', direction: 'prograde', dv: 3.1 }
+    ]
+  }
+];
+```
+The game loop checks burn triggers each physics step and applies `dv` in the specified direction.
+
+---
+
+## Commit History Context
+- Initial implementation: Phase 1 mechanics, three preset orbits, trail system
+- Current state on branch `claude/orbit-sim-*`: all Phase 1 features complete and working
+
+## Branch Strategy
+- Work on `main` until Phase 2 is ready for testing
+- Create `claude/orbit-phase2-controls` for burn controls
+- Create `claude/orbit-phase3-programs` for flight programs
