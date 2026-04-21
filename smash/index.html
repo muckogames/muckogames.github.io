@@ -291,14 +291,13 @@ function drawEllipse(cx, x, y, rx, ry, fill, stroke, sw, rot) {
   if (stroke) { cx.strokeStyle = stroke; cx.lineWidth = sw || 2; cx.stroke(); }
 }
 
-/* ── Character sprites (copied verbatim from lakehousemath) ── */
-function drawCharacter(cx, id, x, y, facing, bob, shadowScale) {
-  var ch = CHARACTERS[id];
-  var bounce = Math.sin(bob || 0) * 1.5;
-  cx.save();
-  cx.translate(x, y + bounce);
-  if (facing === 'left') cx.scale(-1, 1);
-  drawEllipse(cx, 0, 18, 16 * (shadowScale || 1), 6 * (shadowScale || 1), 'rgba(0,0,0,.16)');
+/* ── Character sprites ────────────────────────────────────── */
+function drawCharacterPortraitSprite(cx, ch, bob) {
+  if (ch.sprite === 'duck' || ch.sprite === 'monkey' || ch.sprite === 'otter' ||
+      ch.sprite === 'rocket' || ch.sprite === 'digory' || ch.sprite === 'giraffe') {
+    drawCharacterSidescrollSprite(cx, ch, 'right', bob);
+    return;
+  }
   if (ch.sprite === 'hamster') {
     drawEllipse(cx, 0, 2, 16, 14, ch.color, ch.outline, 2);
     drawCircle(cx, -8, -10, 6, ch.color, ch.outline, 2);
@@ -307,23 +306,6 @@ function drawCharacter(cx, id, x, y, facing, bob, shadowScale) {
     drawCircle(cx, -4, -4, 2, '#35231b');
     drawCircle(cx, 4, -4, 2, '#35231b');
     drawCircle(cx, 0, 1, 2.2, '#c56f62');
-  } else if (ch.sprite === 'duck') {
-    // Mallard body — brown with darker wing shading
-    drawEllipse(cx, -2, 4, 16, 12, '#8b6030', ch.outline, 2);
-    drawEllipse(cx, -2, 5, 12, 7, '#7a5020');
-    // Tail feathers (dark, behind)
-    cx.fillStyle = '#3c2814';
-    cx.beginPath(); cx.moveTo(-12, 2); cx.lineTo(-22, 14); cx.lineTo(-6, 10); cx.closePath(); cx.fill();
-    // Dark green mallard head with iridescent highlight
-    drawCircle(cx, 10, -7, 8, '#2a7a38', ch.outline, 2);
-    drawCircle(cx, 8, -9, 3.4, 'rgba(0,200,160,0.32)');
-    // Black mask bar across the eyes
-    cx.fillStyle = '#111';
-    cx.fillRect(4, -9, 13, 4);
-    drawCircle(cx, 8, -7, 1.4, '#fff');
-    drawCircle(cx, 13, -7, 1.4, '#fff');
-    // Yellow bill
-    drawEllipse(cx, 20, -3, 7, 3.5, '#e8b800', '#9c7900', 1.4);
   } else if (ch.sprite === 'hippo') {
     drawEllipse(cx, 0, 5, 20, 15, ch.color, ch.outline, 2);
     drawCircle(cx, -9, -7, 5, ch.color, ch.outline, 2);
@@ -333,23 +315,6 @@ function drawCharacter(cx, id, x, y, facing, bob, shadowScale) {
     drawCircle(cx, 4, -2, 1.8, '#2e2338');
     drawCircle(cx, -3, 4, 1.6, '#6f5b88');
     drawCircle(cx, 3, 4, 1.6, '#6f5b88');
-  } else if (ch.sprite === 'monkey') {
-    // Curled tail
-    cx.strokeStyle = ch.color; cx.lineWidth = 4; cx.lineCap = 'round';
-    cx.beginPath(); cx.moveTo(-12, 4); cx.quadraticCurveTo(-22, 0, -20, -10); cx.stroke();
-    drawEllipse(cx, 0, 5, 15, 12, ch.color, ch.outline, 2);
-    drawEllipse(cx, 0, 7, 9, 7, ch.accent);
-    drawCircle(cx, 6, -7, 9, ch.color, ch.outline, 2);
-    // Ears
-    drawCircle(cx, -2, -9, 3.4, ch.color, ch.outline, 1.5);
-    drawCircle(cx, 14, -9, 3.4, ch.color, ch.outline, 1.5);
-    drawCircle(cx, -2, -9, 1.8, ch.accent);
-    drawCircle(cx, 14, -9, 1.8, ch.accent);
-    // Face mask
-    drawEllipse(cx, 7, -5, 5.5, 5, ch.accent);
-    drawCircle(cx, 4, -7, 1.4, '#1c1209');
-    drawCircle(cx, 10, -7, 1.4, '#1c1209');
-    drawLine(cx, 5, -2, 9, -2, '#3a2612', 1.2);
   } else if (ch.sprite === 'panda') {
     drawEllipse(cx, 0, 5, 17, 13, '#f4f4f4', ch.outline, 2);
     drawCircle(cx, -8, -9, 5, '#1c1c1c');
@@ -360,119 +325,23 @@ function drawCharacter(cx, id, x, y, facing, bob, shadowScale) {
     drawCircle(cx, -4, -3, 1.4, '#fff');
     drawCircle(cx, 4, -3, 1.4, '#fff');
     drawCircle(cx, 0, 2, 2, '#1c1c1c');
-  } else if (ch.sprite === 'otter') {
-    // Thick tail behind
-    cx.strokeStyle = ch.color; cx.lineWidth = 6; cx.lineCap = 'round';
-    cx.beginPath(); cx.moveTo(-12, 4); cx.quadraticCurveTo(-24, 6, -22, -2); cx.stroke();
-    drawEllipse(cx, 0, 5, 17, 12, ch.color, ch.outline, 2);
-    drawEllipse(cx, 0, 7, 10, 7, ch.accent);
-    drawCircle(cx, 9, -6, 9, ch.color, ch.outline, 2);
-    // Ears
-    drawCircle(cx, 3, -13, 2.2, ch.color, ch.outline, 1.2);
-    drawCircle(cx, 13, -13, 2.2, ch.color, ch.outline, 1.2);
-    // Muzzle + nose
-    drawEllipse(cx, 13, -4, 5, 3.2, ch.accent);
-    drawCircle(cx, 16, -4, 1.5, '#1c1209');
-    drawCircle(cx, 7, -8, 1.4, '#1c1209');
-    drawCircle(cx, 12, -8, 1.4, '#1c1209');
-    // Whiskers
-    drawLine(cx, 14, -3, 20, -4, '#d8b985', 1);
-    drawLine(cx, 14, -2, 20, -1, '#d8b985', 1);
-    // Paw peek
-    drawEllipse(cx, -6, 15, 3, 2, ch.outline);
-    drawEllipse(cx, 6, 15, 3, 2, ch.outline);
   } else if (ch.sprite === 'captain') {
     drawCircle(cx, 0, -4, 10, '#f3d7ae', '#744b23', 2);
     fillRoundRect(cx, -10, -18, 22, 8, 4, '#ffffff', '#8f2f2f', 1.6);
     fillRoundRect(cx, -14, 6, 28, 24, 8, '#d8a95a', '#744b23', 2);
     drawLine(cx, -10, 12, -16, 28, '#744b23', 3);
     drawLine(cx, 10, 12, 16, 28, '#744b23', 3);
-  } else if (ch.sprite === 'rocket') {
-    fillRoundRect(cx, -9, -16, 18, 40, 9, '#f0f0f0', '#464646', 2);
-    cx.fillStyle = '#d76039';
-    cx.beginPath(); cx.moveTo(-9, 14); cx.lineTo(-18, 24); cx.lineTo(-6, 20); cx.closePath(); cx.fill();
-    cx.beginPath(); cx.moveTo(9, 14); cx.lineTo(18, 24); cx.lineTo(6, 20); cx.closePath(); cx.fill();
-    cx.fillStyle = '#d76039';
-    cx.beginPath(); cx.moveTo(0, -28); cx.lineTo(-10, -12); cx.lineTo(10, -12); cx.closePath(); cx.fill();
-    drawCircle(cx, 0, -2, 4, '#84cbe8', '#3f7e9a', 1.4);
-    drawLine(cx, -4, 24, -8, 32, '#444', 3);
-    drawLine(cx, 4, 24, 8, 32, '#444', 3);
-  } else if (ch.sprite === 'digory') {
-    // Fox terrier — mostly white, with a black rump that extends up the tail.
-    // Upright tail (drawn first so the body covers the root). Black near the
-    // base (part of the rump spot), white tip.
-    cx.lineCap = 'round';
-    cx.strokeStyle = '#18181c'; cx.lineWidth = 4;
-    cx.beginPath(); cx.moveTo(-12, -2); cx.lineTo(-15, -10); cx.stroke();
-    cx.strokeStyle = '#f7f5f0'; cx.lineWidth = 4;
-    cx.beginPath(); cx.moveTo(-15, -10); cx.lineTo(-16, -14); cx.stroke();
-    // White body
-    drawEllipse(cx, 0, 5, 17, 12, '#f7f5f0', ch.outline, 2);
-    // Big black side spot
-    drawEllipse(cx, -3, 2, 7, 5.5, '#18181c');
-    // Small "on/off button" black spot
-    drawCircle(cx, 6, 7, 2, '#18181c');
-    // Black rump patch (extends toward tail base)
-    drawEllipse(cx, -11, 0, 5, 5, '#18181c');
-    // Head — mostly black face
-    drawCircle(cx, 9, -8, 8.5, '#f7f5f0', ch.outline, 2);
-    drawEllipse(cx, 10, -9, 7.5, 7, '#18181c');
-    // Triangle upright ears (black)
-    cx.fillStyle = '#18181c';
-    cx.beginPath(); cx.moveTo(4, -14); cx.lineTo(7, -18); cx.lineTo(8, -11); cx.closePath(); cx.fill();
-    cx.beginPath(); cx.moveTo(14, -14); cx.lineTo(13, -18); cx.lineTo(11, -11); cx.closePath(); cx.fill();
-    // Brown around muzzle
-    drawEllipse(cx, 14, -5, 6, 4, '#8a5a35');
-    drawEllipse(cx, 15, -4, 4.5, 2.8, '#b8845f');
-    // Black nose at the tip
-    drawCircle(cx, 18, -5, 1.6, '#18181c');
-    // Eye glint on the black face
-    drawCircle(cx, 10, -10, 1.4, '#f7f5f0');
-    drawCircle(cx, 10, -10, 0.7, '#18181c');
-    // Gray collar with tag
-    cx.fillStyle = '#7a8088';
-    cx.fillRect(0, -2, 14, 2.5);
-    drawCircle(cx, 12, -0.5, 1.7, '#d0d4d8', '#444', 1);
-  } else if (ch.sprite === 'giraffe') {
-    // Body — yellow with brown spots
-    drawEllipse(cx, 0, 5, 14, 9, '#f0c84d', ch.outline, 2);
-    drawCircle(cx, -6, 3, 2.2, '#bf8834');
-    drawCircle(cx, 4, 6, 2, '#bf8834');
-    drawCircle(cx, 8, 2, 1.8, '#bf8834');
-    // Neck (vertical, gentle sway driven by bob)
-    var sway = Math.sin((bob || 0) * 0.5) * 0.08;
-    cx.save();
-    cx.translate(2, -2);
-    cx.rotate(sway);
-    fillRoundRect(cx, -3, -22, 6, 22, 2, '#f0c84d', ch.outline, 1.5);
-    drawCircle(cx, 1, -10, 1.4, '#bf8834');
-    drawCircle(cx, -1, -18, 1.3, '#bf8834');
-    // Head, mouth, eye, ossicones (tiny horns)
-    drawEllipse(cx, 0, -27, 6, 5, '#f0c84d', ch.outline, 1.5);
-    drawEllipse(cx, 4, -25, 3, 1.6, '#8a5a24');
-    drawCircle(cx, 2, -29, 1, '#1c1c1c');
-    drawLine(cx, -2, -32, -3, -36, '#8a5a24', 2);
-    drawLine(cx, 2, -32, 3, -36, '#8a5a24', 2);
-    drawCircle(cx, -3, -36, 1.2, '#d5a634');
-    drawCircle(cx, 3, -36, 1.2, '#d5a634');
-    cx.restore();
   } else if (ch.sprite === 'koala') {
-    // Chubby gray body
     drawEllipse(cx, 0, 6, 17, 13, '#9aa1a8', ch.outline, 2);
     drawEllipse(cx, 0, 8, 11, 8, '#c2c8cc');
-    // Big fluffy ears
     drawCircle(cx, -8, -8, 6, '#9aa1a8', ch.outline, 2);
     drawCircle(cx, 8, -8, 6, '#9aa1a8', ch.outline, 2);
     drawCircle(cx, -8, -8, 3.5, '#e6dfd2');
     drawCircle(cx, 8, -8, 3.5, '#e6dfd2');
-    // Round head
     drawCircle(cx, 0, -2, 9, '#9aa1a8', ch.outline, 2);
-    // Big black nose
     drawEllipse(cx, 0, -1, 4.5, 3.5, '#1c1c1c');
-    // Sleepy closed-eye lines
     drawLine(cx, -5, -5, -2, -5, '#1c1c1c', 1.6);
     drawLine(cx, 2, -5, 5, -5, '#1c1c1c', 1.6);
-    // Snore Z's float above the head
     cx.fillStyle = '#3a3f48';
     cx.font = 'bold 11px Georgia,serif';
     cx.textAlign = 'left';
@@ -482,6 +351,197 @@ function drawCharacter(cx, id, x, y, facing, bob, shadowScale) {
     cx.font = 'bold 7px Georgia,serif';
     cx.fillText('z', 22, -25);
   }
+}
+
+function drawCharacterSidescrollSprite(cx, ch, facing, bob) {
+  var dir = facing === 'left' ? -1 : 1;
+  var sway = Math.sin((bob || 0) * 0.5) * 0.08;
+  if (ch.sprite === 'hamster') {
+    cx.strokeStyle = ch.accent;
+    cx.lineWidth = 3;
+    cx.beginPath();
+    cx.moveTo(-12 * dir, 6);
+    cx.quadraticCurveTo(-18 * dir, 1, -14 * dir, -6);
+    cx.stroke();
+    drawEllipse(cx, -1 * dir, 5, 17, 12, ch.color, ch.outline, 2);
+    drawEllipse(cx, 2 * dir, 8, 8, 5.5, '#f5ddbc');
+    drawCircle(cx, 10 * dir, -3, 8.5, ch.color, ch.outline, 2);
+    drawCircle(cx, 4 * dir, -9, 4.2, ch.color, ch.outline, 2);
+    drawCircle(cx, 11 * dir, -11, 3.4, ch.color, ch.outline, 2);
+    drawEllipse(cx, 12 * dir, -1, 5.4, 4.4, '#f5ddbc');
+    drawCircle(cx, 13 * dir, -4, 1.5, '#35231b');
+    drawCircle(cx, 17 * dir, -1, 2.1, '#c56f62');
+    drawLine(cx, 14 * dir, 1, 17 * dir, 2.5, '#8d5f35', 1.2);
+  } else if (ch.sprite === 'duck') {
+    cx.save();
+    if (dir < 0) cx.scale(-1, 1);
+    drawEllipse(cx, -2, 4, 16, 12, '#8b6030', ch.outline, 2);
+    drawEllipse(cx, -2, 5, 12, 7, '#7a5020');
+    cx.fillStyle = '#3c2814';
+    cx.beginPath(); cx.moveTo(-12, 2); cx.lineTo(-22, 14); cx.lineTo(-6, 10); cx.closePath(); cx.fill();
+    drawCircle(cx, 10, -7, 8, '#2a7a38', ch.outline, 2);
+    drawCircle(cx, 8, -9, 3.4, 'rgba(0,200,160,0.32)');
+    cx.fillStyle = '#111';
+    cx.fillRect(4, -9, 13, 4);
+    drawCircle(cx, 11, -7, 1.4, '#fff');
+    drawEllipse(cx, 20, -3, 7, 3.5, '#e8b800', '#9c7900', 1.4);
+    cx.restore();
+  } else if (ch.sprite === 'hippo') {
+    cx.fillStyle = ch.accent;
+    cx.beginPath();
+    cx.moveTo(-16 * dir, 6);
+    cx.lineTo(-22 * dir, 10);
+    cx.lineTo(-16 * dir, 11);
+    cx.closePath();
+    cx.fill();
+    drawEllipse(cx, -2 * dir, 6, 20, 14, ch.color, ch.outline, 2);
+    drawCircle(cx, 9 * dir, -2, 9, ch.color, ch.outline, 2);
+    drawCircle(cx, 4 * dir, -9, 4.2, ch.color, ch.outline, 2);
+    drawCircle(cx, 12 * dir, -10, 3.8, ch.color, ch.outline, 2);
+    drawEllipse(cx, 14 * dir, 1, 6.5, 4.8, '#b8a7d4', ch.outline, 1.2);
+    drawCircle(cx, 11 * dir, -2, 1.5, '#2e2338');
+    drawCircle(cx, 16 * dir, 0, 1.2, '#6f5b88');
+    drawCircle(cx, 19 * dir, 0, 1.2, '#6f5b88');
+  } else if (ch.sprite === 'monkey') {
+    cx.save();
+    if (dir < 0) cx.scale(-1, 1);
+    cx.strokeStyle = ch.color; cx.lineWidth = 4; cx.lineCap = 'round';
+    cx.beginPath(); cx.moveTo(-12, 4); cx.quadraticCurveTo(-22, 0, -20, -10); cx.stroke();
+    drawEllipse(cx, 0, 5, 15, 12, ch.color, ch.outline, 2);
+    drawEllipse(cx, 0, 7, 9, 7, ch.accent);
+    drawCircle(cx, 6, -7, 9, ch.color, ch.outline, 2);
+    drawCircle(cx, -2, -9, 3.4, ch.color, ch.outline, 1.5);
+    drawCircle(cx, 14, -9, 3.4, ch.color, ch.outline, 1.5);
+    drawCircle(cx, -2, -9, 1.8, ch.accent);
+    drawCircle(cx, 14, -9, 1.8, ch.accent);
+    drawEllipse(cx, 7, -5, 5.5, 5, ch.accent);
+    drawCircle(cx, 7, -7, 1.4, '#1c1209');
+    drawLine(cx, 8, -2, 11, -2, '#3a2612', 1.2);
+    cx.restore();
+  } else if (ch.sprite === 'panda') {
+    cx.strokeStyle = '#1c1c1c';
+    cx.lineWidth = 3.2;
+    cx.beginPath();
+    cx.moveTo(-14 * dir, 7);
+    cx.quadraticCurveTo(-20 * dir, 6, -18 * dir, -1);
+    cx.stroke();
+    drawEllipse(cx, -1 * dir, 6, 17, 12, '#f4f4f4', ch.outline, 2);
+    drawEllipse(cx, 4 * dir, 8, 8, 5.5, '#ececec');
+    drawCircle(cx, 9 * dir, -2, 9, '#f4f4f4', ch.outline, 2);
+    drawCircle(cx, 4 * dir, -9, 4.2, '#1c1c1c');
+    drawCircle(cx, 9 * dir, -4, 4, '#1c1c1c');
+    drawCircle(cx, 10 * dir, -4, 1.4, '#fff');
+    drawEllipse(cx, 14 * dir, 0, 4.5, 3.2, '#1c1c1c');
+  } else if (ch.sprite === 'otter') {
+    cx.save();
+    if (dir < 0) cx.scale(-1, 1);
+    cx.strokeStyle = ch.color; cx.lineWidth = 6; cx.lineCap = 'round';
+    cx.beginPath(); cx.moveTo(-12, 4); cx.quadraticCurveTo(-24, 6, -22, -2); cx.stroke();
+    drawEllipse(cx, 0, 5, 17, 12, ch.color, ch.outline, 2);
+    drawEllipse(cx, 0, 7, 10, 7, ch.accent);
+    drawCircle(cx, 9, -6, 9, ch.color, ch.outline, 2);
+    drawCircle(cx, 3, -13, 2.2, ch.color, ch.outline, 1.2);
+    drawCircle(cx, 13, -13, 2.2, ch.color, ch.outline, 1.2);
+    drawEllipse(cx, 13, -4, 5, 3.2, ch.accent);
+    drawCircle(cx, 16, -4, 1.5, '#1c1209');
+    drawCircle(cx, 8, -8, 1.4, '#1c1209');
+    drawLine(cx, 14, -3, 20, -4, '#d8b985', 1);
+    drawLine(cx, 14, -2, 20, -1, '#d8b985', 1);
+    drawEllipse(cx, -6, 15, 3, 2, ch.outline);
+    drawEllipse(cx, 6, 15, 3, 2, ch.outline);
+    cx.restore();
+  } else if (ch.sprite === 'captain') {
+    drawLine(cx, -4 * dir, 14, -8 * dir, 28, '#744b23', 3);
+    drawLine(cx, 7 * dir, 14, 11 * dir, 28, '#744b23', 3);
+    fillRoundRect(cx, -10, 7, 24, 24, 7, '#d8a95a', '#744b23', 2);
+    drawCircle(cx, 5 * dir, -4, 9, '#f3d7ae', '#744b23', 2);
+    fillRoundRect(cx, -6 * dir - 8, -17, 22, 8, 4, '#ffffff', '#8f2f2f', 1.6);
+    drawLine(cx, 8 * dir, -2, 12 * dir, -1, '#744b23', 1.6);
+    drawLine(cx, 9 * dir, 2, 12 * dir, 3, '#744b23', 1.4);
+    drawLine(cx, 13 * dir, -3, 16 * dir, -1, '#744b23', 1.8);
+  } else if (ch.sprite === 'rocket') {
+    cx.save();
+    if (dir < 0) cx.scale(-1, 1);
+    fillRoundRect(cx, -9, -16, 18, 40, 9, '#f0f0f0', '#464646', 2);
+    cx.fillStyle = '#d76039';
+    cx.beginPath(); cx.moveTo(-9, 14); cx.lineTo(-18, 24); cx.lineTo(-6, 20); cx.closePath(); cx.fill();
+    cx.beginPath(); cx.moveTo(9, 14); cx.lineTo(18, 24); cx.lineTo(6, 20); cx.closePath(); cx.fill();
+    cx.fillStyle = '#d76039';
+    cx.beginPath(); cx.moveTo(0, -28); cx.lineTo(-10, -12); cx.lineTo(10, -12); cx.closePath(); cx.fill();
+    drawCircle(cx, 0, -2, 4, '#84cbe8', '#3f7e9a', 1.4);
+    drawLine(cx, -4, 24, -8, 32, '#444', 3);
+    drawLine(cx, 4, 24, 8, 32, '#444', 3);
+    cx.restore();
+  } else if (ch.sprite === 'digory') {
+    cx.save();
+    if (dir < 0) cx.scale(-1, 1);
+    cx.lineCap = 'round';
+    cx.strokeStyle = '#18181c'; cx.lineWidth = 4;
+    cx.beginPath(); cx.moveTo(-12, -2); cx.lineTo(-15, -10); cx.stroke();
+    cx.strokeStyle = '#f7f5f0'; cx.lineWidth = 4;
+    cx.beginPath(); cx.moveTo(-15, -10); cx.lineTo(-16, -14); cx.stroke();
+    drawEllipse(cx, 0, 5, 17, 12, '#f7f5f0', ch.outline, 2);
+    drawEllipse(cx, -3, 2, 7, 5.5, '#18181c');
+    drawCircle(cx, 6, 7, 2, '#18181c');
+    drawEllipse(cx, -11, 0, 5, 5, '#18181c');
+    drawCircle(cx, 9, -8, 8.5, '#f7f5f0', ch.outline, 2);
+    drawEllipse(cx, 10, -9, 7.5, 7, '#18181c');
+    cx.fillStyle = '#18181c';
+    cx.beginPath(); cx.moveTo(4, -14); cx.lineTo(7, -18); cx.lineTo(8, -11); cx.closePath(); cx.fill();
+    cx.beginPath(); cx.moveTo(14, -14); cx.lineTo(13, -18); cx.lineTo(11, -11); cx.closePath(); cx.fill();
+    drawEllipse(cx, 14, -5, 6, 4, '#8a5a35');
+    drawEllipse(cx, 15, -4, 4.5, 2.8, '#b8845f');
+    drawCircle(cx, 18, -5, 1.6, '#18181c');
+    drawCircle(cx, 10, -10, 1.4, '#f7f5f0');
+    drawCircle(cx, 10, -10, 0.7, '#18181c');
+    cx.fillStyle = '#7a8088';
+    cx.fillRect(0, -2, 14, 2.5);
+    drawCircle(cx, 12, -0.5, 1.7, '#d0d4d8', '#444', 1);
+    cx.restore();
+  } else if (ch.sprite === 'giraffe') {
+    cx.save();
+    if (dir < 0) cx.scale(-1, 1);
+    drawEllipse(cx, 0, 5, 14, 9, '#f0c84d', ch.outline, 2);
+    drawCircle(cx, -6, 3, 2.2, '#bf8834');
+    drawCircle(cx, 4, 6, 2, '#bf8834');
+    drawCircle(cx, 8, 2, 1.8, '#bf8834');
+    cx.translate(2, -2);
+    cx.rotate(sway);
+    fillRoundRect(cx, -3, -22, 6, 22, 2, '#f0c84d', ch.outline, 1.5);
+    drawCircle(cx, 1, -10, 1.4, '#bf8834');
+    drawCircle(cx, -1, -18, 1.3, '#bf8834');
+    drawEllipse(cx, 0, -27, 6, 5, '#f0c84d', ch.outline, 1.5);
+    drawEllipse(cx, 4, -25, 3, 1.6, '#8a5a24');
+    drawCircle(cx, 2, -29, 1, '#1c1c1c');
+    drawLine(cx, -2, -32, -3, -36, '#8a5a24', 2);
+    drawLine(cx, 2, -32, 3, -36, '#8a5a24', 2);
+    drawCircle(cx, -3, -36, 1.2, '#d5a634');
+    drawCircle(cx, 3, -36, 1.2, '#d5a634');
+    cx.restore();
+  } else if (ch.sprite === 'koala') {
+    drawLine(cx, -11 * dir, 7, -16 * dir, 5, '#7d848c', 3);
+    drawEllipse(cx, -1 * dir, 6, 17, 12, '#9aa1a8', ch.outline, 2);
+    drawEllipse(cx, 3 * dir, 8, 10, 6.5, '#c2c8cc');
+    drawCircle(cx, 4 * dir, -8, 5.8, '#9aa1a8', ch.outline, 2);
+    drawCircle(cx, 12 * dir, -9, 4.4, '#9aa1a8', ch.outline, 2);
+    drawCircle(cx, 4 * dir, -8, 3.1, '#e6dfd2');
+    drawCircle(cx, 12 * dir, -9, 2.4, '#e6dfd2');
+    drawCircle(cx, 9 * dir, -2, 8.6, '#9aa1a8', ch.outline, 2);
+    drawEllipse(cx, 13 * dir, -1, 4.4, 3.3, '#1c1c1c');
+    drawLine(cx, 7 * dir, -5, 10 * dir, -5, '#1c1c1c', 1.6);
+    drawLine(cx, 11 * dir, 1, 14 * dir, 2, '#3a3f48', 1.2);
+  }
+}
+
+function drawCharacter(cx, id, x, y, facing, bob, shadowScale, variant) {
+  var ch = CHARACTERS[id];
+  var bounce = Math.sin(bob || 0) * 1.5;
+  var mode = variant || 'portrait';
+  cx.save();
+  cx.translate(x, y + bounce);
+  drawEllipse(cx, 0, 18, 16 * (shadowScale || 1), 6 * (shadowScale || 1), 'rgba(0,0,0,.16)');
+  if (mode === 'sidescroll') drawCharacterSidescrollSprite(cx, ch, facing, bob);
+  else drawCharacterPortraitSprite(cx, ch, bob);
   cx.restore();
 }
 
@@ -1313,10 +1373,10 @@ function drawTitle() {
 
   // Decorative characters on the ground
   var t = state.phaseTime;
-  drawCharacter(ctx, 'samster', 150, 450, 'right', t * 6,       1);
-  drawCharacter(ctx, 'duck',    240, 446, 'right', t * 6 + 0.9, 1);
-  drawCharacter(ctx, 'hippo',   340, 454, 'right', t * 6 + 1.7, 1);
-  drawCharacter(ctx, 'rocket',  660, 448, 'left',  t * 6 + 2.3, 1);
+  drawCharacter(ctx, 'samster', 150, 450, 'right', t * 6,       1, 'sidescroll');
+  drawCharacter(ctx, 'duck',    240, 446, 'right', t * 6 + 0.9, 1, 'sidescroll');
+  drawCharacter(ctx, 'hippo',   340, 454, 'right', t * 6 + 1.7, 1, 'sidescroll');
+  drawCharacter(ctx, 'rocket',  660, 448, 'left',  t * 6 + 2.3, 1, 'sidescroll');
 
   fillRoundRect(ctx, 90, 70, 620, 230, 26, 'rgba(16,30,46,0.82)', 'rgba(255,239,190,0.55)', 2);
   drawText(ctx, 'MUCKO',  400, 145, '#ffd86f', 56, 'center', 'bold');
@@ -1348,14 +1408,33 @@ function selectLayout() {
   var x0 = (W - total) / 2;
   var y0 = 92;
   var cards = [];
+  var thumbCols = 4;
+  var thumbGap = 4;
+  var thumbW = 33;
+  var thumbH = 22;
   for (var i = 0; i < 4; i++) {
     var cx = x0 + i * (cardW + gap);
+    var thumbs = [];
+    var thumbX0 = cx + 18;
+    var thumbY0 = y0 + 60;
+    for (var j = 0; j < CHAR_IDS.length; j++) {
+      var col = j % thumbCols;
+      var row = Math.floor(j / thumbCols);
+      thumbs.push({
+        charIdx: j,
+        x: thumbX0 + col * (thumbW + thumbGap),
+        y: thumbY0 + row * (thumbH + thumbGap),
+        w: thumbW,
+        h: thumbH
+      });
+    }
     cards.push({
       slotIndex: i,
       x: cx, y: y0, w: cardW, h: cardH,
-      portrait:  { x: cx + 18, y: y0 + 72,  w: cardW - 36, h: 200 },
-      leftArrow: { x: cx + 8,  y: y0 + 152, w: 28, h: 36 },
-      rightArrow:{ x: cx + cardW - 36, y: y0 + 152, w: 28, h: 36 },
+      portrait:  { x: cx + 20, y: y0 + 136, w: cardW - 40, h: 110 },
+      thumbs: thumbs,
+      leftArrow: { x: cx + 8,  y: y0 + 198, w: 28, h: 36 },
+      rightArrow:{ x: cx + cardW - 36, y: y0 + 198, w: 28, h: 36 },
       stockPill: { x: cx + 16, y: y0 + cardH - 102, w: cardW - 32, h: 34 },
       modePill:  { x: cx + 16, y: y0 + cardH - 58,  w: cardW - 32, h: 38 }
     });
@@ -1397,7 +1476,7 @@ function drawSelect() {
   drawBackground();
   fillRoundRect(ctx, 20, 12, W - 40, 70, 18, 'rgba(16,30,46,0.82)', 'rgba(255,239,190,0.5)', 2);
   drawText(ctx, 'PICK YOUR CHARACTERS', W / 2, 46, '#ffd86f', 26, 'center', 'bold');
-  drawText(ctx, 'Tap ◀ / ▶ to switch character \u2022 tap lives or difficulty to change them',
+  drawText(ctx, 'Tap thumbnails or ◀ / ▶ to switch character \u2022 tap lives or difficulty to change them',
     W / 2, 68, '#d9e6ef', 12, 'center', 'bold');
 
   var L = selectLayout();
@@ -1416,15 +1495,28 @@ function drawSelect() {
     var slotName = slot.kind === 'player' ? 'PLAYER 1' : ('CPU ' + i);
     drawText(ctx, slotName, c.x + c.w / 2, c.y + 38, '#fff4cf', 17, 'center', 'bold');
 
+    for (var j = 0; j < c.thumbs.length; j++) {
+      var thumb = c.thumbs[j];
+      var selected = thumb.charIdx === slot.charIdx;
+      var thumbFill = selected ? '#fff4cf' : (active ? 'rgba(255,240,205,0.76)' : 'rgba(215,208,192,0.6)');
+      var thumbStroke = selected ? '#d8982a' : 'rgba(90,70,34,0.42)';
+      fillRoundRect(ctx, thumb.x, thumb.y, thumb.w, thumb.h, 7, thumbFill, thumbStroke, selected ? 2.5 : 1.2);
+      ctx.save();
+      ctx.translate(thumb.x + thumb.w / 2, thumb.y + thumb.h - 1);
+      ctx.scale(0.40, 0.40);
+      drawCharacter(ctx, CHAR_IDS[thumb.charIdx], 0, 0, 'right', state.phaseTime * 3 + j, 0.55, 'portrait');
+      ctx.restore();
+    }
+
     // Portrait + cycle arrows
     if (active) {
       drawCharacter(ctx, CHAR_IDS[slot.charIdx],
-        c.x + c.w / 2, c.y + 180, 'right', state.phaseTime * 4 + i, 1.35);
+        c.x + c.w / 2, c.y + 200, 'right', state.phaseTime * 4 + i, 1.15, 'portrait');
       drawText(ctx, CHARACTERS[CHAR_IDS[slot.charIdx]].name,
-        c.x + c.w / 2, c.y + 232, '#5a3d16', 14, 'center', 'bold');
+        c.x + c.w / 2, c.y + 250, '#5a3d16', 14, 'center', 'bold');
     } else {
       drawText(ctx, slot.kind === 'player' ? '(spectating)' : '(off)',
-        c.x + c.w / 2, c.y + 180, '#6a5d44', 16, 'center', 'bold');
+        c.x + c.w / 2, c.y + 200, '#6a5d44', 16, 'center', 'bold');
     }
 
     var arrowFill = active ? 'rgba(255,228,170,0.9)' : 'rgba(200,200,200,0.6)';
@@ -1471,6 +1563,14 @@ function updateSelect(dt) {
   for (var i = 0; i < L.cards.length; i++) {
     var c = L.cards[i];
     var slot = state.slots[i];
+    for (var j = 0; j < c.thumbs.length; j++) {
+      var thumb = c.thumbs[j];
+      if (hit(thumb)) {
+        if (!slotActive(slot) && slot.kind === 'cpu') slot.mode = 'medium';
+        slot.charIdx = thumb.charIdx;
+        return;
+      }
+    }
     if (hit(c.leftArrow))  {
       if (!slotActive(slot) && slot.kind === 'cpu') slot.mode = 'medium';
       cycleCharacter(slot, -1); return;
@@ -1605,7 +1705,7 @@ function drawPlay() {
         var s = e.trail[k];
         var alpha = 0.12 + 0.32 * (k / Math.max(1, n - 1));
         ctx.globalAlpha = alpha;
-        drawCharacter(ctx, e.charId, s.x, s.y, s.facing, s.bob, 0);
+        drawCharacter(ctx, e.charId, s.x, s.y, s.facing, s.bob, 0, 'sidescroll');
       }
       ctx.restore();
     }
@@ -1620,10 +1720,10 @@ function drawPlay() {
       ctx.translate(e.x, e.y + FEET_OFFSET);
       ctx.scale(sx, sy);
       ctx.translate(-e.x, -(e.y + FEET_OFFSET));
-      drawCharacter(ctx, e.charId, e.x, e.y, e.facing, e.bob, 1);
+      drawCharacter(ctx, e.charId, e.x, e.y, e.facing, e.bob, 1, 'sidescroll');
       ctx.restore();
     } else {
-      drawCharacter(ctx, e.charId, e.x, e.y, e.facing, e.bob, 1);
+      drawCharacter(ctx, e.charId, e.x, e.y, e.facing, e.bob, 1, 'sidescroll');
     }
     var spec = CHARACTERS[e.charId].special;
     if (spec && spec.type === 'neckHammer' && e.specialT > 0) {
@@ -1869,7 +1969,7 @@ function drawResults() {
     ctx.save();
     ctx.translate(W / 2, H / 2 - 20);
     ctx.scale(3.2, 3.2);
-    drawCharacter(ctx, winner.charId, 0, 0, 'right', state.phaseTime * 4, 1);
+    drawCharacter(ctx, winner.charId, 0, 0, 'right', state.phaseTime * 4, 1, 'portrait');
     ctx.restore();
 
     drawText(ctx, 'WINNER!', W / 2, 128, '#ffd86f', 56, 'center', 'bold');
