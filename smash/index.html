@@ -131,7 +131,8 @@ var my = H / 2;
 var mclk = false;
 var touchSuppressUntil = 0;
 var touchState = { leftBtn: false, rightBtn: false, jumpBtn: false, jumpJustPressed: false,
-                   dashBtn: false, dashJustPressed: false };
+                   dashBtn: false, dashJustPressed: false,
+                   specialBtn: false, specialJustPressed: false };
 
 function setPointerFromEvent(e) {
   var r = canvas.getBoundingClientRect();
@@ -161,9 +162,11 @@ var CHARACTERS = {
   lekan:   { name: 'Lekan',          color: '#f4f4f4', accent: '#242424', outline: '#202020', sprite: 'panda' },
   basil:   { name: 'Basil',          color: '#6b4527', accent: '#d8b985', outline: '#3b2614', sprite: 'otter' },
   mucko:   { name: 'Captain Mucko',  color: '#d8a95a', accent: '#8f2f2f', outline: '#5f3914', sprite: 'captain' },
-  rocket:  { name: 'Saturn V',       color: '#ededed', accent: '#d76039', outline: '#373737', sprite: 'rocket' },
+  rocket:  { name: 'Saturn V',       color: '#ededed', accent: '#d76039', outline: '#373737', sprite: 'rocket',
+             special: { type: 'abortShot', cooldown: 1.0, speed: 430, radius: 10, damage: 8, launchX: 260, launchY: 135, maxAge: 1.1 } },
   digory:  { name: 'Digory',         color: '#f7f5f0', accent: '#18181c', outline: '#3a2c20', sprite: 'digory' },
-  jlong:   { name: 'J. Long',        color: '#f0c84d', accent: '#bf8834', outline: '#5a3a14', sprite: 'giraffe' },
+  jlong:   { name: 'J. Long',        color: '#f0c84d', accent: '#bf8834', outline: '#5a3a14', sprite: 'giraffe',
+             special: { type: 'neckHammer', cooldown: 0.75, active: 0.16, range: 50, radius: 18, damage: 10, launchX: 310, launchY: 170 } },
   pras:    { name: 'Pras the Koala', color: '#9aa1a8', accent: '#3a3f48', outline: '#2c2f36', sprite: 'koala',
              moveMul: 0.06, jumpMul: 0.18, dashMul: 0.10 }
 };
@@ -545,6 +548,9 @@ function makeEntity(charId, x, y, isCPU, mode) {
     dashDir: 1,
     dashCooldown: 0,
     specialUsed: false,
+    specialCooldown: 0,
+    specialT: 0,
+    specialVictims: Object.create(null),
     trail: [],          // recent {x,y,facing,bob} for afterimages (kept short)
     ai: isCPU ? {
       mode: cpuMode,
@@ -556,6 +562,7 @@ function makeEntity(charId, x, y, isCPU, mode) {
       inputJumpPressed: false,
       inputJumpHeld: false,
       inputDashPressed: false,
+      inputSpecialPressed: false,
       jumpCooldown: 0,
       targetId: null
     } : null
@@ -576,6 +583,7 @@ var state = {
     { kind: 'cpu',    charIdx: 3, mode: 'off', stocks: START_STOCKS }
   ],
   entities: [],
+  projectiles: [],
   platforms: [],
   seed: 0,
   respawnFlash: 0,         // global "you just respawned" tint timer
@@ -606,6 +614,7 @@ function startPlay(seedOverride) {
     : (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
   state.platforms = makeArena(state.seed);
   state.entities = [];
+  state.projectiles = [];
   // Spawn active characters spaced across the stage.
   var activeSlots = [];
   for (var i = 0; i < state.slots.length; i++) if (slotActive(state.slots[i])) activeSlots.push(state.slots[i]);
@@ -642,6 +651,9 @@ function respawn(e) {
   e.dashT = 0;
   e.dashCooldown = 0;
   e.specialUsed = false;
+  e.specialCooldown = 0;
+  e.specialT = 0;
+  e.specialVictims = Object.create(null);
   e.squashT = 0;
   e.trail.length = 0;
   e.invulnFrames = 60;
@@ -712,6 +724,11 @@ function checkMatchEnd() {
 function playerLeft()  { return K.ArrowLeft  || K.KeyA || touchState.leftBtn; }
 function playerRight() { return K.ArrowRight || K.KeyD || touchState.rightBtn; }
 function jumpHeld()    { return K.Space || K.ArrowUp || K.KeyW || touchState.jumpBtn; }
+function specialPressed() {
+  var kp = eat('KeyF') || eat('KeyJ');
+  if (touchState.specialJustPressed) { touchState.specialJustPressed = false; return true; }
+  return kp;
+}
 function jumpPressed() {
   var kp = eat('Space') || eat('ArrowUp') || eat('KeyW');
   if (touchState.jumpJustPressed) { touchState.jumpJustPressed = false; return true; }
@@ -732,10 +749,19 @@ function startDash(e, dir) {
   else          beep(520, 0.08, 0.10, 'sawtooth');
 }
 
+function applySpecialHit(attacker, defender, spec, dir) {
+  defender.damage += spec.damage;
+  defender.vx = dir * (spec.launchX + defender.damage * 2.2);
+  defender.vy = Math.min(defender.vy, -spec.launchY);
+  defender.onGround = false;
+  defender.invulnFrames = KB_POST_INVULN;
+}
+
 function tryUseCharacterAbility(e) {
   var special = CHARACTERS[e.charId].special;
-  if (!special || e.specialUsed) return false;
+  if (!special) return false;
   if (special.type === 'airFlap') {
+    if (e.specialUsed) return false;
     if (e.onGround) return false;
     e.vy = Math.min(special.vy, special.minVy);
     e.specialUsed = true;
@@ -743,6 +769,33 @@ function tryUseCharacterAbility(e) {
       beep(720, 0.08, 0.08, 'triangle');
       setTimeout(function() { beep(560, 0.06, 0.06, 'triangle'); }, 40);
     }
+    return true;
+  }
+  if (special.type === 'neckHammer') {
+    if (e.specialCooldown > 0 || e.specialT > 0) return false;
+    e.specialCooldown = special.cooldown;
+    e.specialT = special.active;
+    e.specialVictims = Object.create(null);
+    if (!e.isCPU) beep(330, 0.08, 0.1, 'square');
+    return true;
+  }
+  if (special.type === 'abortShot') {
+    if (e.specialCooldown > 0) return false;
+    e.specialCooldown = special.cooldown;
+    state.projectiles.push({
+      ownerId: e.eid,
+      ownerCharId: e.charId,
+      x: e.x + (e.facing === 'left' ? -24 : 24),
+      y: e.y - 8,
+      vx: (e.facing === 'left' ? -1 : 1) * special.speed,
+      radius: special.radius,
+      damage: special.damage,
+      launchX: special.launchX,
+      launchY: special.launchY,
+      maxAge: special.maxAge,
+      age: 0
+    });
+    if (!e.isCPU) beep(660, 0.07, 0.08, 'triangle');
     return true;
   }
   return false;
@@ -773,7 +826,9 @@ function cpuThinkHeuristic(e, dt, g) {
 
   var target = getOpponentTarget(e);
   s.targetId = target ? target.eid : null;
-  var input = { left: false, right: false, jumpPressed: false, jumpHeld: false, dashPressed: false };
+  var input = { left: false, right: false, jumpPressed: false, jumpHeld: false, dashPressed: false, specialPressed: false };
+  var special = CHARACTERS[e.charId].special;
+  var specialReady = special && (special.type === 'airFlap' ? !e.specialUsed : e.specialCooldown <= 0 && e.specialT <= 0);
 
   var edgeBuffer = Math.max(70, g.edgeBuffer * 0.55);
   var panicBuffer = Math.max(42, edgeBuffer * 0.55);
@@ -807,6 +862,14 @@ function cpuThinkHeuristic(e, dt, g) {
 
     if (chance(g.idleChance)) {
       s.state = 'idle';
+    } else if (target && specialReady && special.type === 'abortShot' && adx < 240 && Math.abs(dy) < 90) {
+      input.specialPressed = true;
+      s.state = desiredDir < 0 ? 'walk_left' : 'walk_right';
+      s.timer = randRange(g.dwellMin, g.dwellMax);
+    } else if (target && specialReady && special.type === 'neckHammer' && adx < special.range + 8 && Math.abs(dy) < 70) {
+      input.specialPressed = true;
+      s.state = 'idle';
+      s.timer = randRange(g.dwellMin, g.dwellMax);
     } else if (dashOpen && chance(clamp(dashValue, 0, 0.95))) {
       s.state = desiredDir < 0 ? 'dash_left' : 'dash_right';
     } else if (jumpOpen && chance(clamp(jumpValue, 0, 0.95))) {
@@ -886,6 +949,7 @@ function cpuThinkHeuristic(e, dt, g) {
   s.inputJumpPressed = input.jumpPressed;
   s.inputJumpHeld = input.jumpHeld;
   s.inputDashPressed = input.dashPressed;
+  s.inputSpecialPressed = input.specialPressed;
 }
 
 /* ── CPU AI: picks new behaviour once per frame, latches inputs ─ */
@@ -896,21 +960,24 @@ function cpuThink(e, dt) {
 
 /* ── Physics step ──────────────────────────────────────────── */
 function stepEntity(e, dt) {
-  var pressingLeft, pressingRight, jp, jh, dashPressed;
+  var pressingLeft, pressingRight, jp, jh, dashPressed, specialBtn;
   if (e.isCPU) {
     pressingLeft  = e.ai.inputLeft;
     pressingRight = e.ai.inputRight;
     jp = e.ai.inputJumpPressed;
     jh = e.ai.inputJumpHeld;
     dashPressed = e.ai.inputDashPressed;
+    specialBtn = e.ai.inputSpecialPressed;
     e.ai.inputJumpPressed = false; // consume so multi-substep doesn't re-jump
     e.ai.inputDashPressed = false;
+    e.ai.inputSpecialPressed = false;
   } else {
     pressingLeft  = playerLeft();
     pressingRight = playerRight();
     jp = jumpPressed();
     jh = jumpHeld();
     dashPressed = false; // player dash is started from updatePlay() before stepping
+    specialBtn = specialPressed();
   }
   // Squash disables all horizontal input and kills walking momentum.
   if (e.squashT > 0) {
@@ -919,6 +986,7 @@ function stepEntity(e, dt) {
     pressingRight = false;
     jp = false;
     dashPressed = false;
+    specialBtn = false;
     if (e.onGround) e.vx *= Math.pow(0.1, dt * 8); // decay to zero over the squash
   }
 
@@ -961,6 +1029,10 @@ function stepEntity(e, dt) {
     if (e.vx < -maxV && pressingLeft && !pressingRight) e.vx = -maxV;
   }
   if (e.dashCooldown > 0) e.dashCooldown = Math.max(0, e.dashCooldown - dt);
+  if (e.specialCooldown > 0) e.specialCooldown = Math.max(0, e.specialCooldown - dt);
+  if (e.specialT > 0) e.specialT = Math.max(0, e.specialT - dt);
+
+  if (specialBtn) tryUseCharacterAbility(e);
 
   if (jp && e.onGround) {
     e.vy = -JUMP_VEL * jumpMul;
@@ -1129,7 +1201,8 @@ function mobileLayout() {
   return {
     left:  { cx: 68,       cy: H - 80, r: 44, label: '◀' },
     right: { cx: 170,      cy: H - 80, r: 44, label: '▶' },
-    dash:  { cx: W - 200,  cy: H - 80, r: 40, label: 'DASH' },
+    dash:  { cx: W - 250,  cy: H - 84, r: 34, label: 'DASH' },
+    special:{ cx: W - 170, cy: H - 140, r: 32, label: 'SPEC' },
     jump:  { cx: W - 90,   cy: H - 84, r: 52, label: 'JUMP' }
   };
 }
@@ -1148,6 +1221,7 @@ function hitMobileControl(px, py) {
   var L = mobileLayout();
   if (Math.hypot(px - L.jump.cx,  py - L.jump.cy)  <= L.jump.r)  return 'jump';
   if (Math.hypot(px - L.dash.cx,  py - L.dash.cy)  <= L.dash.r)  return 'dash';
+  if (Math.hypot(px - L.special.cx, py - L.special.cy) <= L.special.r) return 'special';
   if (Math.hypot(px - L.left.cx,  py - L.left.cy)  <= L.left.r)  return 'left';
   if (Math.hypot(px - L.right.cx, py - L.right.cy) <= L.right.r) return 'right';
   return null;
@@ -1155,7 +1229,7 @@ function hitMobileControl(px, py) {
 function syncTouches(e) {
   var rect = canvas.getBoundingClientRect();
   var sx = W / rect.width, sy = H / rect.height;
-  var leftHit = false, rightHit = false, jumpHit = false, dashHit = false, paperTap = null;
+  var leftHit = false, rightHit = false, jumpHit = false, dashHit = false, specialHit = false, paperTap = null;
   var touches = e.touches;
   for (var i = 0; i < touches.length; i++) {
     var t = touches[i];
@@ -1166,14 +1240,17 @@ function syncTouches(e) {
     else if (hit === 'right') rightHit = true;
     else if (hit === 'jump')  jumpHit  = true;
     else if (hit === 'dash')  dashHit  = true;
+    else if (hit === 'special') specialHit = true;
     else                      paperTap = { x: px, y: py };
   }
   if (jumpHit && !touchState.jumpBtn) touchState.jumpJustPressed = true;
   if (dashHit && !touchState.dashBtn) touchState.dashJustPressed = true;
+  if (specialHit && !touchState.specialBtn) touchState.specialJustPressed = true;
   touchState.leftBtn  = leftHit;
   touchState.rightBtn = rightHit;
   touchState.jumpBtn  = jumpHit;
   touchState.dashBtn  = dashHit;
+  touchState.specialBtn = specialHit;
   // Non-control taps (title / select screens) register as clicks.
   if (paperTap && !mclk) { mx = paperTap.x; my = paperTap.y; mclk = true; }
 }
@@ -1186,7 +1263,7 @@ canvas.addEventListener('touchmove',   function(e) { syncTouches(e); e.preventDe
 canvas.addEventListener('touchend',    function(e) { syncTouches(e); e.preventDefault(); }, { passive: false });
 canvas.addEventListener('touchcancel', function(e) { syncTouches(e); e.preventDefault(); }, { passive: false });
 window.addEventListener('blur', function() {
-  touchState.leftBtn = touchState.rightBtn = touchState.jumpBtn = touchState.dashBtn = false;
+  touchState.leftBtn = touchState.rightBtn = touchState.jumpBtn = touchState.dashBtn = touchState.specialBtn = false;
 });
 
 /* ── Background ────────────────────────────────────────────── */
@@ -1493,7 +1570,9 @@ function updatePlay(dt) {
     for (var i = 0; i < state.entities.length; i++) {
       if (!state.entities[i].ko) stepEntity(state.entities[i], dts);
     }
+    updateProjectiles(dts);
     resolveEntityPairs();
+    resolveSpecials();
     remaining -= dts;
   }
 
@@ -1546,6 +1625,18 @@ function drawPlay() {
     } else {
       drawCharacter(ctx, e.charId, e.x, e.y, e.facing, e.bob, 1);
     }
+    var spec = CHARACTERS[e.charId].special;
+    if (spec && spec.type === 'neckHammer' && e.specialT > 0) {
+      var dir = e.facing === 'left' ? -1 : 1;
+      drawLine(ctx, e.x + dir * 10, e.y - 14, e.x + dir * (spec.range + 8), e.y - 18, '#f8e2a0', 8);
+      drawCircle(ctx, e.x + dir * spec.range, e.y - 18, 10, '#f0c84d', '#5a3a14', 2);
+    }
+  }
+
+  for (var pidx = 0; pidx < state.projectiles.length; pidx++) {
+    var p = state.projectiles[pidx];
+    drawCircle(ctx, p.x, p.y, p.radius, '#ededed', '#373737', 2);
+    drawCircle(ctx, p.x - (p.vx < 0 ? -4 : 4), p.y, 4, '#d76039');
   }
 
   // Respawn tint flash
@@ -1558,7 +1649,7 @@ function drawPlay() {
   drawCharacterHud();
 
   // HUD: back hint (top-right so it doesn't collide with character cards)
-  drawText(ctx, 'Esc: back to select', W - 12, 20, '#14314a', 12, 'right', 'bold');
+  drawText(ctx, 'Esc: select • R: restart • F/J: special', W - 12, 20, '#14314a', 12, 'right', 'bold');
   var rr = restartLayout(false);
   fillRoundRect(ctx, rr.x, rr.y, rr.w, rr.h, 12, 'rgba(16,30,46,0.76)', 'rgba(255,239,190,0.4)', 1.5);
   drawText(ctx, 'RESTART', rr.x + rr.w / 2, rr.y + 20, '#fff4cf', 13, 'center', 'bold');
@@ -1640,12 +1731,64 @@ function drawMobileControls() {
   var dashFill = !dashReady ? 'rgba(60,60,72,0.45)'
     : (touchState.dashBtn ? 'rgba(226,116,75,0.8)' : 'rgba(32,46,60,0.65)');
   drawCircle(ctx, L.dash.cx,  L.dash.cy,  L.dash.r,  dashFill, 'rgba(255,244,207,0.48)', 2);
+  drawCircle(ctx, L.special.cx, L.special.cy, L.special.r,
+    touchState.specialBtn ? 'rgba(240,200,77,0.8)' : 'rgba(32,46,60,0.62)', 'rgba(255,244,207,0.48)', 2);
   drawCircle(ctx, L.jump.cx,  L.jump.cy,  L.jump.r,  touchState.jumpBtn  ? 'rgba(255,216,111,0.75)' : 'rgba(32,46,60,0.65)', 'rgba(255,244,207,0.48)', 2);
   drawText(ctx, L.left.label,  L.left.cx,  L.left.cy  + 10, '#fff4cf', 26, 'center', 'bold');
   drawText(ctx, L.right.label, L.right.cx, L.right.cy + 10, '#fff4cf', 26, 'center', 'bold');
   drawText(ctx, L.dash.label,  L.dash.cx,  L.dash.cy  + 6,  '#fff4cf', 18, 'center', 'bold');
+  drawText(ctx, L.special.label, L.special.cx, L.special.cy + 5, '#fff4cf', 14, 'center', 'bold');
   drawText(ctx, L.jump.label,  L.jump.cx,  L.jump.cy  + 8,  '#fff4cf', 22, 'center', 'bold');
   ctx.restore();
+}
+
+function updateProjectiles(dt) {
+  for (var i = state.projectiles.length - 1; i >= 0; i--) {
+    var p = state.projectiles[i];
+    p.x += p.vx * dt;
+    p.age += dt;
+    if (p.age >= p.maxAge || p.x < -40 || p.x > W + 40 || p.y < -40 || p.y > H + 40) {
+      state.projectiles.splice(i, 1);
+    }
+  }
+}
+
+function resolveSpecials() {
+  for (var i = 0; i < state.entities.length; i++) {
+    var attacker = state.entities[i];
+    if (attacker.ko) continue;
+    var special = CHARACTERS[attacker.charId].special;
+    if (special && special.type === 'neckHammer' && attacker.specialT > 0) {
+      var dir = attacker.facing === 'left' ? -1 : 1;
+      var hx = attacker.x + dir * special.range;
+      var hy = attacker.y - 10;
+      for (var j = 0; j < state.entities.length; j++) {
+        var defender = state.entities[j];
+        if (defender.ko || defender.eid === attacker.eid || attacker.specialVictims[defender.eid]) continue;
+        if (Math.abs(defender.x - hx) <= special.radius + defender.w * 0.5 &&
+            Math.abs((defender.y - 8) - hy) <= special.radius + HEAD_OFFSET) {
+          attacker.specialVictims[defender.eid] = true;
+          applySpecialHit(attacker, defender, special, dir);
+        }
+      }
+    }
+  }
+
+  for (var k = state.projectiles.length - 1; k >= 0; k--) {
+    var proj = state.projectiles[k];
+    var hitSomething = false;
+    for (var m = 0; m < state.entities.length; m++) {
+      var target = state.entities[m];
+      if (target.ko || target.eid === proj.ownerId) continue;
+      if (Math.abs(target.x - proj.x) <= proj.radius + target.w * 0.5 &&
+          Math.abs((target.y - 8) - proj.y) <= proj.radius + HEAD_OFFSET) {
+        applySpecialHit(null, target, proj, proj.vx < 0 ? -1 : 1);
+        hitSomething = true;
+        break;
+      }
+    }
+    if (hitSomething) state.projectiles.splice(k, 1);
+  }
 }
 
 /* ── Results screen ────────────────────────────────────────── */

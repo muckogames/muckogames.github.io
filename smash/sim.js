@@ -60,9 +60,11 @@
     lekan:   { name: 'Lekan',          color: '#f4f4f4', accent: '#242424', outline: '#202020', sprite: 'panda' },
     basil:   { name: 'Basil',          color: '#6b4527', accent: '#d8b985', outline: '#3b2614', sprite: 'otter' },
     mucko:   { name: 'Captain Mucko',  color: '#d8a95a', accent: '#8f2f2f', outline: '#5f3914', sprite: 'captain' },
-    rocket:  { name: 'Saturn V',       color: '#ededed', accent: '#d76039', outline: '#373737', sprite: 'rocket' },
+    rocket:  { name: 'Saturn V',       color: '#ededed', accent: '#d76039', outline: '#373737', sprite: 'rocket',
+               special: { type: 'abortShot', cooldown: 1.0, speed: 430, radius: 10, damage: 8, launchX: 260, launchY: 135, maxAge: 1.1 } },
     digory:  { name: 'Digory',         color: '#f7f5f0', accent: '#18181c', outline: '#3a2c20', sprite: 'digory' },
-    jlong:   { name: 'J. Long',        color: '#f0c84d', accent: '#bf8834', outline: '#5a3a14', sprite: 'giraffe' },
+    jlong:   { name: 'J. Long',        color: '#f0c84d', accent: '#bf8834', outline: '#5a3a14', sprite: 'giraffe',
+               special: { type: 'neckHammer', cooldown: 0.75, active: 0.16, range: 50, radius: 18, damage: 10, launchX: 310, launchY: 170 } },
     pras:    { name: 'Pras the Koala', color: '#9aa1a8', accent: '#3a3f48', outline: '#2c2f36', sprite: 'koala',
                moveMul: 0.06, jumpMul: 0.18, dashMul: 0.10 }
   };
@@ -324,6 +326,9 @@
       dashDir: 1,
       dashCooldown: 0,
       specialUsed: false,
+      specialCooldown: 0,
+      specialT: 0,
+      specialVictims: Object.create(null),
       lastHitBy: null,
       lastHitAge: Infinity,
       stats: {
@@ -348,7 +353,7 @@
   }
 
   function neutralInput() {
-    return { left: false, right: false, jumpPressed: false, jumpHeld: false, dashPressed: false };
+    return { left: false, right: false, jumpPressed: false, jumpHeld: false, dashPressed: false, specialPressed: false };
   }
 
   function createMatch(config) {
@@ -381,6 +386,7 @@
       winnerId: null,
       entities: entities,
       platforms: makeArena(arenaSeed),
+      projectiles: [],
       respawnFlash: 0,
       events: [],
       pairCooldowns: Object.create(null),
@@ -415,15 +421,52 @@
 
   function tryUseCharacterAbility(match, entity) {
     var special = CHARACTERS[entity.charId].special;
-    if (!special || entity.specialUsed) return false;
+    if (!special) return false;
     if (special.type === 'airFlap') {
+      if (entity.specialUsed) return false;
       if (entity.onGround) return false;
       entity.vy = Math.min(special.vy, special.minVy);
       entity.specialUsed = true;
       emit(match, { type: 'special', entityId: entity.id, specialType: special.type });
       return true;
     }
+    if (special.type === 'neckHammer') {
+      if (entity.specialCooldown > 0 || entity.specialT > 0) return false;
+      entity.specialCooldown = special.cooldown;
+      entity.specialT = special.active;
+      entity.specialVictims = Object.create(null);
+      emit(match, { type: 'special', entityId: entity.id, specialType: special.type });
+      return true;
+    }
+    if (special.type === 'abortShot') {
+      if (entity.specialCooldown > 0) return false;
+      entity.specialCooldown = special.cooldown;
+      match.projectiles.push({
+        ownerId: entity.id,
+        ownerCharId: entity.charId,
+        x: entity.x + (entity.facing === 'left' ? -24 : 24),
+        y: entity.y - 8,
+        vx: (entity.facing === 'left' ? -1 : 1) * special.speed,
+        radius: special.radius,
+        damage: special.damage,
+        launchX: special.launchX,
+        launchY: special.launchY,
+        maxAge: special.maxAge,
+        age: 0
+      });
+      emit(match, { type: 'special', entityId: entity.id, specialType: special.type });
+      return true;
+    }
     return false;
+  }
+
+  function applySpecialHit(match, attacker, defender, spec, dir) {
+    defender.damage += spec.damage;
+    defender.vx = dir * (spec.launchX + defender.damage * 2.2);
+    defender.vy = Math.min(defender.vy, -spec.launchY);
+    defender.onGround = false;
+    defender.invulnFrames = KB_POST_INVULN;
+    if (attacker) markHit(attacker, defender, spec.damage);
   }
 
   function heuristicInput(match, entity, dt) {
@@ -436,6 +479,8 @@
     var target = getOpponentTarget(match, entity);
     ai.targetId = target ? target.id : null;
     var input = neutralInput();
+    var special = CHARACTERS[entity.charId].special;
+    var specialReady = special && (special.type === 'airFlap' ? !entity.specialUsed : entity.specialCooldown <= 0 && entity.specialT <= 0);
 
     var edgeBuffer = Math.max(70, g.edgeBuffer * 0.55);
     var panicBuffer = Math.max(42, edgeBuffer * 0.55);
@@ -470,6 +515,18 @@
 
       if (chance(rng, idleValue)) {
         ai.state = 'idle';
+      } else if (target && specialReady && special.type === 'abortShot' && adx < 240 && Math.abs(dy) < 90) {
+        input.specialPressed = true;
+        ai.state = desiredDir < 0 ? 'walk_left' : 'walk_right';
+        ai.timer = randRange(rng, g.dwellMin, g.dwellMax);
+        ai.input = input;
+        return input;
+      } else if (target && specialReady && special.type === 'neckHammer' && adx < special.range + 8 && Math.abs(dy) < 70) {
+        input.specialPressed = true;
+        ai.state = 'idle';
+        ai.timer = randRange(rng, g.dwellMin, g.dwellMax);
+        ai.input = input;
+        return input;
       } else if (dashOpen && chance(rng, clamp(dashValue, 0, 0.95))) {
         ai.state = desiredDir < 0 ? 'dash_left' : 'dash_right';
       } else if (jumpOpen && chance(rng, clamp(jumpValue, 0, 0.95))) {
@@ -536,7 +593,7 @@
         input.right = true;
         input.left = false;
       }
-      if (CHARACTERS[entity.charId].special && !entity.specialUsed) {
+      if (special && !entity.specialUsed) {
         var needsLift = entity.vy > 80 || entity.y > 390;
         var wantsChaseLift = target && target.y < entity.y - 18 && Math.abs(target.x - entity.x) < g.jumpRange;
         if (needsLift || wantsChaseLift) input.jumpPressed = true;
@@ -556,7 +613,8 @@
         right: !!next.right,
         jumpPressed: !!next.jumpPressed,
         jumpHeld: !!next.jumpHeld,
-        dashPressed: !!next.dashPressed
+        dashPressed: !!next.dashPressed,
+        specialPressed: !!next.specialPressed
       };
     }
     return neutralInput();
@@ -590,6 +648,9 @@
     entity.dashT = 0;
     entity.dashCooldown = 0;
     entity.specialUsed = false;
+    entity.specialCooldown = 0;
+    entity.specialT = 0;
+    entity.specialVictims = Object.create(null);
     entity.squashT = 0;
     entity.invulnFrames = 60;
     entity.facing = 'right';
@@ -760,12 +821,62 @@
     }
   }
 
+  function updateProjectiles(match, dt) {
+    for (var i = match.projectiles.length - 1; i >= 0; i--) {
+      var p = match.projectiles[i];
+      p.x += p.vx * dt;
+      p.age += dt;
+      if (p.age >= p.maxAge || p.x < -40 || p.x > W + 40 || p.y < -40 || p.y > H + 40) {
+        match.projectiles.splice(i, 1);
+      }
+    }
+  }
+
+  function resolveSpecials(match) {
+    for (var i = 0; i < match.entities.length; i++) {
+      var attacker = match.entities[i];
+      if (attacker.ko) continue;
+      var special = CHARACTERS[attacker.charId].special;
+      if (special && special.type === 'neckHammer' && attacker.specialT > 0) {
+        var dir = attacker.facing === 'left' ? -1 : 1;
+        var hx = attacker.x + dir * special.range;
+        var hy = attacker.y - 10;
+        for (var j = 0; j < match.entities.length; j++) {
+          var defender = match.entities[j];
+          if (defender.ko || defender.id === attacker.id || attacker.specialVictims[defender.id]) continue;
+          if (Math.abs(defender.x - hx) <= special.radius + defender.w * 0.5 &&
+              Math.abs((defender.y - 8) - hy) <= special.radius + HEAD_OFFSET) {
+            attacker.specialVictims[defender.id] = true;
+            applySpecialHit(match, attacker, defender, special, dir);
+          }
+        }
+      }
+    }
+
+    for (var k = match.projectiles.length - 1; k >= 0; k--) {
+      var proj = match.projectiles[k];
+      var hitSomething = false;
+      for (var m = 0; m < match.entities.length; m++) {
+        var target = match.entities[m];
+        if (target.ko || target.id === proj.ownerId) continue;
+        if (Math.abs(target.x - proj.x) <= proj.radius + target.w * 0.5 &&
+            Math.abs((target.y - 8) - proj.y) <= proj.radius + HEAD_OFFSET) {
+          applySpecialHit(match, null, target, proj, proj.vx < 0 ? -1 : 1);
+          hitSomething = true;
+          break;
+        }
+      }
+      if (hitSomething) match.projectiles.splice(k, 1);
+    }
+  }
+
   function stepEntity(match, entity, input, dt) {
     var pressingLeft = input.left;
     var pressingRight = input.right;
     var jp = input.jumpPressed;
     var jh = input.jumpHeld;
     var dashPressed = input.dashPressed;
+    var specialPressed = input.specialPressed;
 
     if (entity.squashT > 0) {
       entity.squashT = Math.max(0, entity.squashT - dt);
@@ -773,6 +884,7 @@
       pressingRight = false;
       jp = false;
       dashPressed = false;
+      specialPressed = false;
       if (entity.onGround) entity.vx *= Math.pow(0.1, dt * 8);
     }
 
@@ -814,6 +926,10 @@
     }
 
     if (entity.dashCooldown > 0) entity.dashCooldown = Math.max(0, entity.dashCooldown - dt);
+    if (entity.specialCooldown > 0) entity.specialCooldown = Math.max(0, entity.specialCooldown - dt);
+    if (entity.specialT > 0) entity.specialT = Math.max(0, entity.specialT - dt);
+
+    if (specialPressed) tryUseCharacterAbility(match, entity);
 
     if (jp && entity.onGround) {
       entity.vy = -JUMP_VEL * jumpMul;
@@ -879,7 +995,9 @@
       for (var j = 0; j < match.entities.length; j++) {
         if (!match.entities[j].ko) stepEntity(match, match.entities[j], inputs[j], dts);
       }
+      updateProjectiles(match, dts);
       resolveEntityPairs(match);
+      resolveSpecials(match);
       remaining -= dts;
       match.time += dts;
       match.stepCount++;
