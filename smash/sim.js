@@ -53,7 +53,8 @@
 
   var CHARACTERS = {
     samster: { name: 'Samster',        color: '#dfc18e', accent: '#8d5f35', outline: '#4f311d', sprite: 'hamster' },
-    duck:    { name: 'Duck Dieb',      color: '#8b6030', accent: '#2a7a38', outline: '#3c2814', sprite: 'duck' },
+    duck:    { name: 'Duck Dieb',      color: '#8b6030', accent: '#2a7a38', outline: '#3c2814', sprite: 'duck',
+               special: { type: 'airFlap', vy: -260, minVy: -180 } },
     hippo:   { name: 'Hippo',          color: '#8f7ea8', accent: '#63557b', outline: '#40324c', sprite: 'hippo' },
     nik:     { name: 'Nik',            color: '#6b4a2e', accent: '#c9a47a', outline: '#3a2612', sprite: 'monkey' },
     lekan:   { name: 'Lekan',          color: '#f4f4f4', accent: '#242424', outline: '#202020', sprite: 'panda' },
@@ -322,6 +323,7 @@
       dashT: 0,
       dashDir: 1,
       dashCooldown: 0,
+      specialUsed: false,
       lastHitBy: null,
       lastHitAge: Infinity,
       stats: {
@@ -409,6 +411,19 @@
       }
     }
     return best;
+  }
+
+  function tryUseCharacterAbility(match, entity) {
+    var special = CHARACTERS[entity.charId].special;
+    if (!special || entity.specialUsed) return false;
+    if (special.type === 'airFlap') {
+      if (entity.onGround) return false;
+      entity.vy = Math.min(special.vy, special.minVy);
+      entity.specialUsed = true;
+      emit(match, { type: 'special', entityId: entity.id, specialType: special.type });
+      return true;
+    }
+    return false;
   }
 
   function heuristicInput(match, entity, dt) {
@@ -521,6 +536,11 @@
         input.right = true;
         input.left = false;
       }
+      if (CHARACTERS[entity.charId].special && !entity.specialUsed) {
+        var needsLift = entity.vy > 80 || entity.y > 390;
+        var wantsChaseLift = target && target.y < entity.y - 18 && Math.abs(target.x - entity.x) < g.jumpRange;
+        if (needsLift || wantsChaseLift) input.jumpPressed = true;
+      }
       input.jumpHeld = true;
     }
     ai.input = input;
@@ -569,6 +589,7 @@
     entity.damage = 0;
     entity.dashT = 0;
     entity.dashCooldown = 0;
+    entity.specialUsed = false;
     entity.squashT = 0;
     entity.invulnFrames = 60;
     entity.facing = 'right';
@@ -798,6 +819,8 @@
       entity.vy = -JUMP_VEL * jumpMul;
       entity.onGround = false;
       emit(match, { type: 'jump', entityId: entity.id });
+    } else if (jp) {
+      tryUseCharacterAbility(match, entity);
     }
     if (!jh && entity.vy < -JUMP_CUT * jumpMul) entity.vy = -JUMP_CUT * jumpMul;
 
@@ -819,6 +842,7 @@
           entity.y = p.y - FEET_OFFSET;
           entity.vy = 0;
           entity.onGround = true;
+          entity.specialUsed = false;
           break;
         }
       }

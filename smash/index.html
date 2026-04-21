@@ -154,7 +154,8 @@ canvas.addEventListener('click', function(e) {
 // 22-hour nap" and barely moves. Picking him is a joke.
 var CHARACTERS = {
   samster: { name: 'Samster',        color: '#dfc18e', accent: '#8d5f35', outline: '#4f311d', sprite: 'hamster' },
-  duck:    { name: 'Duck Dieb',      color: '#8b6030', accent: '#2a7a38', outline: '#3c2814', sprite: 'duck' },
+  duck:    { name: 'Duck Dieb',      color: '#8b6030', accent: '#2a7a38', outline: '#3c2814', sprite: 'duck',
+             special: { type: 'airFlap', vy: -260, minVy: -180 } },
   hippo:   { name: 'Hippo',          color: '#8f7ea8', accent: '#63557b', outline: '#40324c', sprite: 'hippo' },
   nik:     { name: 'Nik',            color: '#6b4a2e', accent: '#c9a47a', outline: '#3a2612', sprite: 'monkey' },
   lekan:   { name: 'Lekan',          color: '#f4f4f4', accent: '#242424', outline: '#202020', sprite: 'panda' },
@@ -543,6 +544,7 @@ function makeEntity(charId, x, y, isCPU, mode) {
     dashT: 0,           // >0 while dashing (velocity locked to dashDir * DASH_VEL)
     dashDir: 1,
     dashCooldown: 0,
+    specialUsed: false,
     trail: [],          // recent {x,y,facing,bob} for afterimages (kept short)
     ai: isCPU ? {
       mode: cpuMode,
@@ -639,6 +641,7 @@ function respawn(e) {
   e.damage = 0;
   e.dashT = 0;
   e.dashCooldown = 0;
+  e.specialUsed = false;
   e.squashT = 0;
   e.trail.length = 0;
   e.invulnFrames = 60;
@@ -727,6 +730,22 @@ function startDash(e, dir) {
   e.trail = [];
   if (!e.isCPU) beep(640, 0.14, 0.12, 'sawtooth');
   else          beep(520, 0.08, 0.10, 'sawtooth');
+}
+
+function tryUseCharacterAbility(e) {
+  var special = CHARACTERS[e.charId].special;
+  if (!special || e.specialUsed) return false;
+  if (special.type === 'airFlap') {
+    if (e.onGround) return false;
+    e.vy = Math.min(special.vy, special.minVy);
+    e.specialUsed = true;
+    if (!e.isCPU) {
+      beep(720, 0.08, 0.08, 'triangle');
+      setTimeout(function() { beep(560, 0.06, 0.06, 'triangle'); }, 40);
+    }
+    return true;
+  }
+  return false;
 }
 
 function getOpponentTarget(e) {
@@ -854,6 +873,11 @@ function cpuThinkHeuristic(e, dt, g) {
       input.right = true;
       input.left = false;
     }
+    if (CHARACTERS[e.charId].special && !e.specialUsed) {
+      var needsLift = e.vy > 80 || e.y > 390;
+      var wantsChaseLift = target && target.y < e.y - 18 && Math.abs(target.x - e.x) < g.jumpRange;
+      if (needsLift || wantsChaseLift) input.jumpPressed = true;
+    }
     input.jumpHeld = true;
   }
 
@@ -942,6 +966,8 @@ function stepEntity(e, dt) {
     e.vy = -JUMP_VEL * jumpMul;
     e.onGround = false;
     if (!e.isCPU) beep(380, 0.14, 0.09, 'triangle');
+  } else if (jp) {
+    tryUseCharacterAbility(e);
   }
   if (!jh && e.vy < -JUMP_CUT * jumpMul) e.vy = -JUMP_CUT * jumpMul;
 
@@ -967,6 +993,7 @@ function stepEntity(e, dt) {
         e.y = p.y - FEET_OFFSET;
         e.vy = 0;
         e.onGround = true;
+        e.specialUsed = false;
         break;
       }
     }
