@@ -355,7 +355,14 @@ function drawCharacterPortraitSprite(cx, ch, bob) {
 }
 
 function randomLookDelay() {
-  return 0.9 + Math.random() * 2.0;
+  return 1.2 + Math.random() * 2.4;
+}
+
+function randomPreviewFacing() {
+  var r = Math.random();
+  if (r < 0.1) return 'left';
+  if (r < 0.2) return 'right';
+  return 'front';
 }
 
 function drawCharacterSidescrollSprite(cx, ch, facing, bob) {
@@ -644,7 +651,7 @@ function setEntityFacing(e, facing) {
 }
 
 function ensureSlotPreviewState(slot) {
-  if (!slot.previewFacing) slot.previewFacing = 'right';
+  if (!slot.previewFacing) slot.previewFacing = 'front';
   if (slot.previewTurnT == null) slot.previewTurnT = 0;
   if (slot.previewLookTimer == null) slot.previewLookTimer = randomLookDelay();
 }
@@ -1533,8 +1540,10 @@ function drawSelect() {
 
     // Portrait + cycle arrows
     if (active) {
+      var previewVariant = slot.previewFacing === 'front' ? 'portrait' : 'sidescroll';
+      var previewFacing = slot.previewFacing === 'front' ? 'right' : slot.previewFacing;
       drawCharacter(ctx, CHAR_IDS[slot.charIdx],
-        c.x + c.w / 2, c.y + 200, slot.previewFacing, state.phaseTime * 4 + i, 1.15, 'sidescroll', slot.previewTurnT);
+        c.x + c.w / 2, c.y + 200, previewFacing, state.phaseTime * 4 + i, 1.15, previewVariant, slot.previewTurnT);
       drawText(ctx, CHARACTERS[CHAR_IDS[slot.charIdx]].name,
         c.x + c.w / 2, c.y + 250, '#5a3d16', 14, 'center', 'bold');
     } else {
@@ -1579,8 +1588,15 @@ function updateSelect(dt) {
     if (previewSlot.previewTurnT > 0) previewSlot.previewTurnT = Math.max(0, previewSlot.previewTurnT - dt);
     previewSlot.previewLookTimer -= dt;
     if (previewSlot.previewLookTimer <= 0) {
-      previewSlot.previewFacing = previewSlot.previewFacing === 'left' ? 'right' : 'left';
-      previewSlot.previewTurnT = TURN_PORTRAIT_TIME;
+      var nextFacing = randomPreviewFacing();
+      if (nextFacing !== previewSlot.previewFacing &&
+          previewSlot.previewFacing !== 'front' &&
+          nextFacing !== 'front') {
+        previewSlot.previewTurnT = TURN_PORTRAIT_TIME;
+      } else {
+        previewSlot.previewTurnT = 0;
+      }
+      previewSlot.previewFacing = nextFacing;
       previewSlot.previewLookTimer = randomLookDelay();
     }
   }
