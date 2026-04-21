@@ -97,6 +97,14 @@ function damageMass(d) {
   return 0.3 + 0.7 / (1 + Math.exp((d - 50) / 15));
 }
 
+function currentMass(e) {
+  var mass = damageMass(e.damage);
+  var special = CHARACTERS[e.charId].special;
+  if (e.specialActive && special && special.type === 'bulldogBounce') mass *= special.massMul;
+  if (e.specialActive && special && special.type === 'margaritaville') mass *= 1000;
+  return mass;
+}
+
 function sideExitDamage(vx) {
   return Math.min(SIDE_DAMAGE_MAX,
     Math.max(0, (Math.abs(vx) - SIDE_DAMAGE_SPEED_MIN) / SIDE_DAMAGE_SPEED_SCALE));
@@ -157,8 +165,9 @@ canvas.addEventListener('click', function(e) {
 var CHARACTERS = {
   samster: { name: 'Samster',        color: '#dfc18e', accent: '#8d5f35', outline: '#4f311d', sprite: 'hamster' },
   duck:    { name: 'Duck Dieb',      color: '#8b6030', accent: '#2a7a38', outline: '#3c2814', sprite: 'duck',
-             special: { type: 'airFlap', vy: -260, minVy: -180 } },
-  hippo:   { name: 'Hippo',          color: '#8f7ea8', accent: '#63557b', outline: '#40324c', sprite: 'hippo' },
+             special: { type: 'airFlap', lift: 2100, maxRise: 280, flapRate: 7.5 } },
+  hippo:   { name: 'Hippo',          color: '#8f7ea8', accent: '#63557b', outline: '#40324c', sprite: 'hippo',
+             special: { type: 'margaritaville', damage: 11, launchX: 380, launchY: 220 } },
   nik:     { name: 'Nik',            color: '#6b4a2e', accent: '#c9a47a', outline: '#3a2612', sprite: 'monkey' },
   lekan:   { name: 'Lekan',          color: '#f4f4f4', accent: '#242424', outline: '#202020', sprite: 'panda' },
   basil:   { name: 'Basil',          color: '#6b4527', accent: '#d8b985', outline: '#3b2614', sprite: 'otter' },
@@ -167,7 +176,8 @@ var CHARACTERS = {
   mucko:   { name: 'Captain Mucko',  color: '#d8a95a', accent: '#8f2f2f', outline: '#5f3914', sprite: 'captain' },
   rocket:  { name: 'Saturn V',       color: '#ededed', accent: '#d76039', outline: '#373737', sprite: 'rocket',
              special: { type: 'abortShot', cooldown: 1.0, speed: 430, radius: 10, damage: 8, launchX: 260, launchY: 135, maxAge: 1.1 } },
-  digory:  { name: 'Digory',         color: '#f7f5f0', accent: '#18181c', outline: '#3a2c20', sprite: 'digory' },
+  digory:  { name: 'Digory',         color: '#f7f5f0', accent: '#18181c', outline: '#3a2c20', sprite: 'digory',
+             special: { type: 'bulldogBounce', bounceRate: 8.5, massMul: 2 } },
   jlong:   { name: 'J. Long',        color: '#f0c84d', accent: '#bf8834', outline: '#5a3a14', sprite: 'giraffe',
              special: { type: 'neckHammer', cooldown: 0.75, active: 0.16, range: 50, radius: 18, damage: 10, launchX: 310, launchY: 170 } },
   pras:    { name: 'Pras the Koala', color: '#9aa1a8', accent: '#3a3f48', outline: '#2c2f36', sprite: 'koala',
@@ -415,9 +425,10 @@ function randomPreviewFacing() {
   return 'front';
 }
 
-function drawCharacterSidescrollSprite(cx, ch, facing, bob) {
+function drawCharacterSidescrollSprite(cx, ch, facing, bob, pose) {
   var dir = facing === 'left' ? -1 : 1;
   var sway = Math.sin((bob || 0) * 0.5) * 0.08;
+  pose = pose || null;
   if (ch.sprite === 'hamster') {
     cx.strokeStyle = ch.accent;
     cx.lineWidth = 3;
@@ -437,8 +448,19 @@ function drawCharacterSidescrollSprite(cx, ch, facing, bob) {
   } else if (ch.sprite === 'duck') {
     cx.save();
     if (dir < 0) cx.scale(-1, 1);
+    var flap = pose && pose.flap != null ? pose.flap : 0;
     drawEllipse(cx, -2, 4, 16, 12, '#8b6030', ch.outline, 2);
     drawEllipse(cx, -2, 5, 12, 7, '#7a5020');
+    cx.save();
+    cx.translate(-3, 2);
+    cx.rotate(-0.55 - flap * 0.45);
+    drawEllipse(cx, 0, 0, 7, 3.8, '#6f481d', '#3c2814', 1.2);
+    cx.restore();
+    cx.save();
+    cx.translate(1, 2);
+    cx.rotate(0.25 + flap * 0.55);
+    drawEllipse(cx, 0, 0, 7.5, 3.4, '#986531', '#3c2814', 1.2);
+    cx.restore();
     cx.fillStyle = '#3c2814';
     cx.beginPath(); cx.moveTo(-12, 2); cx.lineTo(-22, 14); cx.lineTo(-6, 10); cx.closePath(); cx.fill();
     drawCircle(cx, 10, -7, 8, '#2a7a38', ch.outline, 2);
@@ -449,6 +471,22 @@ function drawCharacterSidescrollSprite(cx, ch, facing, bob) {
     drawEllipse(cx, 20, -3, 7, 3.5, '#e8b800', '#9c7900', 1.4);
     cx.restore();
   } else if (ch.sprite === 'hippo') {
+    if (pose && pose.margarita) {
+      fillRoundRect(cx, -18, 8, 36, 11, 5, '#6ec7d5', '#356c78', 2);
+      drawEllipse(cx, 0, 15, 18, 5.2, 'rgba(255,255,255,0.18)');
+      drawEllipse(cx, -1, 6, 17, 11, '#b79ace', ch.outline, 2);
+      drawCircle(cx, 9 * dir, -1, 8.2, ch.color, ch.outline, 2);
+      drawCircle(cx, 4 * dir, -7, 4, ch.color, ch.outline, 2);
+      drawCircle(cx, 12 * dir, -8, 3.4, ch.color, ch.outline, 2);
+      fillRoundRect(cx, 6 * dir - 5, -5, 10, 3.2, 1.6, '#1e1e22', '#111', 1);
+      drawLine(cx, 12 * dir, -2, 14 * dir, 6, '#6f5b88', 1.2);
+      cx.fillStyle = '#5f4b75';
+      cx.font = 'bold 12px Georgia,serif';
+      cx.textAlign = 'center';
+      cx.fillText('♪', 0, -16 - Math.sin((pose.margarita || 0) * 7) * 2);
+      cx.fillText('♪', 8, -24 - Math.sin((pose.margarita || 0) * 6 + 1) * 2);
+      return;
+    }
     cx.fillStyle = ch.accent;
     cx.beginPath();
     cx.moveTo(-16 * dir, 6);
@@ -566,6 +604,7 @@ function drawCharacterSidescrollSprite(cx, ch, facing, bob) {
   } else if (ch.sprite === 'giraffe') {
     cx.save();
     if (dir < 0) cx.scale(-1, 1);
+    var hammer = pose && pose.hammer != null ? pose.hammer : 0;
     drawLine(cx, -3, 10, -4, 22, '#8a5a24', 2.3);
     drawLine(cx, 4, 9, 4.5, 22, '#8a5a24', 2.3);
     drawLine(cx, 0, 10, 0, 22, '#8a5a24', 1.8);
@@ -575,7 +614,7 @@ function drawCharacterSidescrollSprite(cx, ch, facing, bob) {
     drawCircle(cx, 5, 2, 1.5, '#bf8834');
     drawLine(cx, -10, 2, -14, -4, '#8a5a24', 2);
     cx.translate(4, -3);
-    cx.rotate(sway);
+    cx.rotate(sway + hammer * 1.25);
     fillRoundRect(cx, -2, -24, 4, 23, 2, '#f0c84d', ch.outline, 1.5);
     drawCircle(cx, 0.8, -14, 1.2, '#bf8834');
     drawCircle(cx, -0.7, -20, 1.1, '#bf8834');
@@ -634,7 +673,7 @@ function drawCharacterSidescrollSprite(cx, ch, facing, bob) {
   }
 }
 
-function drawCharacter(cx, id, x, y, facing, bob, shadowScale, variant, turnT) {
+function drawCharacter(cx, id, x, y, facing, bob, shadowScale, variant, turnT, pose) {
   var ch = CHARACTERS[id];
   var bounce = Math.sin(bob || 0) * 1.5;
   var mode = variant || 'portrait';
@@ -642,7 +681,7 @@ function drawCharacter(cx, id, x, y, facing, bob, shadowScale, variant, turnT) {
   cx.translate(x, y + bounce);
   drawEllipse(cx, 0, 18, 16 * (shadowScale || 1), 6 * (shadowScale || 1), 'rgba(0,0,0,.16)');
   if (mode === 'sidescroll' && turnT > 0) drawCharacterPortraitSprite(cx, ch, bob);
-  else if (mode === 'sidescroll') drawCharacterSidescrollSprite(cx, ch, facing, bob);
+  else if (mode === 'sidescroll') drawCharacterSidescrollSprite(cx, ch, facing, bob, pose);
   else drawCharacterPortraitSprite(cx, ch, bob);
   cx.restore();
 }
@@ -713,6 +752,8 @@ function makeEntity(charId, x, y, isCPU, mode) {
     specialUsed: false,
     specialCooldown: 0,
     specialT: 0,
+    specialActive: false,
+    specialAnimT: 0,
     specialVictims: Object.create(null),
     trail: [],          // recent {x,y,facing,bob} for afterimages (kept short)
     ai: isCPU ? {
@@ -726,6 +767,7 @@ function makeEntity(charId, x, y, isCPU, mode) {
       inputJumpHeld: false,
       inputDashPressed: false,
       inputSpecialPressed: false,
+      inputSpecialHeld: false,
       jumpCooldown: 0,
       targetId: null
     } : null
@@ -829,6 +871,8 @@ function respawn(e) {
   e.specialUsed = false;
   e.specialCooldown = 0;
   e.specialT = 0;
+  e.specialActive = false;
+  e.specialAnimT = 0;
   e.specialVictims = Object.create(null);
   e.squashT = 0;
   e.trail.length = 0;
@@ -901,6 +945,7 @@ function checkMatchEnd() {
 function playerLeft()  { return K.ArrowLeft  || K.KeyA || touchState.leftBtn; }
 function playerRight() { return K.ArrowRight || K.KeyD || touchState.rightBtn; }
 function jumpHeld()    { return K.Space || K.ArrowUp || K.KeyW || touchState.jumpBtn; }
+function specialHeld() { return K.KeyF || K.KeyJ || touchState.specialBtn; }
 function specialPressed() {
   var kp = eat('KeyF') || eat('KeyJ');
   if (touchState.specialJustPressed) { touchState.specialJustPressed = false; return true; }
@@ -927,6 +972,8 @@ function startDash(e, dir) {
 }
 
 function applySpecialHit(attacker, defender, spec, dir) {
+  if (defender.specialActive && CHARACTERS[defender.charId].special &&
+      CHARACTERS[defender.charId].special.type === 'margaritaville') return;
   defender.damage += spec.damage;
   defender.vx = dir * (spec.launchX + defender.damage * 2.2);
   defender.vy = Math.min(defender.vy, -spec.launchY);
@@ -937,17 +984,6 @@ function applySpecialHit(attacker, defender, spec, dir) {
 function tryUseCharacterAbility(e) {
   var special = CHARACTERS[e.charId].special;
   if (!special) return false;
-  if (special.type === 'airFlap') {
-    if (e.specialUsed) return false;
-    if (e.onGround) return false;
-    e.vy = Math.min(special.vy, special.minVy);
-    e.specialUsed = true;
-    if (!e.isCPU) {
-      beep(720, 0.08, 0.08, 'triangle');
-      setTimeout(function() { beep(560, 0.06, 0.06, 'triangle'); }, 40);
-    }
-    return true;
-  }
   if (special.type === 'neckHammer') {
     if (e.specialCooldown > 0 || e.specialT > 0) return false;
     e.specialCooldown = special.cooldown;
@@ -978,6 +1014,48 @@ function tryUseCharacterAbility(e) {
   return false;
 }
 
+function updateHeldSpecial(e, specialHeldBtn, specialPressedBtn, dt) {
+  var special = CHARACTERS[e.charId].special;
+  if (!special) return;
+
+  if (special.type === 'airFlap') {
+    if (specialHeldBtn && !e.onGround) {
+      e.specialActive = true;
+      e.specialAnimT += dt;
+      e.vy = Math.max(e.vy - special.lift * dt, -special.maxRise);
+      if (!e.isCPU && specialPressedBtn) beep(690, 0.06, 0.05, 'triangle');
+    } else {
+      e.specialActive = false;
+      if (e.onGround) e.specialAnimT = 0;
+    }
+    return;
+  }
+
+  if (special.type === 'margaritaville') {
+    e.specialActive = specialHeldBtn && e.onGround && e.dashT <= 0 && e.squashT <= 0;
+    if (e.specialActive) {
+      e.specialAnimT += dt;
+      e.vx = 0;
+      e.vy = 0;
+      if (!e.isCPU && specialPressedBtn) beep(294, 0.08, 0.08, 'sine');
+    } else {
+      e.specialAnimT = 0;
+    }
+    return;
+  }
+
+  if (special.type === 'bulldogBounce') {
+    e.specialActive = specialHeldBtn && e.onGround;
+    if (e.specialActive) {
+      e.specialAnimT += dt;
+      e.vx *= Math.max(0, 1 - dt * 12);
+    } else {
+      e.specialAnimT = 0;
+    }
+    return;
+  }
+}
+
 function getOpponentTarget(e) {
   var best = null;
   var bestDist = Infinity;
@@ -1003,9 +1081,10 @@ function cpuThinkHeuristic(e, dt, g) {
 
   var target = getOpponentTarget(e);
   s.targetId = target ? target.eid : null;
-  var input = { left: false, right: false, jumpPressed: false, jumpHeld: false, dashPressed: false, specialPressed: false };
+  var input = { left: false, right: false, jumpPressed: false, jumpHeld: false, dashPressed: false, specialPressed: false, specialHeld: false };
   var special = CHARACTERS[e.charId].special;
-  var specialReady = special && (special.type === 'airFlap' ? !e.specialUsed : e.specialCooldown <= 0 && e.specialT <= 0);
+  var specialReady = special && ((special.type === 'airFlap' || special.type === 'margaritaville' || special.type === 'bulldogBounce')
+    ? true : e.specialCooldown <= 0 && e.specialT <= 0);
 
   var edgeBuffer = Math.max(70, g.edgeBuffer * 0.55);
   var panicBuffer = Math.max(42, edgeBuffer * 0.55);
@@ -1045,6 +1124,14 @@ function cpuThinkHeuristic(e, dt, g) {
       s.timer = randRange(g.dwellMin, g.dwellMax);
     } else if (target && specialReady && special.type === 'neckHammer' && adx < special.range + 8 && Math.abs(dy) < 70) {
       input.specialPressed = true;
+      s.state = 'idle';
+      s.timer = randRange(g.dwellMin, g.dwellMax);
+    } else if (target && specialReady && special.type === 'margaritaville' && adx < 80 && Math.abs(dy) < 70) {
+      input.specialHeld = true;
+      s.state = 'idle';
+      s.timer = randRange(g.dwellMin, g.dwellMax);
+    } else if (target && specialReady && special.type === 'bulldogBounce' && adx < 70 && Math.abs(dy) < 70) {
+      input.specialHeld = true;
       s.state = 'idle';
       s.timer = randRange(g.dwellMin, g.dwellMax);
     } else if (dashOpen && chance(clamp(dashValue, 0, 0.95))) {
@@ -1113,10 +1200,10 @@ function cpuThinkHeuristic(e, dt, g) {
       input.right = true;
       input.left = false;
     }
-    if (CHARACTERS[e.charId].special && !e.specialUsed) {
+    if (special && special.type === 'airFlap') {
       var needsLift = e.vy > 80 || e.y > 390;
       var wantsChaseLift = target && target.y < e.y - 18 && Math.abs(target.x - e.x) < g.jumpRange;
-      if (needsLift || wantsChaseLift) input.jumpPressed = true;
+      if (needsLift || wantsChaseLift) input.specialHeld = true;
     }
     input.jumpHeld = true;
   }
@@ -1127,6 +1214,7 @@ function cpuThinkHeuristic(e, dt, g) {
   s.inputJumpHeld = input.jumpHeld;
   s.inputDashPressed = input.dashPressed;
   s.inputSpecialPressed = input.specialPressed;
+  s.inputSpecialHeld = input.specialHeld;
 }
 
 /* ── CPU AI: picks new behaviour once per frame, latches inputs ─ */
@@ -1137,14 +1225,15 @@ function cpuThink(e, dt) {
 
 /* ── Physics step ──────────────────────────────────────────── */
 function stepEntity(e, dt) {
-  var pressingLeft, pressingRight, jp, jh, dashPressed, specialBtn;
+  var pressingLeft, pressingRight, jp, jh, dashPressed, specialPress, specialHold;
   if (e.isCPU) {
     pressingLeft  = e.ai.inputLeft;
     pressingRight = e.ai.inputRight;
     jp = e.ai.inputJumpPressed;
     jh = e.ai.inputJumpHeld;
     dashPressed = e.ai.inputDashPressed;
-    specialBtn = e.ai.inputSpecialPressed;
+    specialPress = e.ai.inputSpecialPressed;
+    specialHold = e.ai.inputSpecialHeld;
     e.ai.inputJumpPressed = false; // consume so multi-substep doesn't re-jump
     e.ai.inputDashPressed = false;
     e.ai.inputSpecialPressed = false;
@@ -1154,7 +1243,8 @@ function stepEntity(e, dt) {
     jp = jumpPressed();
     jh = jumpHeld();
     dashPressed = false; // player dash is started from updatePlay() before stepping
-    specialBtn = specialPressed();
+    specialPress = specialPressed();
+    specialHold = specialHeld();
   }
   if (e.turnT > 0) e.turnT = Math.max(0, e.turnT - dt);
   // Squash disables all horizontal input and kills walking momentum.
@@ -1164,7 +1254,8 @@ function stepEntity(e, dt) {
     pressingRight = false;
     jp = false;
     dashPressed = false;
-    specialBtn = false;
+    specialPress = false;
+    specialHold = false;
     if (e.onGround) e.vx *= Math.pow(0.1, dt * 8); // decay to zero over the squash
   }
 
@@ -1181,6 +1272,19 @@ function stepEntity(e, dt) {
   var moveMul = (ch.moveMul != null) ? ch.moveMul : 1;
   var jumpMul = (ch.jumpMul != null) ? ch.jumpMul : 1;
   var dashMul = (ch.dashMul != null) ? ch.dashMul : 1;
+  updateHeldSpecial(e, specialHold, specialPress, dt);
+  if (e.specialActive && ch.special && ch.special.type === 'margaritaville') {
+    pressingLeft = false;
+    pressingRight = false;
+    jp = false;
+    dashPressed = false;
+  }
+  if (e.specialActive && ch.special && ch.special.type === 'bulldogBounce') {
+    pressingLeft = false;
+    pressingRight = false;
+    jp = false;
+    dashPressed = false;
+  }
 
   // Dash state machine: while dashT > 0 we pin vx and skip accel/friction.
   var dashing = e.dashT > 0;
@@ -1210,18 +1314,19 @@ function stepEntity(e, dt) {
   if (e.specialCooldown > 0) e.specialCooldown = Math.max(0, e.specialCooldown - dt);
   if (e.specialT > 0) e.specialT = Math.max(0, e.specialT - dt);
 
-  if (specialBtn) tryUseCharacterAbility(e);
+  if (specialPress) tryUseCharacterAbility(e);
 
   if (jp && e.onGround) {
     e.vy = -JUMP_VEL * jumpMul;
     e.onGround = false;
     if (!e.isCPU) beep(380, 0.14, 0.09, 'triangle');
-  } else if (jp) {
-    tryUseCharacterAbility(e);
   }
   if (!jh && e.vy < -JUMP_CUT * jumpMul) e.vy = -JUMP_CUT * jumpMul;
 
   // Gravity + terminal velocity
+  if (e.specialActive && ch.special && ch.special.type === 'bulldogBounce') {
+    e.y += Math.sin(e.specialAnimT * ch.special.bounceRate * TAU) * 10 * dt * ch.special.bounceRate;
+  }
   e.vy += GRAVITY * dt;
   if (e.vy >  TERM_VEL) e.vy =  TERM_VEL;
 
@@ -1244,6 +1349,7 @@ function stepEntity(e, dt) {
         e.vy = 0;
         e.onGround = true;
         e.specialUsed = false;
+        if (ch.special && ch.special.type === 'airFlap') e.specialActive = false;
         break;
       }
     }
@@ -1263,6 +1369,17 @@ function stepEntity(e, dt) {
 
 /* ── Entity-vs-entity: head-bounces + side-push ───────────── */
 function stomp(jumper, landee) {
+  if (landee.specialActive && CHARACTERS[landee.charId].special &&
+      CHARACTERS[landee.charId].special.type === 'margaritaville') {
+    var poolSpec = CHARACTERS[landee.charId].special;
+    var awayDir = jumper.x >= landee.x ? 1 : -1;
+    jumper.damage += poolSpec.damage;
+    jumper.vx = awayDir * (poolSpec.launchX + jumper.damage * 2.2);
+    jumper.vy = -(poolSpec.launchY + jumper.damage * 1.4);
+    jumper.onGround = false;
+    jumper.invulnFrames = KB_POST_INVULN;
+    return;
+  }
   // Place jumper's feet just above landee's head, then bounce off.
   jumper.y  = landee.y - HEAD_OFFSET - FEET_OFFSET - 2;
   jumper.vy = -JUMP_VEL * STOMP_BOUNCE_MULT;
@@ -1274,7 +1391,7 @@ function stomp(jumper, landee) {
   var dir = landee.x >= jumper.x ? 1 : -1;
   // Mass ratio — heavier (less damaged) jumper launching a lighter (more
   // damaged) landee gets extra oomph. Sqrt keeps it from blowing up.
-  var massRatio = Math.sqrt(damageMass(jumper.damage) / damageMass(landee.damage));
+  var massRatio = Math.sqrt(currentMass(jumper) / currentMass(landee));
   var ratioMul = Math.min(KB_RATIO_MAX, Math.max(KB_RATIO_MIN, massRatio));
   landee.vx = dir * (KB_BASE_X + landee.damage * KB_SCALE_X) * ratioMul;
   landee.vy = -(KB_BASE_Y + landee.damage * KB_SCALE_Y) * ratioMul;
@@ -1282,6 +1399,19 @@ function stomp(jumper, landee) {
   landee.invulnFrames = KB_POST_INVULN;
   beep(520, 0.22, 0.11, 'sine');
   setTimeout(function() { beep(780, 0.14, 0.09, 'sine'); }, 70);
+}
+
+function repelFromHippoPool(hippo, other) {
+  var key = hippo.eid < other.eid ? (hippo.eid + ':' + other.eid) : (other.eid + ':' + hippo.eid);
+  if (state.sideHitCooldowns[key]) return;
+  var poolSpec = CHARACTERS[hippo.charId].special;
+  var awayDir = other.x >= hippo.x ? 1 : -1;
+  other.damage += poolSpec.damage;
+  other.vx = awayDir * (poolSpec.launchX + other.damage * 2.3);
+  other.vy = -(poolSpec.launchY + other.damage * 1.2);
+  other.onGround = false;
+  other.invulnFrames = KB_POST_INVULN;
+  state.sideHitCooldowns[key] = 0.12;
 }
 
 function resolveEntityPairs() {
@@ -1302,6 +1432,19 @@ function resolveEntityPairs() {
       // Who is higher + falling onto the other?
       var aOnTop = (A.y < B.y) && (A.vy > 0) && (A.vy - B.vy > 40);
       var bOnTop = (B.y < A.y) && (B.vy > 0) && (B.vy - A.vy > 40);
+      var aPool = A.specialActive && CHARACTERS[A.charId].special &&
+        CHARACTERS[A.charId].special.type === 'margaritaville';
+      var bPool = B.specialActive && CHARACTERS[B.charId].special &&
+        CHARACTERS[B.charId].special.type === 'margaritaville';
+
+      if (aPool && !bPool) {
+        repelFromHippoPool(A, B);
+        continue;
+      }
+      if (bPool && !aPool) {
+        repelFromHippoPool(B, A);
+        continue;
+      }
 
       if (aOnTop) {
         stomp(A, B);
@@ -1314,7 +1457,7 @@ function resolveEntityPairs() {
         var overlap = Math.min(ax1, bx1) - Math.max(ax0, bx0);
         if (overlap > 0) {
           var dir = A.x < B.x ? -1 : 1;
-          var mA = damageMass(A.damage), mB = damageMass(B.damage);
+          var mA = currentMass(A), mB = currentMass(B);
           var totalMass = mA + mB;
           var aWasDashing = A.dashT > 0;
           var bWasDashing = B.dashT > 0;
@@ -1832,6 +1975,21 @@ function updatePlay(dt) {
   if (eat('Escape')) { state.phase = 'select'; state.phaseTime = 0; }
 }
 
+function characterPose(e) {
+  var special = CHARACTERS[e.charId].special;
+  if (!special) return null;
+  if (special.type === 'airFlap' && e.specialActive) {
+    return { flap: 0.5 + 0.5 * Math.sin(e.specialAnimT * special.flapRate * TAU) };
+  }
+  if (special.type === 'neckHammer' && e.specialT > 0) {
+    return { hammer: 1 - e.specialT / special.active };
+  }
+  if (special.type === 'margaritaville' && e.specialActive) {
+    return { margarita: e.specialAnimT };
+  }
+  return null;
+}
+
 function drawPlay() {
   drawBackground();
 
@@ -1858,10 +2016,11 @@ function drawPlay() {
         var s = e.trail[k];
         var alpha = 0.12 + 0.32 * (k / Math.max(1, n - 1));
         ctx.globalAlpha = alpha;
-        drawCharacter(ctx, e.charId, s.x, s.y, s.facing, s.bob, 0, 'sidescroll', 0);
+        drawCharacter(ctx, e.charId, s.x, s.y, s.facing, s.bob, 0, 'sidescroll', 0, null);
       }
       ctx.restore();
     }
+    var pose = characterPose(e);
     if (e.squashT > 0) {
       // Ease: peaks squished at mid-animation.
       var p = e.squashT / SQUASH_DURATION;        // 1 → 0
@@ -1873,16 +2032,10 @@ function drawPlay() {
       ctx.translate(e.x, e.y + FEET_OFFSET);
       ctx.scale(sx, sy);
       ctx.translate(-e.x, -(e.y + FEET_OFFSET));
-      drawCharacter(ctx, e.charId, e.x, e.y, e.facing, e.bob, 1, 'sidescroll', e.turnT);
+      drawCharacter(ctx, e.charId, e.x, e.y, e.facing, e.bob, 1, 'sidescroll', e.turnT, pose);
       ctx.restore();
     } else {
-      drawCharacter(ctx, e.charId, e.x, e.y, e.facing, e.bob, 1, 'sidescroll', e.turnT);
-    }
-    var spec = CHARACTERS[e.charId].special;
-    if (spec && spec.type === 'neckHammer' && e.specialT > 0) {
-      var dir = e.facing === 'left' ? -1 : 1;
-      drawLine(ctx, e.x + dir * 10, e.y - 14, e.x + dir * (spec.range + 8), e.y - 18, '#f8e2a0', 8);
-      drawCircle(ctx, e.x + dir * spec.range, e.y - 18, 10, '#f0c84d', '#5a3a14', 2);
+      drawCharacter(ctx, e.charId, e.x, e.y, e.facing, e.bob, 1, 'sidescroll', e.turnT, pose);
     }
   }
 
@@ -2011,13 +2164,13 @@ function resolveSpecials() {
     var attacker = state.entities[i];
     if (attacker.ko) continue;
     var special = CHARACTERS[attacker.charId].special;
-    if (special && special.type === 'neckHammer' && attacker.specialT > 0) {
-      var dir = attacker.facing === 'left' ? -1 : 1;
-      var hx = attacker.x + dir * special.range;
-      var hy = attacker.y - 10;
-      for (var j = 0; j < state.entities.length; j++) {
-        var defender = state.entities[j];
-        if (defender.ko || defender.eid === attacker.eid || attacker.specialVictims[defender.eid]) continue;
+      if (special && special.type === 'neckHammer' && attacker.specialT > 0) {
+        var dir = attacker.facing === 'left' ? -1 : 1;
+        var hx = attacker.x + dir * (special.range - 6);
+        var hy = attacker.y + 2;
+        for (var j = 0; j < state.entities.length; j++) {
+          var defender = state.entities[j];
+          if (defender.ko || defender.eid === attacker.eid || attacker.specialVictims[defender.eid]) continue;
         if (Math.abs(defender.x - hx) <= special.radius + defender.w * 0.5 &&
             Math.abs((defender.y - 8) - hy) <= special.radius + HEAD_OFFSET) {
           attacker.specialVictims[defender.eid] = true;
@@ -2035,6 +2188,11 @@ function resolveSpecials() {
       if (target.ko || target.eid === proj.ownerId) continue;
       if (Math.abs(target.x - proj.x) <= proj.radius + target.w * 0.5 &&
           Math.abs((target.y - 8) - proj.y) <= proj.radius + HEAD_OFFSET) {
+        if (target.specialActive && CHARACTERS[target.charId].special &&
+            CHARACTERS[target.charId].special.type === 'margaritaville') {
+          hitSomething = true;
+          break;
+        }
         applySpecialHit(null, target, proj, proj.vx < 0 ? -1 : 1);
         hitSomething = true;
         break;

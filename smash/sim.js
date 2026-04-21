@@ -6,6 +6,7 @@
 
   var W = 800;
   var H = 560;
+  var TAU = Math.PI * 2;
 
   var GRAVITY = 1400;
   var MOVE_ACCEL_GROUND = 2000;
@@ -54,8 +55,9 @@
   var CHARACTERS = {
     samster: { name: 'Samster',        color: '#dfc18e', accent: '#8d5f35', outline: '#4f311d', sprite: 'hamster' },
     duck:    { name: 'Duck Dieb',      color: '#8b6030', accent: '#2a7a38', outline: '#3c2814', sprite: 'duck',
-               special: { type: 'airFlap', vy: -260, minVy: -180 } },
-    hippo:   { name: 'Hippo',          color: '#8f7ea8', accent: '#63557b', outline: '#40324c', sprite: 'hippo' },
+               special: { type: 'airFlap', lift: 2100, maxRise: 280, flapRate: 7.5 } },
+    hippo:   { name: 'Hippo',          color: '#8f7ea8', accent: '#63557b', outline: '#40324c', sprite: 'hippo',
+               special: { type: 'margaritaville', damage: 11, launchX: 380, launchY: 220 } },
     nik:     { name: 'Nik',            color: '#6b4a2e', accent: '#c9a47a', outline: '#3a2612', sprite: 'monkey' },
     lekan:   { name: 'Lekan',          color: '#f4f4f4', accent: '#242424', outline: '#202020', sprite: 'panda' },
     basil:   { name: 'Basil',          color: '#6b4527', accent: '#d8b985', outline: '#3b2614', sprite: 'otter' },
@@ -64,7 +66,8 @@
     mucko:   { name: 'Captain Mucko',  color: '#d8a95a', accent: '#8f2f2f', outline: '#5f3914', sprite: 'captain' },
     rocket:  { name: 'Saturn V',       color: '#ededed', accent: '#d76039', outline: '#373737', sprite: 'rocket',
                special: { type: 'abortShot', cooldown: 1.0, speed: 430, radius: 10, damage: 8, launchX: 260, launchY: 135, maxAge: 1.1 } },
-    digory:  { name: 'Digory',         color: '#f7f5f0', accent: '#18181c', outline: '#3a2c20', sprite: 'digory' },
+    digory:  { name: 'Digory',         color: '#f7f5f0', accent: '#18181c', outline: '#3a2c20', sprite: 'digory',
+               special: { type: 'bulldogBounce', bounceRate: 8.5, massMul: 2 } },
     jlong:   { name: 'J. Long',        color: '#f0c84d', accent: '#bf8834', outline: '#5a3a14', sprite: 'giraffe',
                special: { type: 'neckHammer', cooldown: 0.75, active: 0.16, range: 50, radius: 18, damage: 10, launchX: 310, launchY: 170 } },
     pras:    { name: 'Pras the Koala', color: '#9aa1a8', accent: '#3a3f48', outline: '#2c2f36', sprite: 'koala',
@@ -185,6 +188,14 @@
 
   function damageMass(d) {
     return 0.3 + 0.7 / (1 + Math.exp((d - 50) / 15));
+  }
+
+  function currentMass(entity) {
+    var mass = damageMass(entity.damage);
+    var special = CHARACTERS[entity.charId].special;
+    if (entity.specialActive && special && special.type === 'bulldogBounce') mass *= special.massMul;
+    if (entity.specialActive && special && special.type === 'margaritaville') mass *= 1000;
+    return mass;
   }
 
   function sideExitDamage(vx) {
@@ -331,6 +342,8 @@
       specialUsed: false,
       specialCooldown: 0,
       specialT: 0,
+      specialActive: false,
+      specialAnimT: 0,
       specialVictims: Object.create(null),
       lastHitBy: null,
       lastHitAge: Infinity,
@@ -356,7 +369,7 @@
   }
 
   function neutralInput() {
-    return { left: false, right: false, jumpPressed: false, jumpHeld: false, dashPressed: false, specialPressed: false };
+    return { left: false, right: false, jumpPressed: false, jumpHeld: false, dashPressed: false, specialPressed: false, specialHeld: false };
   }
 
   function createMatch(config) {
@@ -425,14 +438,6 @@
   function tryUseCharacterAbility(match, entity) {
     var special = CHARACTERS[entity.charId].special;
     if (!special) return false;
-    if (special.type === 'airFlap') {
-      if (entity.specialUsed) return false;
-      if (entity.onGround) return false;
-      entity.vy = Math.min(special.vy, special.minVy);
-      entity.specialUsed = true;
-      emit(match, { type: 'special', entityId: entity.id, specialType: special.type });
-      return true;
-    }
     if (special.type === 'neckHammer') {
       if (entity.specialCooldown > 0 || entity.specialT > 0) return false;
       entity.specialCooldown = special.cooldown;
@@ -463,7 +468,53 @@
     return false;
   }
 
+  function updateHeldSpecial(match, entity, specialHeld, specialPressed, dt) {
+    var special = CHARACTERS[entity.charId].special;
+    if (!special) return;
+
+    if (special.type === 'airFlap') {
+      if (specialHeld && !entity.onGround) {
+        if (!entity.specialActive) emit(match, { type: 'special', entityId: entity.id, specialType: special.type });
+        entity.specialActive = true;
+        entity.specialAnimT += dt;
+        entity.vy = Math.max(entity.vy - special.lift * dt, -special.maxRise);
+      } else {
+        entity.specialActive = false;
+        if (entity.onGround) entity.specialAnimT = 0;
+      }
+      return;
+    }
+
+    if (special.type === 'margaritaville') {
+      var nextActive = specialHeld && entity.onGround && entity.dashT <= 0 && entity.squashT <= 0;
+      if (nextActive && !entity.specialActive) emit(match, { type: 'special', entityId: entity.id, specialType: special.type });
+      entity.specialActive = nextActive;
+      if (entity.specialActive) {
+        entity.specialAnimT += dt;
+        entity.vx = 0;
+        entity.vy = 0;
+      } else {
+        entity.specialAnimT = 0;
+      }
+      return;
+    }
+
+    if (special.type === 'bulldogBounce') {
+      var active = specialHeld && entity.onGround;
+      if (active && !entity.specialActive) emit(match, { type: 'special', entityId: entity.id, specialType: special.type });
+      entity.specialActive = active;
+      if (entity.specialActive) {
+        entity.specialAnimT += dt;
+        entity.vx *= Math.max(0, 1 - dt * 12);
+      } else {
+        entity.specialAnimT = 0;
+      }
+    }
+  }
+
   function applySpecialHit(match, attacker, defender, spec, dir) {
+    if (defender.specialActive && CHARACTERS[defender.charId].special &&
+        CHARACTERS[defender.charId].special.type === 'margaritaville') return;
     defender.damage += spec.damage;
     defender.vx = dir * (spec.launchX + defender.damage * 2.2);
     defender.vy = Math.min(defender.vy, -spec.launchY);
@@ -483,7 +534,8 @@
     ai.targetId = target ? target.id : null;
     var input = neutralInput();
     var special = CHARACTERS[entity.charId].special;
-    var specialReady = special && (special.type === 'airFlap' ? !entity.specialUsed : entity.specialCooldown <= 0 && entity.specialT <= 0);
+    var specialReady = special && ((special.type === 'airFlap' || special.type === 'margaritaville' || special.type === 'bulldogBounce')
+      ? true : entity.specialCooldown <= 0 && entity.specialT <= 0);
 
     var edgeBuffer = Math.max(70, g.edgeBuffer * 0.55);
     var panicBuffer = Math.max(42, edgeBuffer * 0.55);
@@ -526,6 +578,18 @@
         return input;
       } else if (target && specialReady && special.type === 'neckHammer' && adx < special.range + 8 && Math.abs(dy) < 70) {
         input.specialPressed = true;
+        ai.state = 'idle';
+        ai.timer = randRange(rng, g.dwellMin, g.dwellMax);
+        ai.input = input;
+        return input;
+      } else if (target && specialReady && special.type === 'margaritaville' && adx < 80 && Math.abs(dy) < 70) {
+        input.specialHeld = true;
+        ai.state = 'idle';
+        ai.timer = randRange(rng, g.dwellMin, g.dwellMax);
+        ai.input = input;
+        return input;
+      } else if (target && specialReady && special.type === 'bulldogBounce' && adx < 70 && Math.abs(dy) < 70) {
+        input.specialHeld = true;
         ai.state = 'idle';
         ai.timer = randRange(rng, g.dwellMin, g.dwellMax);
         ai.input = input;
@@ -596,10 +660,10 @@
         input.right = true;
         input.left = false;
       }
-      if (special && !entity.specialUsed) {
+      if (special && special.type === 'airFlap') {
         var needsLift = entity.vy > 80 || entity.y > 390;
         var wantsChaseLift = target && target.y < entity.y - 18 && Math.abs(target.x - entity.x) < g.jumpRange;
-        if (needsLift || wantsChaseLift) input.jumpPressed = true;
+        if (needsLift || wantsChaseLift) input.specialHeld = true;
       }
       input.jumpHeld = true;
     }
@@ -617,7 +681,8 @@
         jumpPressed: !!next.jumpPressed,
         jumpHeld: !!next.jumpHeld,
         dashPressed: !!next.dashPressed,
-        specialPressed: !!next.specialPressed
+        specialPressed: !!next.specialPressed,
+        specialHeld: !!next.specialHeld
       };
     }
     return neutralInput();
@@ -653,6 +718,8 @@
     entity.specialUsed = false;
     entity.specialCooldown = 0;
     entity.specialT = 0;
+    entity.specialActive = false;
+    entity.specialAnimT = 0;
     entity.specialVictims = Object.create(null);
     entity.squashT = 0;
     entity.invulnFrames = 60;
@@ -714,6 +781,18 @@
   }
 
   function stomp(match, jumper, landee) {
+    if (landee.specialActive && CHARACTERS[landee.charId].special &&
+        CHARACTERS[landee.charId].special.type === 'margaritaville') {
+      var poolSpec = CHARACTERS[landee.charId].special;
+      var awayDir = jumper.x >= landee.x ? 1 : -1;
+      jumper.damage += poolSpec.damage;
+      jumper.vx = awayDir * (poolSpec.launchX + jumper.damage * 2.2);
+      jumper.vy = -(poolSpec.launchY + jumper.damage * 1.4);
+      jumper.onGround = false;
+      jumper.invulnFrames = KB_POST_INVULN;
+      emit(match, { type: 'poolBounce', hippoId: landee.id, targetId: jumper.id });
+      return;
+    }
     jumper.y = landee.y - HEAD_OFFSET - FEET_OFFSET - 2;
     jumper.vy = -JUMP_VEL * STOMP_BOUNCE_MULT;
     jumper.onGround = false;
@@ -722,7 +801,7 @@
     markHit(jumper, landee, DAMAGE_PER_STOMP);
     jumper.stats.stompDamageDealt += DAMAGE_PER_STOMP;
     var dir = landee.x >= jumper.x ? 1 : -1;
-    var massRatio = Math.sqrt(damageMass(jumper.damage) / damageMass(landee.damage));
+    var massRatio = Math.sqrt(currentMass(jumper) / currentMass(landee));
     var ratioMul = Math.min(KB_RATIO_MAX, Math.max(KB_RATIO_MIN, massRatio));
     landee.vx = dir * (KB_BASE_X + landee.damage * KB_SCALE_X) * ratioMul;
     landee.vy = -(KB_BASE_Y + landee.damage * KB_SCALE_Y) * ratioMul;
@@ -733,6 +812,21 @@
 
   function pairKey(a, b) {
     return a < b ? a + ':' + b : b + ':' + a;
+  }
+
+  function repelFromHippoPool(match, hippo, other) {
+    var cooldownKey = pairKey(hippo.id, other.id);
+    if (match.pairCooldowns[cooldownKey] > 0) return;
+    var poolSpec = CHARACTERS[hippo.charId].special;
+    var awayDir = other.x >= hippo.x ? 1 : -1;
+    other.damage += poolSpec.damage;
+    other.vx = awayDir * (poolSpec.launchX + other.damage * 2.3);
+    other.vy = -(poolSpec.launchY + other.damage * 1.2);
+    other.onGround = false;
+    other.invulnFrames = KB_POST_INVULN;
+    markHit(hippo, other, poolSpec.damage);
+    match.pairCooldowns[cooldownKey] = SIDE_HIT_COOLDOWN;
+    emit(match, { type: 'poolBounce', hippoId: hippo.id, targetId: other.id });
   }
 
   function decayPairCooldowns(match, dt) {
@@ -761,6 +855,19 @@
 
         var aOnTop = (A.y < B.y) && (A.vy > 0) && (A.vy - B.vy > 40);
         var bOnTop = (B.y < A.y) && (B.vy > 0) && (B.vy - A.vy > 40);
+        var aPool = A.specialActive && CHARACTERS[A.charId].special &&
+          CHARACTERS[A.charId].special.type === 'margaritaville';
+        var bPool = B.specialActive && CHARACTERS[B.charId].special &&
+          CHARACTERS[B.charId].special.type === 'margaritaville';
+
+        if (aPool && !bPool) {
+          repelFromHippoPool(match, A, B);
+          continue;
+        }
+        if (bPool && !aPool) {
+          repelFromHippoPool(match, B, A);
+          continue;
+        }
 
         if (aOnTop) {
           stomp(match, A, B);
@@ -774,7 +881,7 @@
         var overlap = Math.min(ax1, bx1) - Math.max(ax0, bx0);
         if (overlap <= 0) continue;
         var dir = A.x < B.x ? -1 : 1;
-        var mA = damageMass(A.damage), mB = damageMass(B.damage);
+        var mA = currentMass(A), mB = currentMass(B);
         var totalMass = mA + mB;
         var aWasDashing = A.dashT > 0;
         var bWasDashing = B.dashT > 0;
@@ -842,8 +949,8 @@
       var special = CHARACTERS[attacker.charId].special;
       if (special && special.type === 'neckHammer' && attacker.specialT > 0) {
         var dir = attacker.facing === 'left' ? -1 : 1;
-        var hx = attacker.x + dir * special.range;
-        var hy = attacker.y - 10;
+        var hx = attacker.x + dir * (special.range - 6);
+        var hy = attacker.y + 2;
         for (var j = 0; j < match.entities.length; j++) {
           var defender = match.entities[j];
           if (defender.ko || defender.id === attacker.id || attacker.specialVictims[defender.id]) continue;
@@ -864,6 +971,11 @@
         if (target.ko || target.id === proj.ownerId) continue;
         if (Math.abs(target.x - proj.x) <= proj.radius + target.w * 0.5 &&
             Math.abs((target.y - 8) - proj.y) <= proj.radius + HEAD_OFFSET) {
+          if (target.specialActive && CHARACTERS[target.charId].special &&
+              CHARACTERS[target.charId].special.type === 'margaritaville') {
+            hitSomething = true;
+            break;
+          }
           applySpecialHit(match, null, target, proj, proj.vx < 0 ? -1 : 1);
           hitSomething = true;
           break;
@@ -880,6 +992,7 @@
     var jh = input.jumpHeld;
     var dashPressed = input.dashPressed;
     var specialPressed = input.specialPressed;
+    var specialHeld = input.specialHeld;
 
     if (entity.squashT > 0) {
       entity.squashT = Math.max(0, entity.squashT - dt);
@@ -888,6 +1001,7 @@
       jp = false;
       dashPressed = false;
       specialPressed = false;
+      specialHeld = false;
       if (entity.onGround) entity.vx *= Math.pow(0.1, dt * 8);
     }
 
@@ -902,6 +1016,19 @@
     var moveMul = (ch.moveMul != null) ? ch.moveMul : 1;
     var jumpMul = (ch.jumpMul != null) ? ch.jumpMul : 1;
     var dashMul = (ch.dashMul != null) ? ch.dashMul : 1;
+    updateHeldSpecial(match, entity, specialHeld, specialPressed, dt);
+    if (entity.specialActive && ch.special && ch.special.type === 'margaritaville') {
+      pressingLeft = false;
+      pressingRight = false;
+      jp = false;
+      dashPressed = false;
+    }
+    if (entity.specialActive && ch.special && ch.special.type === 'bulldogBounce') {
+      pressingLeft = false;
+      pressingRight = false;
+      jp = false;
+      dashPressed = false;
+    }
 
     if (entity.dashT > 0) {
       entity.dashT = Math.max(0, entity.dashT - dt);
@@ -938,11 +1065,12 @@
       entity.vy = -JUMP_VEL * jumpMul;
       entity.onGround = false;
       emit(match, { type: 'jump', entityId: entity.id });
-    } else if (jp) {
-      tryUseCharacterAbility(match, entity);
     }
     if (!jh && entity.vy < -JUMP_CUT * jumpMul) entity.vy = -JUMP_CUT * jumpMul;
 
+    if (entity.specialActive && ch.special && ch.special.type === 'bulldogBounce') {
+      entity.y += Math.sin(entity.specialAnimT * ch.special.bounceRate * TAU) * 10 * dt * ch.special.bounceRate;
+    }
     entity.vy += GRAVITY * dt;
     if (entity.vy > TERM_VEL) entity.vy = TERM_VEL;
 
@@ -962,6 +1090,7 @@
           entity.vy = 0;
           entity.onGround = true;
           entity.specialUsed = false;
+          if (ch.special && ch.special.type === 'airFlap') entity.specialActive = false;
           break;
         }
       }
