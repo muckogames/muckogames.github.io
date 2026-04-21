@@ -132,6 +132,34 @@ var eat = input.eat;
 var audio = MuckoEngine.makeAudio();
 var beep = audio.beep;
 
+/* "Wastin' away again in Margaritaville" melody — plays on Hippo's special activation.
+   Notes are [freq_hz, vol, dur_sec, delay_ms]. Sine wave = warm marimba-ish tone. */
+var MARGARITA_NOTES = [
+  [329.63, 0.26, 0.28,    0],   // E4  "Wast-"
+  [329.63, 0.22, 0.17,  320],   // E4  "-in'"
+  [293.66, 0.22, 0.16,  500],   // D4  "a-"
+  [277.18, 0.23, 0.38,  680],   // C#4 "-way"
+  [220.00, 0.22, 0.20, 1100],   // A3  "a-"
+  [220.00, 0.22, 0.28, 1330],   // A3  "-gain"
+  [246.94, 0.22, 0.20, 1690],   // B3  "in"
+  [246.94, 0.20, 0.16, 1930],   // B3  "Mar-"
+  [220.00, 0.20, 0.14, 2120],   // A3  "-ga-"
+  [220.00, 0.18, 0.14, 2270],   // A3  "-ri-"
+  [185.00, 0.18, 0.14, 2420],   // F#3 "-ta-"
+  [164.81, 0.22, 0.55, 2580]    // E3  "-ville"
+];
+var margaritaLastPlayedAt = -9999;
+function playMargaritavilleMelody() {
+  var now = Date.now();
+  if (now - margaritaLastPlayedAt < 3400) return;
+  margaritaLastPlayedAt = now;
+  for (var i = 0; i < MARGARITA_NOTES.length; i++) {
+    (function(n) {
+      setTimeout(function() { beep(n[0], n[1], n[2], 'sine'); }, n[3]);
+    })(MARGARITA_NOTES[i]);
+  }
+}
+
 var TOUCH_UI = MuckoEngine.TOUCH_UI();
 
 /* ── Pointer state ─────────────────────────────────────────── */
@@ -1032,12 +1060,13 @@ function updateHeldSpecial(e, specialHeldBtn, specialPressedBtn, dt) {
   }
 
   if (special.type === 'margaritaville') {
+    var wasMargaritaActive = e.specialActive;
     e.specialActive = specialHeldBtn && e.onGround && e.dashT <= 0 && e.squashT <= 0;
     if (e.specialActive) {
       e.specialAnimT += dt;
       e.vx = 0;
       e.vy = 0;
-      if (!e.isCPU && specialPressedBtn) beep(294, 0.08, 0.08, 'sine');
+      if (!e.isCPU && !wasMargaritaActive) playMargaritavilleMelody();
     } else {
       e.specialAnimT = 0;
     }
