@@ -132,9 +132,22 @@ var eat = input.eat;
 var audio = MuckoEngine.makeAudio();
 var beep = audio.beep;
 
-/* "Wastin' away again in Margaritaville" melody — plays on Hippo's special activation.
-   Notes are [freq_hz, vol, dur_sec, delay_ms]. Sine wave = warm marimba-ish tone. */
+/* ═══════════════════════════════════════════════════════════════════
+   MARGARITAVILLE MELODY  ← tweak me!
+   Plays on loop while Hippo holds his pool-shield special.
+
+   Each note: [freq_hz, vol_0_to_1, dur_sec, start_delay_ms]
+   All notes are sine wave. Key of A major.
+
+   Useful frequencies:
+     E3=164.81  F#3=185.00  G#3=207.65  A3=220.00  B3=246.94
+     C#4=277.18  D4=293.66  E4=329.63   F#4=369.99  A4=440.00
+
+   MARGARITA_LOOP_GAP_MS — silence between end of phrase and loop restart.
+═══════════════════════════════════════════════════════════════════ */
+var MARGARITA_LOOP_GAP_MS = 350;
 var MARGARITA_NOTES = [
+  // freq    vol   dur    delay  syllable
   [329.63, 0.26, 0.28,    0],   // E4  "Wast-"
   [329.63, 0.22, 0.17,  320],   // E4  "-in'"
   [293.66, 0.22, 0.16,  500],   // D4  "a-"
@@ -148,16 +161,18 @@ var MARGARITA_NOTES = [
   [185.00, 0.18, 0.14, 2420],   // F#3 "-ta-"
   [164.81, 0.22, 0.55, 2580]    // E3  "-ville"
 ];
-var margaritaLastPlayedAt = -9999;
+
+var margaritaMelodyLooping = false;
 function playMargaritavilleMelody() {
-  var now = Date.now();
-  if (now - margaritaLastPlayedAt < 3400) return;
-  margaritaLastPlayedAt = now;
+  if (!margaritaMelodyLooping) return;
   for (var i = 0; i < MARGARITA_NOTES.length; i++) {
     (function(n) {
-      setTimeout(function() { beep(n[0], n[1], n[2], 'sine'); }, n[3]);
+      setTimeout(function() { if (margaritaMelodyLooping) beep(n[0], n[1], n[2], 'sine'); }, n[3]);
     })(MARGARITA_NOTES[i]);
   }
+  var last = MARGARITA_NOTES[MARGARITA_NOTES.length - 1];
+  var loopAt = last[3] + Math.ceil(last[2] * 1000) + MARGARITA_LOOP_GAP_MS;
+  setTimeout(function() { playMargaritavilleMelody(); }, loopAt);
 }
 
 var TOUCH_UI = MuckoEngine.TOUCH_UI();
@@ -1066,8 +1081,12 @@ function updateHeldSpecial(e, specialHeldBtn, specialPressedBtn, dt) {
       e.specialAnimT += dt;
       e.vx = 0;
       e.vy = 0;
-      if (!e.isCPU && !wasMargaritaActive) playMargaritavilleMelody();
+      if (!e.isCPU && !wasMargaritaActive) {
+        margaritaMelodyLooping = true;
+        playMargaritavilleMelody();
+      }
     } else {
+      if (!e.isCPU && wasMargaritaActive) margaritaMelodyLooping = false;
       e.specialAnimT = 0;
     }
     return;
