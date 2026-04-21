@@ -69,6 +69,7 @@ var DASH_VEL              = 540;
 var DASH_DURATION         = 0.18;   // seconds locked at dash velocity
 var DASH_COOLDOWN         = 0.35;   // seconds before another dash is allowed
 var DASH_DOUBLE_TAP_WINDOW = 0.22;  // 2nd tap must land within this many seconds
+var TURN_PORTRAIT_TIME    = 0.12;   // brief front-view flash while changing facing
 
 // Stage 4: damage / knockback / stocks
 var START_STOCKS          = 3;
@@ -353,6 +354,10 @@ function drawCharacterPortraitSprite(cx, ch, bob) {
   }
 }
 
+function randomLookDelay() {
+  return 0.9 + Math.random() * 2.0;
+}
+
 function drawCharacterSidescrollSprite(cx, ch, facing, bob) {
   var dir = facing === 'left' ? -1 : 1;
   var sway = Math.sin((bob || 0) * 0.5) * 0.08;
@@ -533,14 +538,15 @@ function drawCharacterSidescrollSprite(cx, ch, facing, bob) {
   }
 }
 
-function drawCharacter(cx, id, x, y, facing, bob, shadowScale, variant) {
+function drawCharacter(cx, id, x, y, facing, bob, shadowScale, variant, turnT) {
   var ch = CHARACTERS[id];
   var bounce = Math.sin(bob || 0) * 1.5;
   var mode = variant || 'portrait';
   cx.save();
   cx.translate(x, y + bounce);
   drawEllipse(cx, 0, 18, 16 * (shadowScale || 1), 6 * (shadowScale || 1), 'rgba(0,0,0,.16)');
-  if (mode === 'sidescroll') drawCharacterSidescrollSprite(cx, ch, facing, bob);
+  if (mode === 'sidescroll' && turnT > 0) drawCharacterPortraitSprite(cx, ch, bob);
+  else if (mode === 'sidescroll') drawCharacterSidescrollSprite(cx, ch, facing, bob);
   else drawCharacterPortraitSprite(cx, ch, bob);
   cx.restore();
 }
@@ -593,6 +599,7 @@ function makeEntity(charId, x, y, isCPU, mode) {
     w: ENTITY_W,
     onGround: false,
     facing: 'right',
+    turnT: 0,
     invulnFrames: 0,
     damage: 0,
     initialStocks: START_STOCKS,
@@ -627,6 +634,19 @@ function makeEntity(charId, x, y, isCPU, mode) {
       targetId: null
     } : null
   };
+}
+
+function setEntityFacing(e, facing) {
+  if (e.facing !== facing) {
+    e.facing = facing;
+    e.turnT = TURN_PORTRAIT_TIME;
+  }
+}
+
+function ensureSlotPreviewState(slot) {
+  if (!slot.previewFacing) slot.previewFacing = 'right';
+  if (slot.previewTurnT == null) slot.previewTurnT = 0;
+  if (slot.previewLookTimer == null) slot.previewLookTimer = randomLookDelay();
 }
 
 /* ── Top-level state ───────────────────────────────────────── */
@@ -718,6 +738,7 @@ function respawn(e) {
   e.trail.length = 0;
   e.invulnFrames = 60;
   e.facing = 'right';
+  e.turnT = 0;
   state.respawnFlash = 0.4;
   beep(180, 0.18, 0.28, 'sawtooth');
 }
@@ -799,7 +820,7 @@ function jumpPressed() {
 function startDash(e, dir) {
   if (e.dashT > 0 || e.dashCooldown > 0 || e.squashT > 0) return;
   e.dashDir = dir < 0 ? -1 : 1;
-  e.facing = e.dashDir < 0 ? 'left' : 'right';
+  setEntityFacing(e, e.dashDir < 0 ? 'left' : 'right');
   e.dashT = DASH_DURATION;
   e.dashCooldown = DASH_DURATION + DASH_COOLDOWN;
   var dashMul = (CHARACTERS[e.charId].dashMul != null) ? CHARACTERS[e.charId].dashMul : 1;
@@ -1039,6 +1060,7 @@ function stepEntity(e, dt) {
     dashPressed = false; // player dash is started from updatePlay() before stepping
     specialBtn = specialPressed();
   }
+  if (e.turnT > 0) e.turnT = Math.max(0, e.turnT - dt);
   // Squash disables all horizontal input and kills walking momentum.
   if (e.squashT > 0) {
     e.squashT = Math.max(0, e.squashT - dt);
@@ -1075,8 +1097,8 @@ function stepEntity(e, dt) {
   } else {
     if (e.trail.length > 0) e.trail.length = 0;
     var accel = (e.onGround ? MOVE_ACCEL_GROUND : MOVE_ACCEL_AIR) * moveMul;
-    if (pressingLeft && !pressingRight)  { e.vx -= accel * dt; e.facing = 'left'; }
-    if (pressingRight && !pressingLeft)  { e.vx += accel * dt; e.facing = 'right'; }
+    if (pressingLeft && !pressingRight)  { e.vx -= accel * dt; setEntityFacing(e, 'left'); }
+    if (pressingRight && !pressingLeft)  { e.vx += accel * dt; setEntityFacing(e, 'right'); }
     if (!pressingLeft && !pressingRight && e.onGround && e.squashT <= 0) {
       var dec = GROUND_FRIC * dt;
       if (e.vx > 0)      e.vx = Math.max(0, e.vx - dec);
@@ -1483,6 +1505,7 @@ function drawSelect() {
   for (var i = 0; i < L.cards.length; i++) {
     var c = L.cards[i];
     var slot = state.slots[i];
+    ensureSlotPreviewState(slot);
     var active = slotActive(slot);
 
     var cardFill = active ? 'rgba(255,246,214,0.96)' : 'rgba(217,210,193,0.65)';
@@ -1511,7 +1534,7 @@ function drawSelect() {
     // Portrait + cycle arrows
     if (active) {
       drawCharacter(ctx, CHAR_IDS[slot.charIdx],
-        c.x + c.w / 2, c.y + 200, 'right', state.phaseTime * 4 + i, 1.15, 'portrait');
+        c.x + c.w / 2, c.y + 200, slot.previewFacing, state.phaseTime * 4 + i, 1.15, 'sidescroll', slot.previewTurnT);
       drawText(ctx, CHARACTERS[CHAR_IDS[slot.charIdx]].name,
         c.x + c.w / 2, c.y + 250, '#5a3d16', 14, 'center', 'bold');
     } else {
@@ -1550,6 +1573,17 @@ function drawSelect() {
 
 function updateSelect(dt) {
   state.phaseTime += dt;
+  for (var si = 0; si < state.slots.length; si++) {
+    var previewSlot = state.slots[si];
+    ensureSlotPreviewState(previewSlot);
+    if (previewSlot.previewTurnT > 0) previewSlot.previewTurnT = Math.max(0, previewSlot.previewTurnT - dt);
+    previewSlot.previewLookTimer -= dt;
+    if (previewSlot.previewLookTimer <= 0) {
+      previewSlot.previewFacing = previewSlot.previewFacing === 'left' ? 'right' : 'left';
+      previewSlot.previewTurnT = TURN_PORTRAIT_TIME;
+      previewSlot.previewLookTimer = randomLookDelay();
+    }
+  }
 
   if (eat('Space') || eat('Enter')) {
     if (activeSlotCount() >= 1) { startPlay(); return; }
@@ -1705,7 +1739,7 @@ function drawPlay() {
         var s = e.trail[k];
         var alpha = 0.12 + 0.32 * (k / Math.max(1, n - 1));
         ctx.globalAlpha = alpha;
-        drawCharacter(ctx, e.charId, s.x, s.y, s.facing, s.bob, 0, 'sidescroll');
+        drawCharacter(ctx, e.charId, s.x, s.y, s.facing, s.bob, 0, 'sidescroll', 0);
       }
       ctx.restore();
     }
@@ -1720,10 +1754,10 @@ function drawPlay() {
       ctx.translate(e.x, e.y + FEET_OFFSET);
       ctx.scale(sx, sy);
       ctx.translate(-e.x, -(e.y + FEET_OFFSET));
-      drawCharacter(ctx, e.charId, e.x, e.y, e.facing, e.bob, 1, 'sidescroll');
+      drawCharacter(ctx, e.charId, e.x, e.y, e.facing, e.bob, 1, 'sidescroll', e.turnT);
       ctx.restore();
     } else {
-      drawCharacter(ctx, e.charId, e.x, e.y, e.facing, e.bob, 1, 'sidescroll');
+      drawCharacter(ctx, e.charId, e.x, e.y, e.facing, e.bob, 1, 'sidescroll', e.turnT);
     }
     var spec = CHARACTERS[e.charId].special;
     if (spec && spec.type === 'neckHammer' && e.specialT > 0) {
