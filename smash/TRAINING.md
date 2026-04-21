@@ -78,6 +78,10 @@ The replay file stores:
 - CPU behavior was reworked into a proper `Easy / Medium / Hard` ladder and trained with
   the simulator. `Hard` is the strongest evolved shipped bot; `Easy` and `Medium` are
   separate curated tiers, not just weaker random walkers.
+- Medium was upgraded (2026-04-21) via a 150-gen run (pop=40, rounds=10, sec=75) warm-started
+  from the previous population. The new medium genome has a distinct high-jump-pressure
+  playstyle (jumpChance ~0.74, chaseBias ~1.39, low retreatBias) and sits cleanly between
+  old medium (62.5% win rate vs it) and hard (43.75% win rate vs it).
 - Character presentation now distinguishes portrait and side-view rendering. In-match
   sprites are profile-oriented for readability, while menus/results can stay portrait-led.
 - The current specials system supports both tap-triggered moves and held-state moves.
