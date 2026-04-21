@@ -53,6 +53,14 @@ function loadJson(file) {
   return JSON.parse(fs.readFileSync(file, 'utf8'));
 }
 
+function extractGenome(payload) {
+  if (!payload) return null;
+  if (payload.bestGenome) return payload.bestGenome;
+  if (payload.genome) return payload.genome;
+  if (payload.population && payload.population.length) return payload.population[0].genome;
+  return null;
+}
+
 function scorePlayer(summary, playerId) {
   var p = summary.players[playerId];
   var winnerBonus = summary.winnerId === playerId ? 140 : 0;
@@ -137,8 +145,8 @@ function initialPopulation(size, rng, seedFile) {
       for (var i = 0; i < loaded.population.length && population.length < size; i++) {
         population.push({ genome: Sim.normalizeGenome(loaded.population[i].genome) });
       }
-    } else if (loaded.bestGenome) {
-      population.push({ genome: Sim.normalizeGenome(loaded.bestGenome) });
+    } else if (extractGenome(loaded)) {
+      population.push({ genome: Sim.normalizeGenome(extractGenome(loaded)) });
     }
   }
   while (population.length < size) {
@@ -232,9 +240,10 @@ function evaluate(args) {
   var file = args.file || args._[1];
   if (!file) throw new Error('Missing checkpoint file for eval');
   var payload = loadJson(file);
-  var best = payload.bestGenome || (payload.population && payload.population[0] && payload.population[0].genome);
+  var best = extractGenome(payload);
   if (!best) throw new Error('No genome found in checkpoint');
-  var opponent = Sim.normalizeGenome(args.opponent ? loadJson(args.opponent).bestGenome : Sim.HEURISTIC_DEFAULTS);
+  var opponentPayload = args.opponent ? loadJson(args.opponent) : null;
+  var opponent = Sim.normalizeGenome(extractGenome(opponentPayload) || Sim.HEURISTIC_DEFAULTS);
   var opts = {
     charA: args['char-a'] || 'samster',
     charB: args['char-b'] || 'samster',

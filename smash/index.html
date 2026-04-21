@@ -88,8 +88,6 @@ var SIDE_LAUNCH_POP         = 135;  // slight upward pop so ledge hits don't deg
 var SIDE_RECOIL_SPEED       = 55;   // attacker bounces back a touch instead of sticking
 var STAGE_LEFT_EDGE         = 120;
 var STAGE_RIGHT_EDGE        = 680;
-var CPU_EDGE_BUFFER         = 110;  // CPUs start steering inward before they reach the lip
-var CPU_EDGE_PANIC_BUFFER   = 50;   // extra caution zone near the actual floor edge
 
 // Damage softens you up: mass drops logistically with damage % so heavily
 // banged-up characters get launched way farther. At 0% damage mass ≈ 0.98;
@@ -170,15 +168,49 @@ var CHARACTERS = {
 };
 var CHAR_IDS = ['samster', 'duck', 'hippo', 'nik', 'lekan', 'basil', 'mucko', 'rocket', 'digory', 'jlong', 'pras'];
 
-// CPU difficulty "moods" — drive AI dwell time and jump frequency.
-// idleChance + walkChance + jumpChance must sum to 1.
-var MOODS = {
-  chill:  { dwellMin: 1.0, dwellMax: 2.2, idleChance: 0.50, walkChance: 0.40, jumpChance: 0.10, dashChance: 0.00, label: 'CHILL'  },
-  normal: { dwellMin: 0.5, dwellMax: 1.4, idleChance: 0.25, walkChance: 0.55, jumpChance: 0.20, dashChance: 0.00, label: 'NORMAL' },
-  frisky: { dwellMin: 0.25, dwellMax: 0.9, idleChance: 0.10, walkChance: 0.45, jumpChance: 0.30, dashChance: 0.15, label: 'FRISKY' },
-  hard:   { label: 'HARD' }
+var STOCK_OPTIONS = [1, 2, 3, 4, 5, 6, Infinity];
+var EASY_MODE_GENOME = {
+  dwellMin: 0.45,
+  dwellMax: 1.25,
+  idleChance: 0.34,
+  jumpChance: 0.14,
+  dashChance: 0.02,
+  chaseBias: 0.55,
+  edgeBuffer: 195,
+  airborneCenterBias: 0.95,
+  preferredRange: 170,
+  rangeSlack: 120,
+  jumpRange: 105,
+  jumpAboveBias: 42,
+  dashRange: 80,
+  aggression: 0.42,
+  retreatAtDamage: 55,
+  retreatBias: 0.72,
+  facingStickiness: 0.08,
+  pressureBonus: 0.08,
+  jumpCooldown: 0.62
 };
-var CPU_MODES = ['off', 'chill', 'normal', 'frisky', 'hard'];
+var MEDIUM_MODE_GENOME = {
+  dwellMin: 0.16,
+  dwellMax: 0.42,
+  idleChance: 0.07,
+  jumpChance: 0.30,
+  dashChance: 0.12,
+  chaseBias: 0.86,
+  edgeBuffer: 150,
+  airborneCenterBias: 0.88,
+  preferredRange: 135,
+  rangeSlack: 95,
+  jumpRange: 145,
+  jumpAboveBias: 34,
+  dashRange: 118,
+  aggression: 0.84,
+  retreatAtDamage: 92,
+  retreatBias: 0.32,
+  facingStickiness: 0.26,
+  pressureBonus: 0.30,
+  jumpCooldown: 0.42
+};
 var HARD_MODE_GENOME = {
   dwellMin: 0.05,
   dwellMax: 0.08023069221970217,
@@ -200,6 +232,12 @@ var HARD_MODE_GENOME = {
   pressureBonus: 1.006071435233136,
   jumpCooldown: 0.4708999652252533
 };
+var CPU_MODE_META = {
+  easy:   { label: 'EASY',   color: '#84b5e0', genome: EASY_MODE_GENOME },
+  medium: { label: 'MEDIUM', color: '#f2c85a', genome: MEDIUM_MODE_GENOME },
+  hard:   { label: 'HARD',   color: '#e14f7a', genome: HARD_MODE_GENOME }
+};
+var CPU_MODES = ['off', 'easy', 'medium', 'hard'];
 var NEXT_ENTITY_ID = 1;
 
 /* ── Drawing helpers (from lakehousemath) ──────────────────── */
@@ -481,7 +519,8 @@ function makeArena(seed) {
 
 /* ── Entity factory ────────────────────────────────────────── */
 function makeEntity(charId, x, y, isCPU, mode) {
-  var cpuMode = mode || 'normal';
+  var cpuMode = mode || 'medium';
+  var cpuMeta = CPU_MODE_META[cpuMode];
   return {
     eid: NEXT_ENTITY_ID++,
     charId: charId,
@@ -492,6 +531,8 @@ function makeEntity(charId, x, y, isCPU, mode) {
     facing: 'right',
     invulnFrames: 0,
     damage: 0,
+    initialStocks: START_STOCKS,
+    stockSetting: START_STOCKS,
     stocks: START_STOCKS,
     ko: false,
     isCPU: !!isCPU,
@@ -505,8 +546,7 @@ function makeEntity(charId, x, y, isCPU, mode) {
     trail: [],          // recent {x,y,facing,bob} for afterimages (kept short)
     ai: isCPU ? {
       mode: cpuMode,
-      mood: MOODS[cpuMode] || MOODS.normal,
-      genome: cpuMode === 'hard' ? HARD_MODE_GENOME : null,
+      genome: cpuMeta ? cpuMeta.genome : MEDIUM_MODE_GENOME,
       state: 'idle',        // 'idle' | 'walk_left' | 'walk_right' | 'jump' | 'dash'
       timer: 0.3,
       inputLeft: false,
@@ -523,15 +563,15 @@ function makeEntity(charId, x, y, isCPU, mode) {
 /* ── Top-level state ───────────────────────────────────────── */
 // Slots drive the lobby. Slot 0 is the human player; 1..3 are CPUs.
 // player mode: 'play' | 'spectator'
-// cpu mode:    'off'  | 'chill' | 'normal' | 'frisky' | 'hard'
+// cpu mode:    'off'  | 'easy' | 'medium' | 'hard'
 var state = {
   phase: 'title',          // 'title' | 'select' | 'play'
   phaseTime: 0,
   slots: [
-    { kind: 'player', charIdx: 0, mode: 'play' },
-    { kind: 'cpu',    charIdx: 1, mode: 'normal' },
-    { kind: 'cpu',    charIdx: 2, mode: 'off' },
-    { kind: 'cpu',    charIdx: 3, mode: 'off' }
+    { kind: 'player', charIdx: 0, mode: 'play', stocks: START_STOCKS },
+    { kind: 'cpu',    charIdx: 1, mode: 'medium', stocks: START_STOCKS },
+    { kind: 'cpu',    charIdx: 2, mode: 'off', stocks: START_STOCKS },
+    { kind: 'cpu',    charIdx: 3, mode: 'off', stocks: START_STOCKS }
   ],
   entities: [],
   platforms: [],
@@ -554,9 +594,14 @@ function activeSlotCount() {
   return n;
 }
 
-function startPlay() {
+function stockLabel(v) {
+  return v === Infinity ? '∞' : String(v);
+}
+
+function startPlay(seedOverride) {
   NEXT_ENTITY_ID = 1;
-  state.seed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
+  state.seed = seedOverride != null ? (seedOverride >>> 0)
+    : (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
   state.platforms = makeArena(state.seed);
   state.entities = [];
   // Spawn active characters spaced across the stage.
@@ -568,7 +613,11 @@ function startPlay() {
     var sx = (W * (j + 1)) / (n + 1);
     var sy = 80 + (j % 2) * 40;
     var isCPU = s.kind === 'cpu';
-    state.entities.push(makeEntity(CHAR_IDS[s.charIdx], sx, sy, isCPU, s.mode));
+    var entity = makeEntity(CHAR_IDS[s.charIdx], sx, sy, isCPU, s.mode);
+    entity.initialStocks = s.stocks;
+    entity.stockSetting = s.stocks;
+    entity.stocks = s.stocks;
+    state.entities.push(entity);
   }
   state.respawnFlash = 0;
   state.winner = null;
@@ -576,6 +625,10 @@ function startPlay() {
   state.sideHitCooldowns = Object.create(null);
   state.phase = 'play';
   state.phaseTime = 0;
+}
+
+function restartMatch() {
+  startPlay();
 }
 
 function respawn(e) {
@@ -594,15 +647,30 @@ function respawn(e) {
   beep(180, 0.18, 0.28, 'sawtooth');
 }
 
+function activeHumanEntity() {
+  for (var i = 0; i < state.entities.length; i++) {
+    if (!state.entities[i].isCPU && !state.entities[i].ko) return state.entities[i];
+  }
+  return null;
+}
+
+function humanWasPlaying() {
+  return state.slots[0] && state.slots[0].mode === 'play';
+}
+
+function humanIsOut() {
+  return humanWasPlaying() && !activeHumanEntity();
+}
+
 // Edge-of-stage call: decrements a stock; if the character has stocks left
 // they respawn, otherwise they sit out the rest of the round.
 function loseStockOrRespawn(e) {
   if (e.ko) return;
-  e.stocks--;
+  if (e.stocks !== Infinity) e.stocks--;
   // Out-of-bounds tumble sound
   beep(220, 0.25, 0.18, 'sawtooth');
   setTimeout(function() { beep(140, 0.22, 0.22, 'sawtooth'); }, 110);
-  if (e.stocks <= 0) {
+  if (e.stocks !== Infinity && e.stocks <= 0) {
     e.ko = true;
     // Park the eliminated character off-screen so it's never re-touched.
     e.x = -9999; e.y = -9999;
@@ -678,9 +746,9 @@ function getOpponentTarget(e) {
   return best;
 }
 
-function cpuThinkHard(e, dt) {
+function cpuThinkHeuristic(e, dt, g) {
   var s = e.ai;
-  var g = s.genome || HARD_MODE_GENOME;
+  g = g || s.genome || MEDIUM_MODE_GENOME;
   s.jumpCooldown = Math.max(0, s.jumpCooldown - dt);
   s.timer -= dt;
 
@@ -799,75 +867,7 @@ function cpuThinkHard(e, dt) {
 /* ── CPU AI: picks new behaviour once per frame, latches inputs ─ */
 function cpuThink(e, dt) {
   var s = e.ai;
-  if (s.mode === 'hard') {
-    cpuThinkHard(e, dt);
-    return;
-  }
-  s.jumpCooldown = Math.max(0, s.jumpCooldown - dt);
-  s.timer -= dt;
-
-  // Edge avoidance: start steering inward before we hit the lip, then hard-veto
-  // outward ground movement in the panic band so stale walk timers don't suicide.
-  var edgeLeft = STAGE_LEFT_EDGE + CPU_EDGE_BUFFER;
-  var edgeRight = STAGE_RIGHT_EDGE - CPU_EDGE_BUFFER;
-  var panicLeft = STAGE_LEFT_EDGE + CPU_EDGE_PANIC_BUFFER;
-  var panicRight = STAGE_RIGHT_EDGE - CPU_EDGE_PANIC_BUFFER;
-  var nearLeft  = e.x < edgeLeft;
-  var nearRight = e.x > edgeRight;
-  var panicNearLeft = e.x < panicLeft;
-  var panicNearRight = e.x > panicRight;
-  if (e.onGround && nearLeft)  { s.state = 'walk_right'; s.timer = Math.max(s.timer, panicNearLeft ? 1.0 : 0.75); }
-  if (e.onGround && nearRight) { s.state = 'walk_left';  s.timer = Math.max(s.timer, panicNearRight ? 1.0 : 0.75); }
-
-  if (s.timer <= 0) {
-    var m = s.mood;
-    var r = Math.random();
-    var c = m.idleChance;
-    if      (r < c)                                  s.state = 'idle';
-    else if (r < (c += m.walkChance * 0.5))          s.state = 'walk_left';
-    else if (r < (c += m.walkChance * 0.5))          s.state = 'walk_right';
-    else if (r < (c += m.jumpChance))                s.state = 'jump';
-    else                                             s.state = 'dash';
-    s.timer = m.dwellMin + Math.random() * (m.dwellMax - m.dwellMin);
-  }
-
-  s.inputLeft       = s.state === 'walk_left';
-  s.inputRight      = s.state === 'walk_right';
-  s.inputJumpPressed = false;
-  s.inputJumpHeld    = false;
-  s.inputDashPressed = false;
-
-  if (e.onGround) {
-    if (nearLeft)  { s.inputLeft = false;  s.inputRight = true; }
-    if (nearRight) { s.inputRight = false; s.inputLeft  = true; }
-  }
-
-  if (s.state === 'jump') {
-    // Keep pushing toward the center if we jumped while hugging an edge,
-    // otherwise drift in the current facing direction.
-    if      (nearLeft)               { s.inputLeft = false;  s.inputRight = true; }
-    else if (nearRight)              { s.inputRight = false; s.inputLeft  = true; }
-    s.inputJumpHeld = true;
-    if (e.onGround && s.jumpCooldown <= 0) {
-      s.inputJumpPressed = true;
-      s.jumpCooldown = 0.4;
-    }
-  } else if (s.state === 'dash') {
-    // Dash toward stage center when near an edge; otherwise a random side.
-    // One-shot: fire the dash once, then coast.
-    var wantDir = nearLeft ? 1 : nearRight ? -1 : (Math.random() < 0.5 ? -1 : 1);
-    if (wantDir < 0) s.inputLeft = true; else s.inputRight = true;
-    if (e.dashCooldown <= 0 && e.dashT <= 0 && e.onGround) {
-      s.inputDashPressed = true;
-      s.state = 'walk_' + (wantDir < 0 ? 'left' : 'right');
-      s.timer = 0.3 + Math.random() * 0.4;
-    }
-  }
-
-  if (!e.onGround) {
-    if (nearLeft)  { s.inputLeft = false;  s.inputRight = true; }
-    if (nearRight) { s.inputRight = false; s.inputLeft  = true; }
-  }
+  cpuThinkHeuristic(e, dt, s.genome || MEDIUM_MODE_GENOME);
 }
 
 /* ── Physics step ──────────────────────────────────────────── */
@@ -1095,7 +1095,7 @@ function decaySideHitCooldowns(dt) {
 
 /* ── Touch controls (mobile D-pad + jump button) ───────────── */
 function mobileControlsOn() {
-  return TOUCH_UI && state.phase === 'play' && state.slots[0].mode === 'play';
+  return TOUCH_UI && state.phase === 'play' && !!activeHumanEntity();
 }
 
 function mobileLayout() {
@@ -1105,6 +1105,16 @@ function mobileLayout() {
     dash:  { cx: W - 200,  cy: H - 80, r: 40, label: 'DASH' },
     jump:  { cx: W - 90,   cy: H - 84, r: 52, label: 'JUMP' }
   };
+}
+function restartLayout(expanded) {
+  if (expanded) {
+    return { x: W / 2 - 170, y: H / 2 + 90, w: 340, h: 86 };
+  }
+  return { x: 14, y: 36, w: 106, h: 30 };
+}
+function resultsRestartLayout(expanded) {
+  if (expanded) return restartLayout(true);
+  return { x: W / 2 - 120, y: H - 130, w: 240, h: 48 };
 }
 function hitMobileControl(px, py) {
   if (!mobileControlsOn()) return null;
@@ -1226,7 +1236,7 @@ function updateTitle(dt) {
 //   - slot label at top (P1 / CPU 1 / CPU 2 / CPU 3)
 //   - left ◀ / right ▶ arrow pills that cycle the character
 //   - portrait in the middle
-//   - mode pill at bottom (PLAY/SPECTATOR for P1, OFF/CHILL/NORMAL/FRISKY/HARD for CPU)
+//   - lives pill + mode pill near the bottom
 // Start button at the bottom. Needs at least one active character.
 function selectLayout() {
   var cardW = 180, cardH = 380, gap = 10;
@@ -1242,7 +1252,8 @@ function selectLayout() {
       portrait:  { x: cx + 18, y: y0 + 72,  w: cardW - 36, h: 200 },
       leftArrow: { x: cx + 8,  y: y0 + 152, w: 28, h: 36 },
       rightArrow:{ x: cx + cardW - 36, y: y0 + 152, w: 28, h: 36 },
-      modePill:  { x: cx + 16, y: y0 + cardH - 56, w: cardW - 32, h: 42 }
+      stockPill: { x: cx + 16, y: y0 + cardH - 102, w: cardW - 32, h: 34 },
+      modePill:  { x: cx + 16, y: y0 + cardH - 58,  w: cardW - 32, h: 38 }
     });
   }
   return {
@@ -1254,16 +1265,17 @@ function hit(r) { return mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y 
 
 function slotModeLabel(s) {
   if (s.kind === 'player') return s.mode === 'play' ? 'PLAY' : 'SPECTATE';
-  return MOODS[s.mode] ? MOODS[s.mode].label : 'OFF';
+  return CPU_MODE_META[s.mode] ? CPU_MODE_META[s.mode].label : 'OFF';
 }
 function slotModeColor(s) {
   if (s.kind === 'player') return s.mode === 'play' ? '#5ec867' : '#9aa5ad';
   if (s.mode === 'off')    return '#9aa5ad';
-  if (s.mode === 'chill')  return '#84b5e0';
-  if (s.mode === 'normal') return '#f2c85a';
-  if (s.mode === 'frisky') return '#e2744b';
-  if (s.mode === 'hard')   return '#e14f7a';
+  if (CPU_MODE_META[s.mode]) return CPU_MODE_META[s.mode].color;
   return '#9aa5ad';
+}
+function cycleStocks(slot) {
+  var i = STOCK_OPTIONS.indexOf(slot.stocks);
+  slot.stocks = STOCK_OPTIONS[(i + 1) % STOCK_OPTIONS.length];
 }
 function cycleCharacter(slot, dir) {
   slot.charIdx = (slot.charIdx + CHAR_IDS.length + dir) % CHAR_IDS.length;
@@ -1281,7 +1293,7 @@ function drawSelect() {
   drawBackground();
   fillRoundRect(ctx, 20, 12, W - 40, 70, 18, 'rgba(16,30,46,0.82)', 'rgba(255,239,190,0.5)', 2);
   drawText(ctx, 'PICK YOUR CHARACTERS', W / 2, 46, '#ffd86f', 26, 'center', 'bold');
-  drawText(ctx, 'Tap ◀ / ▶ to switch character \u2022 tap the mode pill to change it',
+  drawText(ctx, 'Tap ◀ / ▶ to switch character \u2022 tap lives or difficulty to change them',
     W / 2, 68, '#d9e6ef', 12, 'center', 'bold');
 
   var L = selectLayout();
@@ -1317,6 +1329,11 @@ function drawSelect() {
     drawText(ctx, '◀', c.leftArrow.x  + c.leftArrow.w  / 2, c.leftArrow.y  + 24, '#5a3d16', 18, 'center', 'bold');
     drawText(ctx, '▶', c.rightArrow.x + c.rightArrow.w / 2, c.rightArrow.y + 24, '#5a3d16', 18, 'center', 'bold');
 
+    fillRoundRect(ctx, c.stockPill.x, c.stockPill.y, c.stockPill.w, c.stockPill.h, 12,
+      'rgba(56,74,90,0.88)', '#322010', 2);
+    drawText(ctx, 'LIVES ' + stockLabel(slot.stocks), c.x + c.w / 2, c.stockPill.y + 23,
+      '#fff4cf', 15, 'center', 'bold');
+
     // Mode pill
     fillRoundRect(ctx, c.modePill.x, c.modePill.y, c.modePill.w, c.modePill.h, 14,
       slotModeColor(slot), '#322010', 2);
@@ -1351,17 +1368,21 @@ function updateSelect(dt) {
     var c = L.cards[i];
     var slot = state.slots[i];
     if (hit(c.leftArrow))  {
-      if (!slotActive(slot) && slot.kind === 'cpu') slot.mode = 'normal';
+      if (!slotActive(slot) && slot.kind === 'cpu') slot.mode = 'medium';
       cycleCharacter(slot, -1); return;
     }
     if (hit(c.rightArrow)) {
-      if (!slotActive(slot) && slot.kind === 'cpu') slot.mode = 'normal';
+      if (!slotActive(slot) && slot.kind === 'cpu') slot.mode = 'medium';
       cycleCharacter(slot, +1); return;
+    }
+    if (hit(c.stockPill))  {
+      if (!slotActive(slot) && slot.kind === 'cpu') slot.mode = 'medium';
+      cycleStocks(slot); return;
     }
     if (hit(c.modePill))   { cycleMode(slot); return; }
     if (hit(c.portrait))   {
       // Tap portrait as convenience: cycle character forward.
-      if (!slotActive(slot) && slot.kind === 'cpu') slot.mode = 'normal';
+      if (!slotActive(slot) && slot.kind === 'cpu') slot.mode = 'medium';
       else cycleCharacter(slot, +1);
       return;
     }
@@ -1374,10 +1395,7 @@ function updateSelect(dt) {
 /* ── Play screen ───────────────────────────────────────────── */
 function tryPlayerDash() {
   // Finds the first non-CPU entity; in spectator mode there is none.
-  var p = null;
-  for (var i = 0; i < state.entities.length; i++) {
-    if (!state.entities[i].isCPU && !state.entities[i].ko) { p = state.entities[i]; break; }
-  }
+  var p = activeHumanEntity();
   if (!p) return;
 
   // Mobile DASH button: single tap triggers in facing direction (or current hold)
@@ -1419,6 +1437,15 @@ function updatePlay(dt) {
   state.phaseTime += dt;
   if (state.respawnFlash > 0) state.respawnFlash = Math.max(0, state.respawnFlash - dt);
   if (state.tapTimer > 0) state.tapTimer = Math.max(0, state.tapTimer - dt);
+  if (eat('KeyR')) { restartMatch(); return; }
+  if (mclk) {
+    var restartRect = restartLayout(humanIsOut());
+    if (hit(restartRect)) {
+      mclk = false;
+      restartMatch();
+      return;
+    }
+  }
 
   tryPlayerDash();
 
@@ -1505,6 +1532,21 @@ function drawPlay() {
 
   // HUD: back hint (top-right so it doesn't collide with character cards)
   drawText(ctx, 'Esc: back to select', W - 12, 20, '#14314a', 12, 'right', 'bold');
+  var rr = restartLayout(false);
+  fillRoundRect(ctx, rr.x, rr.y, rr.w, rr.h, 12, 'rgba(16,30,46,0.76)', 'rgba(255,239,190,0.4)', 1.5);
+  drawText(ctx, 'RESTART', rr.x + rr.w / 2, rr.y + 20, '#fff4cf', 13, 'center', 'bold');
+  drawText(ctx, 'R', rr.x + rr.w - 12, rr.y + 20, '#ffd86f', 12, 'right', 'bold');
+
+  if (humanIsOut()) {
+    ctx.fillStyle = 'rgba(0,0,0,0.34)';
+    ctx.fillRect(0, 0, W, H);
+    drawText(ctx, 'YOU ARE OUT', W / 2, H / 2 + 48, '#ffd86f', 28, 'center', 'bold');
+    drawText(ctx, 'Restart this match with the same setup', W / 2, H / 2 + 74, '#fff4cf', 14, 'center', 'bold');
+    rr = restartLayout(true);
+    fillRoundRect(ctx, rr.x, rr.y, rr.w, rr.h, 20, '#ffd86f', '#7b4f1a', 4);
+    drawText(ctx, 'RESTART MATCH', W / 2, rr.y + 38, '#3a2608', 28, 'center', 'bold');
+    drawText(ctx, 'same characters, lives, and CPU levels', W / 2, rr.y + 63, '#5a3d16', 14, 'center', 'bold');
+  }
 
   if (mobileControlsOn()) drawMobileControls();
 }
@@ -1538,11 +1580,15 @@ function drawCharacterHud() {
 
     // Stock dots — solid squares so each life is legible at a glance.
     var dotX = cx + 10, dotY = y + 26;
-    for (var k = 0; k < START_STOCKS; k++) {
-      var alive = k < e.stocks && !e.ko;
-      fillRoundRect(ctx, dotX + k * 10, dotY, 7, 7, 2,
-        alive ? '#f2c85a' : 'rgba(80,80,80,0.45)',
-        alive ? '#7b4f1a' : 'rgba(40,40,40,0.7)', 1);
+    if (e.stockSetting === Infinity) {
+      drawText(ctx, '∞', dotX + 8, dotY + 8, e.ko ? '#9aa5ad' : '#f2c85a', 18, 'left', 'bold');
+    } else {
+      for (var k = 0; k < e.initialStocks; k++) {
+        var alive = k < e.stocks && !e.ko;
+        fillRoundRect(ctx, dotX + k * 10, dotY, 7, 7, 2,
+          alive ? '#f2c85a' : 'rgba(80,80,80,0.45)',
+          alive ? '#7b4f1a' : 'rgba(40,40,40,0.7)', 1);
+      }
     }
 
     // Damage %
@@ -1558,10 +1604,7 @@ function drawCharacterHud() {
 function drawMobileControls() {
   var L = mobileLayout();
   // Dim the DASH button while on cooldown, so players can see it's not ready.
-  var p = null;
-  for (var i = 0; i < state.entities.length; i++) {
-    if (!state.entities[i].isCPU && !state.entities[i].ko) { p = state.entities[i]; break; }
-  }
+  var p = activeHumanEntity();
   var dashReady = p && p.dashCooldown <= 0 && p.dashT <= 0 && p.squashT <= 0;
   ctx.save();
   ctx.globalAlpha = 0.9;
@@ -1626,6 +1669,15 @@ function updateResults(dt) {
   updateConfetti(dt);
   // Require a short delay before accepting input so a final-frame tap doesn't skip it.
   if (state.phaseTime < 0.4) { mclk = false; return; }
+  if (eat('KeyR')) {
+    restartMatch();
+    return;
+  }
+  if (mclk && hit(resultsRestartLayout(humanWasPlaying() && (!state.winner || state.winner.isCPU)))) {
+    mclk = false;
+    restartMatch();
+    return;
+  }
   if (eat('Space') || eat('Enter') || eat('Escape') || mclk) {
     mclk = false;
     state.phase = 'select';
@@ -1641,6 +1693,7 @@ function drawResults() {
   drawConfetti();
 
   var winner = state.winner;
+  var playerLost = humanWasPlaying() && (!winner || winner.isCPU);
   if (winner) {
     // Big winner portrait (uses drawCharacter with scale via ctx.scale)
     ctx.save();
@@ -1657,8 +1710,17 @@ function drawResults() {
     drawText(ctx, 'Everyone took a tumble!', W / 2, 220, '#fff4cf', 20, 'center', 'bold');
   }
 
+  var rr = resultsRestartLayout(playerLost);
+  var fill = playerLost ? '#ffd86f' : 'rgba(16,30,46,0.82)';
+  var text = playerLost ? '#3a2608' : '#fff4cf';
+  fillRoundRect(ctx, rr.x, rr.y, rr.w, rr.h, playerLost ? 20 : 14, fill, '#7b4f1a', playerLost ? 4 : 2);
+  drawText(ctx, 'RESTART MATCH', rr.x + rr.w / 2, rr.y + (playerLost ? 38 : 24), text, playerLost ? 28 : 18, 'center', 'bold');
+  if (playerLost) {
+    drawText(ctx, 'same characters, lives, and CPU levels', rr.x + rr.w / 2, rr.y + 63, '#5a3d16', 14, 'center', 'bold');
+  }
+
   var pulse = 0.5 + 0.5 * Math.sin(state.phaseTime * 5);
-  drawText(ctx, TOUCH_UI ? 'TAP TO CONTINUE' : 'PRESS SPACE / CLICK',
+  drawText(ctx, TOUCH_UI ? 'TAP OUTSIDE TO SELECT' : 'SPACE / ESC TO SELECT • R TO RESTART',
     W / 2, H - 60, '#ffd86f', 18 + pulse * 2, 'center', 'bold');
 }
 

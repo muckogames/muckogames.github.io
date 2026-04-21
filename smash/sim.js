@@ -88,6 +88,48 @@
     pressureBonus: 0.35,
     jumpCooldown: 0.38
   };
+  var EASY_MODE_GENOME = {
+    dwellMin: 0.45,
+    dwellMax: 1.25,
+    idleChance: 0.34,
+    jumpChance: 0.14,
+    dashChance: 0.02,
+    chaseBias: 0.55,
+    edgeBuffer: 195,
+    airborneCenterBias: 0.95,
+    preferredRange: 170,
+    rangeSlack: 120,
+    jumpRange: 105,
+    jumpAboveBias: 42,
+    dashRange: 80,
+    aggression: 0.42,
+    retreatAtDamage: 55,
+    retreatBias: 0.72,
+    facingStickiness: 0.08,
+    pressureBonus: 0.08,
+    jumpCooldown: 0.62
+  };
+  var MEDIUM_MODE_GENOME = {
+    dwellMin: 0.16,
+    dwellMax: 0.42,
+    idleChance: 0.07,
+    jumpChance: 0.30,
+    dashChance: 0.12,
+    chaseBias: 0.86,
+    edgeBuffer: 150,
+    airborneCenterBias: 0.88,
+    preferredRange: 135,
+    rangeSlack: 95,
+    jumpRange: 145,
+    jumpAboveBias: 34,
+    dashRange: 118,
+    aggression: 0.84,
+    retreatAtDamage: 92,
+    retreatBias: 0.32,
+    facingStickiness: 0.26,
+    pressureBonus: 0.30,
+    jumpCooldown: 0.42
+  };
   var HARD_MODE_GENOME = {
     dwellMin: 0.05,
     dwellMax: 0.08023069221970217,
@@ -892,6 +934,8 @@
     CHARACTERS: CHARACTERS,
     CHAR_IDS: CHAR_IDS,
     HEURISTIC_DEFAULTS: HEURISTIC_DEFAULTS,
+    EASY_MODE_GENOME: EASY_MODE_GENOME,
+    MEDIUM_MODE_GENOME: MEDIUM_MODE_GENOME,
     HARD_MODE_GENOME: HARD_MODE_GENOME,
     seededRng: seededRng,
     makeArena: makeArena,

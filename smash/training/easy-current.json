@@ -1,0 +1,34 @@
+{
+  "label": "easy-current",
+  "tier": "easy",
+  "trainedAt": "2026-04-21",
+  "notes": "Curated kid-friendly Smash CPU. Uses the heuristic controller, but stays passive, retreats early, and leaves room for a young player to win.",
+  "eval": {
+    "matchup": "samster vs samster",
+    "stocks": 3,
+    "seconds": 75,
+    "avgScoreVsDefaultOver32": -4.09,
+    "avgScoreVsHardOver24": -164.92
+  },
+  "genome": {
+    "dwellMin": 0.45,
+    "dwellMax": 1.25,
+    "idleChance": 0.34,
+    "jumpChance": 0.14,
+    "dashChance": 0.02,
+    "chaseBias": 0.55,
+    "edgeBuffer": 195,
+    "airborneCenterBias": 0.95,
+    "preferredRange": 170,
+    "rangeSlack": 120,
+    "jumpRange": 105,
+    "jumpAboveBias": 42,
+    "dashRange": 80,
+    "aggression": 0.42,
+    "retreatAtDamage": 55,
+    "retreatBias": 0.72,
+    "facingStickiness": 0.08,
+    "pressureBonus": 0.08,
+    "jumpCooldown": 0.62
+  }
+}

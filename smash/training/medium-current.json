@@ -1,0 +1,35 @@
+{
+  "label": "medium-current",
+  "tier": "medium",
+  "trainedAt": "2026-04-21",
+  "notes": "Curated adult-friendly Smash CPU. Uses the heuristic controller with moderate pressure and recovery, but remains meaningfully weaker than hard mode.",
+  "eval": {
+    "matchup": "samster vs samster",
+    "stocks": 3,
+    "seconds": 75,
+    "avgScoreVsDefaultOver32": 110.31,
+    "avgScoreVsHardOver32": -97.28,
+    "avgScoreVsEasyOver32": 322.33
+  },
+  "genome": {
+    "dwellMin": 0.16,
+    "dwellMax": 0.42,
+    "idleChance": 0.07,
+    "jumpChance": 0.30,
+    "dashChance": 0.12,
+    "chaseBias": 0.86,
+    "edgeBuffer": 150,
+    "airborneCenterBias": 0.88,
+    "preferredRange": 135,
+    "rangeSlack": 95,
+    "jumpRange": 145,
+    "jumpAboveBias": 34,
+    "dashRange": 118,
+    "aggression": 0.84,
+    "retreatAtDamage": 92,
+    "retreatBias": 0.32,
+    "facingStickiness": 0.26,
+    "pressureBonus": 0.30,
+    "jumpCooldown": 0.42
+  }
+}
