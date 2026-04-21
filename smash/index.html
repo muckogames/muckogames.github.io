@@ -170,16 +170,26 @@ var MARGARITA_NOTES = [
 });
 
 var margaritaMelodyLooping = false;
-function playMargaritavilleMelody() {
-  if (!margaritaMelodyLooping) return;
+// Session counter — each press of Hippo's special bumps this. Every
+// scheduled note callback captures the session it belongs to; if the session
+// has moved on (release + re-press during the gap before the loop restart)
+// the old callback drops its beep. Without this, a rapid release/re-press
+// would overlay the old round's in-flight notes on top of the new round's.
+var margaritaMelodySession = 0;
+function playMargaritavilleMelody(session) {
+  if (!margaritaMelodyLooping || session !== margaritaMelodySession) return;
   for (var i = 0; i < MARGARITA_NOTES.length; i++) {
     (function(n) {
-      setTimeout(function() { if (margaritaMelodyLooping) beep(n[0], n[1], n[2], 'sine'); }, n[3]);
+      setTimeout(function() {
+        if (margaritaMelodyLooping && session === margaritaMelodySession) {
+          beep(n[0], n[1], n[2], 'sine');
+        }
+      }, n[3]);
     })(MARGARITA_NOTES[i]);
   }
   var last = MARGARITA_NOTES[MARGARITA_NOTES.length - 1];
   var loopAt = last[3] + Math.ceil(last[2] * 1000) + MARGARITA_LOOP_GAP_MS;
-  setTimeout(function() { playMargaritavilleMelody(); }, loopAt);
+  setTimeout(function() { playMargaritavilleMelody(session); }, loopAt);
 }
 
 var TOUCH_UI = MuckoEngine.TOUCH_UI();
@@ -1089,11 +1099,15 @@ function updateHeldSpecial(e, specialHeldBtn, specialPressedBtn, dt) {
       e.vx = 0;
       e.vy = 0;
       if (!e.isCPU && !wasMargaritaActive) {
+        margaritaMelodySession++;
         margaritaMelodyLooping = true;
-        playMargaritavilleMelody();
+        playMargaritavilleMelody(margaritaMelodySession);
       }
     } else {
-      if (!e.isCPU && wasMargaritaActive) margaritaMelodyLooping = false;
+      if (!e.isCPU && wasMargaritaActive) {
+        margaritaMelodyLooping = false;
+        margaritaMelodySession++;
+      }
       e.specialAnimT = 0;
     }
     return;
@@ -1378,10 +1392,9 @@ function stepEntity(e, dt) {
   }
   if (!jh && e.vy < -JUMP_CUT * jumpMul) e.vy = -JUMP_CUT * jumpMul;
 
-  // Gravity + terminal velocity
-  if (e.specialActive && ch.special && ch.special.type === 'bulldogBounce') {
-    e.y += Math.sin(e.specialAnimT * ch.special.bounceRate * TAU) * 10 * dt * ch.special.bounceRate;
-  }
+  // Gravity + terminal velocity. Digory's bulldogBounce is purely a render
+  // effect (applied in drawPlay); mutating e.y here poked prevFootY past the
+  // platform and dropped him through the floor.
   e.vy += GRAVITY * dt;
   if (e.vy >  TERM_VEL) e.vy =  TERM_VEL;
 
@@ -2076,6 +2089,13 @@ function drawPlay() {
       ctx.restore();
     }
     var pose = characterPose(e);
+    // Digory's bulldogBounce is a pure render offset — he stays pinned to the
+    // floor in the sim so platform collision stays correct.
+    var drawY = e.y;
+    var eSpecial = CHARACTERS[e.charId].special;
+    if (e.specialActive && eSpecial && eSpecial.type === 'bulldogBounce') {
+      drawY += -Math.abs(Math.sin(e.specialAnimT * eSpecial.bounceRate * Math.PI)) * 14;
+    }
     if (e.squashT > 0) {
       // Ease: peaks squished at mid-animation.
       var p = e.squashT / SQUASH_DURATION;        // 1 → 0
@@ -2084,13 +2104,13 @@ function drawPlay() {
       var sx = 1 + 0.35 * curve;                  // scaleX out a touch
       ctx.save();
       // Anchor around the feet so the sprite stays on the ground.
-      ctx.translate(e.x, e.y + FEET_OFFSET);
+      ctx.translate(e.x, drawY + FEET_OFFSET);
       ctx.scale(sx, sy);
-      ctx.translate(-e.x, -(e.y + FEET_OFFSET));
-      drawCharacter(ctx, e.charId, e.x, e.y, e.facing, e.bob, 1, 'sidescroll', e.turnT, pose);
+      ctx.translate(-e.x, -(drawY + FEET_OFFSET));
+      drawCharacter(ctx, e.charId, e.x, drawY, e.facing, e.bob, 1, 'sidescroll', e.turnT, pose);
       ctx.restore();
     } else {
-      drawCharacter(ctx, e.charId, e.x, e.y, e.facing, e.bob, 1, 'sidescroll', e.turnT, pose);
+      drawCharacter(ctx, e.charId, e.x, drawY, e.facing, e.bob, 1, 'sidescroll', e.turnT, pose);
     }
   }
 

@@ -1068,9 +1068,9 @@
     }
     if (!jh && entity.vy < -JUMP_CUT * jumpMul) entity.vy = -JUMP_CUT * jumpMul;
 
-    if (entity.specialActive && ch.special && ch.special.type === 'bulldogBounce') {
-      entity.y += Math.sin(entity.specialAnimT * ch.special.bounceRate * TAU) * 10 * dt * ch.special.bounceRate;
-    }
+    // Digory's bulldogBounce is a pure render effect — the sim keeps him
+    // pinned to the floor so platform collision (which uses prevFootY) stays
+    // correct.
     entity.vy += GRAVITY * dt;
     if (entity.vy > TERM_VEL) entity.vy = TERM_VEL;
 
