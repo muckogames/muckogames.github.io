@@ -225,9 +225,11 @@ canvas.addEventListener('click', function(e) {
 var CHARACTERS = {
   samster: { name: 'Samster',        color: '#dfc18e', accent: '#8d5f35', outline: '#4f311d', sprite: 'hamster' },
   duck:    { name: 'Duck Dieb',      color: '#8b6030', accent: '#2a7a38', outline: '#3c2814', sprite: 'duck',
-             special: { type: 'airFlap', lift: 2100, maxRise: 280, flapRate: 7.5 } },
+             special: { type: 'airFlap', lift: 2100, maxRise: 280, flapRate: 7.5,
+                        label: 'FLAP', caption: 'Hold: fly' } },
   hippo:   { name: 'Hippo',          color: '#8f7ea8', accent: '#63557b', outline: '#40324c', sprite: 'hippo',
-             special: { type: 'margaritaville', damage: 11, launchX: 380, launchY: 220 } },
+             special: { type: 'margaritaville', damage: 11, launchX: 380, launchY: 220,
+                        label: 'SHIELD', caption: 'Hold: pool' } },
   nik:     { name: 'Nik',            color: '#6b4a2e', accent: '#c9a47a', outline: '#3a2612', sprite: 'monkey' },
   lekan:   { name: 'Lekan',          color: '#f4f4f4', accent: '#242424', outline: '#202020', sprite: 'panda' },
   basil:   { name: 'Basil',          color: '#6b4527', accent: '#d8b985', outline: '#3b2614', sprite: 'otter' },
@@ -235,11 +237,14 @@ var CHARACTERS = {
   // Kept defined so he can return to the roster later without rebuilding the art/spec.
   mucko:   { name: 'Captain Mucko',  color: '#d8a95a', accent: '#8f2f2f', outline: '#5f3914', sprite: 'captain' },
   rocket:  { name: 'Saturn V',       color: '#ededed', accent: '#d76039', outline: '#373737', sprite: 'rocket',
-             special: { type: 'abortShot', cooldown: 1.0, speed: 430, radius: 10, damage: 8, launchX: 260, launchY: 135, maxAge: 1.1 } },
+             special: { type: 'abortShot', cooldown: 1.0, speed: 430, radius: 10, damage: 8, launchX: 260, launchY: 135, maxAge: 1.1,
+                        label: 'ABORT', caption: 'Fire rocket' } },
   digory:  { name: 'Digory',         color: '#f7f5f0', accent: '#18181c', outline: '#3a2c20', sprite: 'digory',
-             special: { type: 'bulldogBounce', bounceRate: 8.5, massMul: 2 } },
+             special: { type: 'bulldogBounce', bounceRate: 8.5, massMul: 2,
+                        label: 'BOUNCE', caption: 'Heavy stance' } },
   jlong:   { name: 'J. Long',        color: '#f0c84d', accent: '#bf8834', outline: '#5a3a14', sprite: 'giraffe',
-             special: { type: 'neckHammer', cooldown: 0.75, active: 0.16, range: 50, radius: 18, damage: 10, launchX: 310, launchY: 170 } },
+             special: { type: 'neckHammer', cooldown: 0.75, active: 0.16, range: 50, radius: 18, damage: 10, launchX: 310, launchY: 170,
+                        label: 'NECK!', caption: 'Swing neck' } },
   pras:    { name: 'Pras the Koala', color: '#9aa1a8', accent: '#3a3f48', outline: '#2c2f36', sprite: 'koala',
              moveMul: 0.06, jumpMul: 0.18, dashMul: 0.10 },
   natasha: { name: 'Natasha',        color: '#45b95c', accent: '#ef6944', outline: '#245a2d', sprite: 'parrot' }
@@ -363,6 +368,23 @@ function drawEllipse(cx, x, y, rx, ry, fill, stroke, sw, rot) {
   cx.beginPath(); cx.ellipse(x, y, rx, ry, rot || 0, 0, TAU);
   if (fill)   { cx.fillStyle = fill; cx.fill(); }
   if (stroke) { cx.strokeStyle = stroke; cx.lineWidth = sw || 2; cx.stroke(); }
+}
+// Hand-drawn chevron. dir = -1 points left, +1 points right. Nicer than
+// the Unicode triangle glyphs, which render as ugly boxes on older iPhones.
+function drawChevron(cx, x, y, size, dir, color, lineW) {
+  var d = dir < 0 ? -1 : 1;
+  var w = size, h = size * 1.1;
+  cx.save();
+  cx.strokeStyle = color;
+  cx.lineWidth = lineW || 4;
+  cx.lineCap = 'round';
+  cx.lineJoin = 'round';
+  cx.beginPath();
+  cx.moveTo(x + d * (w / 2), y - h / 2);
+  cx.lineTo(x - d * (w / 2), y);
+  cx.lineTo(x + d * (w / 2), y + h / 2);
+  cx.stroke();
+  cx.restore();
 }
 
 /* ── Character sprites ────────────────────────────────────── */
@@ -1587,13 +1609,23 @@ function mobileControlsOn() {
 }
 
 function mobileLayout() {
-  return {
-    left:  { cx: 68,       cy: H - 80, r: 44, label: '◀' },
-    right: { cx: 170,      cy: H - 80, r: 44, label: '▶' },
+  var p = activeHumanEntity();
+  var spec = p && CHARACTERS[p.charId] ? CHARACTERS[p.charId].special : null;
+  var L = {
+    left:  { cx: 68,       cy: H - 80, r: 46, dir: -1 },
+    right: { cx: 170,      cy: H - 80, r: 46, dir:  1 },
     dash:  { cx: W - 250,  cy: H - 84, r: 34, label: 'DASH' },
-    special:{ cx: W - 170, cy: H - 140, r: 32, label: 'SPEC' },
     jump:  { cx: W - 90,   cy: H - 84, r: 52, label: 'JUMP' }
   };
+  if (spec) {
+    L.special = {
+      cx: W - 170, cy: H - 155, r: 36,
+      label: spec.label || 'SPEC',
+      caption: spec.caption || '',
+      charId: p.charId
+    };
+  }
+  return L;
 }
 function restartLayout(expanded) {
   if (expanded) {
@@ -1610,7 +1642,7 @@ function hitMobileControl(px, py) {
   var L = mobileLayout();
   if (Math.hypot(px - L.jump.cx,  py - L.jump.cy)  <= L.jump.r)  return 'jump';
   if (Math.hypot(px - L.dash.cx,  py - L.dash.cy)  <= L.dash.r)  return 'dash';
-  if (Math.hypot(px - L.special.cx, py - L.special.cy) <= L.special.r) return 'special';
+  if (L.special && Math.hypot(px - L.special.cx, py - L.special.cy) <= L.special.r) return 'special';
   if (Math.hypot(px - L.left.cx,  py - L.left.cy)  <= L.left.r)  return 'left';
   if (Math.hypot(px - L.right.cx, py - L.right.cy) <= L.right.r) return 'right';
   return null;
@@ -1812,7 +1844,7 @@ function drawSelect() {
   drawBackground();
   fillRoundRect(ctx, 20, 12, W - 40, 70, 18, 'rgba(16,30,46,0.82)', 'rgba(255,239,190,0.5)', 2);
   drawText(ctx, 'PICK YOUR CHARACTERS', W / 2, 46, '#ffd86f', 26, 'center', 'bold');
-  drawText(ctx, 'Tap thumbnails or ◀ / ▶ to switch character \u2022 tap lives or difficulty to change them',
+  drawText(ctx, 'Tap thumbnails or the arrows to switch character \u2022 tap lives or difficulty to change them',
     W / 2, 68, '#d9e6ef', 12, 'center', 'bold');
 
   var L = selectLayout();
@@ -1861,8 +1893,12 @@ function drawSelect() {
     var arrowFill = active ? 'rgba(255,228,170,0.9)' : 'rgba(200,200,200,0.6)';
     fillRoundRect(ctx, c.leftArrow.x,  c.leftArrow.y,  c.leftArrow.w,  c.leftArrow.h, 10, arrowFill, '#7b4f1a', 2);
     fillRoundRect(ctx, c.rightArrow.x, c.rightArrow.y, c.rightArrow.w, c.rightArrow.h, 10, arrowFill, '#7b4f1a', 2);
-    drawText(ctx, '◀', c.leftArrow.x  + c.leftArrow.w  / 2, c.leftArrow.y  + 24, '#5a3d16', 18, 'center', 'bold');
-    drawText(ctx, '▶', c.rightArrow.x + c.rightArrow.w / 2, c.rightArrow.y + 24, '#5a3d16', 18, 'center', 'bold');
+    drawChevron(ctx,
+      c.leftArrow.x  + c.leftArrow.w  / 2, c.leftArrow.y  + c.leftArrow.h  / 2,
+      14, -1, '#5a3d16', 4);
+    drawChevron(ctx,
+      c.rightArrow.x + c.rightArrow.w / 2, c.rightArrow.y + c.rightArrow.h / 2,
+      14,  1, '#5a3d16', 4);
     fillRoundRect(ctx, c.randomBtn.x, c.randomBtn.y, c.randomBtn.w, c.randomBtn.h, 10,
       active ? 'rgba(255,228,170,0.92)' : 'rgba(200,200,200,0.62)', '#7b4f1a', 2);
     drawText(ctx, 'RANDOM', c.randomBtn.x + c.randomBtn.w / 2, c.randomBtn.y + 18, '#5a3d16', 13, 'center', 'bold');
@@ -2206,20 +2242,59 @@ function drawMobileControls() {
   var p = activeHumanEntity();
   var dashReady = p && p.dashCooldown <= 0 && p.dashT <= 0 && p.squashT <= 0;
   ctx.save();
-  ctx.globalAlpha = 0.9;
-  drawCircle(ctx, L.left.cx,  L.left.cy,  L.left.r,  touchState.leftBtn  ? 'rgba(255,216,111,0.6)' : 'rgba(32,46,60,0.55)', 'rgba(255,244,207,0.42)', 2);
-  drawCircle(ctx, L.right.cx, L.right.cy, L.right.r, touchState.rightBtn ? 'rgba(255,216,111,0.6)' : 'rgba(32,46,60,0.55)', 'rgba(255,244,207,0.42)', 2);
+  ctx.globalAlpha = 0.92;
+
+  // D-pad (left / right) — circles with hand-drawn chevrons.
+  drawCircle(ctx, L.left.cx,  L.left.cy,  L.left.r,
+    touchState.leftBtn  ? 'rgba(255,216,111,0.65)' : 'rgba(22,34,50,0.58)',
+    'rgba(255,244,207,0.55)', 2.5);
+  drawCircle(ctx, L.right.cx, L.right.cy, L.right.r,
+    touchState.rightBtn ? 'rgba(255,216,111,0.65)' : 'rgba(22,34,50,0.58)',
+    'rgba(255,244,207,0.55)', 2.5);
+  drawChevron(ctx, L.left.cx  - 3, L.left.cy,  22, L.left.dir,  '#fff4cf', 6);
+  drawChevron(ctx, L.right.cx + 3, L.right.cy, 22, L.right.dir, '#fff4cf', 6);
+
+  // Dash.
   var dashFill = !dashReady ? 'rgba(60,60,72,0.45)'
-    : (touchState.dashBtn ? 'rgba(226,116,75,0.8)' : 'rgba(32,46,60,0.65)');
-  drawCircle(ctx, L.dash.cx,  L.dash.cy,  L.dash.r,  dashFill, 'rgba(255,244,207,0.48)', 2);
-  drawCircle(ctx, L.special.cx, L.special.cy, L.special.r,
-    touchState.specialBtn ? 'rgba(240,200,77,0.8)' : 'rgba(32,46,60,0.62)', 'rgba(255,244,207,0.48)', 2);
-  drawCircle(ctx, L.jump.cx,  L.jump.cy,  L.jump.r,  touchState.jumpBtn  ? 'rgba(255,216,111,0.75)' : 'rgba(32,46,60,0.65)', 'rgba(255,244,207,0.48)', 2);
-  drawText(ctx, L.left.label,  L.left.cx,  L.left.cy  + 10, '#fff4cf', 26, 'center', 'bold');
-  drawText(ctx, L.right.label, L.right.cx, L.right.cy + 10, '#fff4cf', 26, 'center', 'bold');
-  drawText(ctx, L.dash.label,  L.dash.cx,  L.dash.cy  + 6,  '#fff4cf', 18, 'center', 'bold');
-  drawText(ctx, L.special.label, L.special.cx, L.special.cy + 5, '#fff4cf', 14, 'center', 'bold');
-  drawText(ctx, L.jump.label,  L.jump.cx,  L.jump.cy  + 8,  '#fff4cf', 22, 'center', 'bold');
+    : (touchState.dashBtn ? 'rgba(226,116,75,0.85)' : 'rgba(32,46,60,0.68)');
+  drawCircle(ctx, L.dash.cx, L.dash.cy, L.dash.r, dashFill, 'rgba(255,244,207,0.5)', 2);
+  drawText(ctx, L.dash.label, L.dash.cx, L.dash.cy + 6, '#fff4cf', 18, 'center', 'bold');
+
+  // Special — palette-styled per character, with caption above.
+  if (L.special) {
+    var ch = CHARACTERS[L.special.charId];
+    var specialActive = touchState.specialBtn;
+    var ready = !p || p.specialCooldown == null || p.specialCooldown <= 0;
+    var bodyFill = specialActive
+      ? (ch.accent || '#e2a64b')
+      : (ready ? (ch.color || '#3a4e62') : 'rgba(60,60,72,0.55)');
+    var bodyStroke = ch.outline || '#322010';
+    // Caption plaque above the button so it doesn't overlap the dash/jump row.
+    var capX = L.special.cx;
+    var capY = L.special.cy - L.special.r - 16;
+    var cap = L.special.caption;
+    if (cap) {
+      ctx.font = 'bold 12px Georgia,serif';
+      var capW = ctx.measureText(cap).width + 18;
+      fillRoundRect(ctx, capX - capW / 2, capY - 11, capW, 20, 9,
+        'rgba(16,22,32,0.78)', 'rgba(255,244,207,0.45)', 1.5);
+      drawText(ctx, cap, capX, capY + 4, '#fff4cf', 12, 'center', 'bold');
+    }
+    drawCircle(ctx, L.special.cx, L.special.cy, L.special.r,
+      bodyFill, bodyStroke, 3);
+    // Inner ring to make the button read as "special" at a glance.
+    drawCircle(ctx, L.special.cx, L.special.cy, L.special.r - 6,
+      null, 'rgba(255,244,207,0.55)', 1.5);
+    drawText(ctx, L.special.label, L.special.cx, L.special.cy + 5,
+      '#fff4cf', 15, 'center', 'bold');
+  }
+
+  // Jump.
+  drawCircle(ctx, L.jump.cx, L.jump.cy, L.jump.r,
+    touchState.jumpBtn ? 'rgba(255,216,111,0.8)' : 'rgba(32,46,60,0.68)',
+    'rgba(255,244,207,0.55)', 2.5);
+  drawText(ctx, L.jump.label, L.jump.cx, L.jump.cy + 8, '#fff4cf', 22, 'center', 'bold');
+
   ctx.restore();
 }
 
