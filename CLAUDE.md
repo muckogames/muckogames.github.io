@@ -202,6 +202,22 @@ series with a championship burst). Setup screen is HTML DOM; game board is canva
 
 ---
 
+#### Mucko Smash (`smash/index.html`) — Canvas  · browser platform fighter
+
+Small four-slot platform fighter with local play, CPU opponents, stocks, damage-based
+knockback, dash collisions, generated arenas, and a growing roster of Mucko characters.
+The character select screen now supports portraits, side-view sprites, thumbnails,
+per-slot randomization, difficulty/lives settings, and restart-from-same-setup flow.
+
+The browser game has a matching headless simulator in `smash/sim.js`, plus an evolution
+harness in `smash/train.js`. Those two files are intentionally kept behaviorally aligned:
+if you change knockback, recovery, specials, or CPU decision rules in one, update the
+other. Current shipped specials include Duck Dieb sustained flight, J. Long neck-hammer,
+Saturn V abort-module shot, Hippo's "Margaritaville" pool shield, and Digory's
+mass-boost bounce stance.
+
+---
+
 ### Educational
 
 #### Lake House Math Mystery (`lakehousemath/`) — Canvas  · uses `mucko-engine.js`
@@ -284,14 +300,17 @@ by cheat code `PRASTHEKOALA` which slows keepers "having an epic dream."
 **Saturn V** — The rocket from Rocket Trail. Appears as a full character NPC in Lake
 House Math, listed alongside organic beings. Played completely straight.
 
+**Mandy Mouse** — A mouse NPC from Hippo's open plaza who gives patrol timing tips.
+Now promoted into the active Smash roster.
+
 ### Minor / Background
 
 **Gerald** — A giant squid who hosts dinner in Train Trail. Event NPC.
 
-**Mandy Mouse** — A mouse NPC in Hippo Zone 3 who gives keeper patrol timing tips.
-
 **J. Long (the Giraffe)** — Giraffe NPC in Hippo who peers over a fence with patrol
 hints.
+
+**Natasha** — A parrot NPC in Hippo's plaza. Now also part of the active Smash roster.
 
 **Lisa** — Friend of Pflueger who discovers the hippo is a zoo escapee (dialog reference).
 

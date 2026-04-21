@@ -57,3 +57,42 @@ The replay file stores:
 - `smash/training/hard-current.json` is the current shipped hard bot.
 - `smash/training/champion-samster-mirror.json` is the detailed hard-mode evolution
   record from the long mirror-match training run.
+
+## Current Game State
+
+- The live game is in `smash/index.html`; the simulator is in `smash/sim.js`.
+- They are intentionally mirrored for gameplay rules. If you touch physics, CPU
+  behavior, specials, or hit resolution in one file, update the other in the same pass.
+- The live game now includes:
+  - curated `Easy / Medium / Hard` CPU tiers backed by heuristic genomes
+  - per-slot lives, restart-from-same-config, and per-slot random character selection
+  - side-view sprites plus separate portrait usage in menus/results
+  - active roster of 12 characters including Mandy Mouse and Natasha
+  - special abilities for Duck Dieb, Saturn V, J. Long, Hippo, and Digory
+
+## Retrospective Notes
+
+- Knockback preservation was fixed at the movement layer, not by tuning specific moves.
+  Externally applied overspeed now decays naturally instead of being clamped back to walk
+  speed on the next frame.
+- CPU behavior was reworked into a proper `Easy / Medium / Hard` ladder and trained with
+  the simulator. `Hard` is the strongest evolved shipped bot; `Easy` and `Medium` are
+  separate curated tiers, not just weaker random walkers.
+- Character presentation now distinguishes portrait and side-view rendering. In-match
+  sprites are profile-oriented for readability, while menus/results can stay portrait-led.
+- The current specials system supports both tap-triggered moves and held-state moves.
+  Held-state specials now affect gameplay state, rendering, and simulation, so they are
+  no longer cosmetic one-offs.
+
+## Maintenance Guidelines
+
+- When adding a new special:
+  - define it in both `smash/index.html` and `smash/sim.js`
+  - update CPU heuristics if the move should be used by bots
+  - update hit resolution if the move changes collision rules or mass behavior
+- When changing roster order:
+  - keep `CHAR_IDS` aligned with the select-screen thumbnail grid assumptions
+  - keep simulator roster data in sync so eval/training matches the shipped game
+- When training AI after gameplay changes:
+  - rerun at least a small eval matrix (`Easy vs Medium`, `Medium vs Hard`, and one
+    baseline check) before promoting a new genome snapshot

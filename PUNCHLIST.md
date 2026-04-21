@@ -146,6 +146,32 @@ Reference `samster/index.html`'s `makeTouchButtons()` + `drawMobileControls()`.
 
 ---
 
+### `smash/index.html` + `smash/sim.js` — next-pass Smash work
+
+The recent Smash work added trained CPU tiers, roster expansion, portrait/profile sprite
+separation, and the first wave of character specials. The main remaining opportunities
+are system-balancing and second-pass polish rather than missing scaffolding.
+
+**Likely next tasks:**
+- Balance held specials:
+  - Hippo's `Margaritaville` shield is intentionally overpowered right now; tune entry
+    conditions, cooldown, or vulnerability windows after playtesting.
+  - Duck Dieb sustained flight should be tested for ceiling abuse, stalling, and edge
+    recovery loops across the full roster.
+  - Digory's mass-up bounce stance should be checked for degenerate ledge situations.
+- Add more character specials:
+  - Natasha and Mandy currently have no special moves.
+  - Lekan, Basil, Samster, and Pras are still good candidates for utility or movement
+    specials that reinforce character identity.
+- Improve training/eval after specials:
+  - rerun AI evaluation after major special or physics changes so shipped tiers do not
+    drift from the actual game.
+  - consider adding cross-character eval suites, not only mirror and baseline checks.
+- Add a dedicated Smash roadmap or design note if the feature surface keeps expanding;
+  `smash/TRAINING.md` now covers training and maintenance, but not long-form design goals.
+
+---
+
 ## Priority 4 — Polish & Nice-to-Have
 
 ### All Trail games — "Continue" on driving screens auto-advances
