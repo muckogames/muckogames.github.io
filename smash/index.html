@@ -133,34 +133,41 @@ var audio = MuckoEngine.makeAudio();
 var beep = audio.beep;
 
 /* ═══════════════════════════════════════════════════════════════════
-   MARGARITAVILLE MELODY  ← tweak me!
+   MARGARITAVILLE MELODY
    Plays on loop while Hippo holds his pool-shield special.
 
    Each note: [freq_hz, vol_0_to_1, dur_sec, start_delay_ms]
-   All notes are sine wave. Key of A major.
+   Tuned to the chorus opening ("Wastin' away again in Margaritaville")
+   using the public Hooktheory chorus transcription: D major, 124 BPM.
 
    Useful frequencies:
-     E3=164.81  F#3=185.00  G#3=207.65  A3=220.00  B3=246.94
-     C#4=277.18  D4=293.66  E4=329.63   F#4=369.99  A4=440.00
+     D3=146.83  F#3=185.00  G3=196.00  A3=220.00  B3=246.94
+     D4=293.66
 
    MARGARITA_LOOP_GAP_MS — silence between end of phrase and loop restart.
 ═══════════════════════════════════════════════════════════════════ */
-var MARGARITA_LOOP_GAP_MS = 350;
+var MARGARITA_TEMPO_BPM = 124;
+function margaritaBeatSec(beats) { return beats * 60 / MARGARITA_TEMPO_BPM; }
+function margaritaBeatMs(beats) { return Math.round(margaritaBeatSec(beats) * 1000); }
+
+var MARGARITA_LOOP_GAP_MS = margaritaBeatMs(0.75);
 var MARGARITA_NOTES = [
-  // freq    vol   dur    delay  syllable
-  [329.63, 0.26, 0.28,    0],   // E4  "Wast-"
-  [329.63, 0.22, 0.17,  320],   // E4  "-in'"
-  [293.66, 0.22, 0.16,  500],   // D4  "a-"
-  [277.18, 0.23, 0.38,  680],   // C#4 "-way"
-  [220.00, 0.22, 0.20, 1100],   // A3  "a-"
-  [220.00, 0.22, 0.28, 1330],   // A3  "-gain"
-  [246.94, 0.22, 0.20, 1690],   // B3  "in"
-  [246.94, 0.20, 0.16, 1930],   // B3  "Mar-"
-  [220.00, 0.20, 0.14, 2120],   // A3  "-ga-"
-  [220.00, 0.18, 0.14, 2270],   // A3  "-ri-"
-  [185.00, 0.18, 0.14, 2420],   // F#3 "-ta-"
-  [164.81, 0.22, 0.55, 2580]    // E3  "-ville"
-];
+  // freq    vol   dur_beats  delay_beats  syllable
+  [246.94, 0.26,      0.5,         0.0],  // B3 "Wast-"
+  [246.94, 0.24,      1.0,         0.5],  // B3 "-in'"
+  [220.00, 0.23,      0.5,         1.5],  // A3 "a-"
+  [220.00, 0.24,      1.0,         2.0],  // A3 "-way"
+  [196.00, 0.22,      0.5,         3.0],  // G3 "a-"
+  [196.00, 0.23,      1.0,         3.5],  // G3 "-gain"
+  [185.00, 0.21,      0.5,         4.5],  // F#3 "in"
+  [196.00, 0.21,      0.5,         5.0],  // G3 "Mar-"
+  [185.00, 0.20,      0.5,         5.5],  // F#3 "-ga-"
+  [196.00, 0.20,      0.5,         6.0],  // G3 "-ri-"
+  [185.00, 0.20,      0.5,         6.5],  // F#3 "-ta-"
+  [146.83, 0.24,      1.0,         7.0]   // D3 "-ville"
+].map(function(n) {
+  return [n[0], n[1], margaritaBeatSec(n[2]), margaritaBeatMs(n[3])];
+});
 
 var margaritaMelodyLooping = false;
 function playMargaritavilleMelody() {
