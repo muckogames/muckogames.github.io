@@ -59,6 +59,8 @@
     nik:     { name: 'Nik',            color: '#6b4a2e', accent: '#c9a47a', outline: '#3a2612', sprite: 'monkey' },
     lekan:   { name: 'Lekan',          color: '#f4f4f4', accent: '#242424', outline: '#202020', sprite: 'panda' },
     basil:   { name: 'Basil',          color: '#6b4527', accent: '#d8b985', outline: '#3b2614', sprite: 'otter' },
+    mandy:   { name: 'Mandy Mouse',    color: '#d9a0a3', accent: '#b87e80', outline: '#5b3d40', sprite: 'mouse' },
+    // Kept defined so he can return to the roster later without rebuilding the art/spec.
     mucko:   { name: 'Captain Mucko',  color: '#d8a95a', accent: '#8f2f2f', outline: '#5f3914', sprite: 'captain' },
     rocket:  { name: 'Saturn V',       color: '#ededed', accent: '#d76039', outline: '#373737', sprite: 'rocket',
                special: { type: 'abortShot', cooldown: 1.0, speed: 430, radius: 10, damage: 8, launchX: 260, launchY: 135, maxAge: 1.1 } },
@@ -66,9 +68,10 @@
     jlong:   { name: 'J. Long',        color: '#f0c84d', accent: '#bf8834', outline: '#5a3a14', sprite: 'giraffe',
                special: { type: 'neckHammer', cooldown: 0.75, active: 0.16, range: 50, radius: 18, damage: 10, launchX: 310, launchY: 170 } },
     pras:    { name: 'Pras the Koala', color: '#9aa1a8', accent: '#3a3f48', outline: '#2c2f36', sprite: 'koala',
-               moveMul: 0.06, jumpMul: 0.18, dashMul: 0.10 }
+               moveMul: 0.06, jumpMul: 0.18, dashMul: 0.10 },
+    natasha: { name: 'Natasha',        color: '#45b95c', accent: '#ef6944', outline: '#245a2d', sprite: 'parrot' }
   };
-  var CHAR_IDS = ['samster', 'duck', 'hippo', 'nik', 'lekan', 'basil', 'mucko', 'rocket', 'digory', 'jlong', 'pras'];
+  var CHAR_IDS = ['samster', 'duck', 'hippo', 'nik', 'lekan', 'basil', 'mandy', 'rocket', 'digory', 'jlong', 'pras', 'natasha'];
 
   var HEURISTIC_DEFAULTS = {
     dwellMin: 0.18,

@@ -162,6 +162,8 @@ var CHARACTERS = {
   nik:     { name: 'Nik',            color: '#6b4a2e', accent: '#c9a47a', outline: '#3a2612', sprite: 'monkey' },
   lekan:   { name: 'Lekan',          color: '#f4f4f4', accent: '#242424', outline: '#202020', sprite: 'panda' },
   basil:   { name: 'Basil',          color: '#6b4527', accent: '#d8b985', outline: '#3b2614', sprite: 'otter' },
+  mandy:   { name: 'Mandy Mouse',    color: '#d9a0a3', accent: '#b87e80', outline: '#5b3d40', sprite: 'mouse' },
+  // Kept defined so he can return to the roster later without rebuilding the art/spec.
   mucko:   { name: 'Captain Mucko',  color: '#d8a95a', accent: '#8f2f2f', outline: '#5f3914', sprite: 'captain' },
   rocket:  { name: 'Saturn V',       color: '#ededed', accent: '#d76039', outline: '#373737', sprite: 'rocket',
              special: { type: 'abortShot', cooldown: 1.0, speed: 430, radius: 10, damage: 8, launchX: 260, launchY: 135, maxAge: 1.1 } },
@@ -169,9 +171,10 @@ var CHARACTERS = {
   jlong:   { name: 'J. Long',        color: '#f0c84d', accent: '#bf8834', outline: '#5a3a14', sprite: 'giraffe',
              special: { type: 'neckHammer', cooldown: 0.75, active: 0.16, range: 50, radius: 18, damage: 10, launchX: 310, launchY: 170 } },
   pras:    { name: 'Pras the Koala', color: '#9aa1a8', accent: '#3a3f48', outline: '#2c2f36', sprite: 'koala',
-             moveMul: 0.06, jumpMul: 0.18, dashMul: 0.10 }
+             moveMul: 0.06, jumpMul: 0.18, dashMul: 0.10 },
+  natasha: { name: 'Natasha',        color: '#45b95c', accent: '#ef6944', outline: '#245a2d', sprite: 'parrot' }
 };
-var CHAR_IDS = ['samster', 'duck', 'hippo', 'nik', 'lekan', 'basil', 'mucko', 'rocket', 'digory', 'jlong', 'pras'];
+var CHAR_IDS = ['samster', 'duck', 'hippo', 'nik', 'lekan', 'basil', 'mandy', 'rocket', 'digory', 'jlong', 'pras', 'natasha'];
 
 var STOCK_OPTIONS = [1, 2, 3, 4, 5, 6, Infinity];
 var EASY_MODE_GENOME = {
@@ -355,6 +358,30 @@ function drawCharacterPortraitSprite(cx, ch, bob) {
     drawLine(cx, 2, -32, 3, -36, '#8a5a24', 2);
     drawCircle(cx, -3, -36, 1.2, '#d5a634');
     drawCircle(cx, 3, -36, 1.2, '#d5a634');
+  } else if (ch.sprite === 'mouse') {
+    drawEllipse(cx, 0, 8, 11, 7.5, ch.color, ch.outline, 2);
+    drawCircle(cx, 0, -1, 7, ch.color, ch.outline, 2);
+    drawCircle(cx, -6, -6, 3.8, ch.color, ch.outline, 1.5);
+    drawCircle(cx, 6, -6, 3.8, ch.color, ch.outline, 1.5);
+    drawCircle(cx, -1.8, -2, 1.1, '#201417');
+    drawCircle(cx, 1.8, -2, 1.1, '#201417');
+    drawEllipse(cx, 0, 1.5, 2.4, 1.8, '#f1b7bc');
+    drawLine(cx, -0.8, 2.8, -3.5, 4.4, '#201417', 1);
+    drawLine(cx, 0.8, 2.8, 3.5, 4.4, '#201417', 1);
+    drawLine(cx, 9, 9, 16, 6, '#b87e80', 2.2);
+  } else if (ch.sprite === 'parrot') {
+    drawEllipse(cx, 0, 8, 10, 8, '#45b95c', ch.outline, 2);
+    drawEllipse(cx, -6, 7, 4, 6, '#2e7f40');
+    drawEllipse(cx, 6, 7, 4, 6, '#2e7f40');
+    drawCircle(cx, 0, -2, 7, '#45b95c', ch.outline, 2);
+    drawEllipse(cx, 0, 0, 3.8, 2.4, '#d9f3d8');
+    drawCircle(cx, -2, -3.5, 1.1, '#17361c');
+    drawCircle(cx, 2, -3.5, 1.1, '#17361c');
+    cx.fillStyle = '#ef6944';
+    cx.beginPath(); cx.moveTo(0, -1); cx.lineTo(-5, 1); cx.lineTo(0, 3); cx.closePath(); cx.fill();
+    cx.beginPath(); cx.moveTo(0, -1); cx.lineTo(5, 1); cx.lineTo(0, 3); cx.closePath(); cx.fill();
+    drawLine(cx, -2, 15, -2, 22, '#245a2d', 2);
+    drawLine(cx, 2, 15, 2, 22, '#245a2d', 2);
   } else if (ch.sprite === 'koala') {
     drawEllipse(cx, 0, 6, 17, 13, '#9aa1a8', ch.outline, 2);
     drawEllipse(cx, 0, 8, 11, 8, '#c2c8cc');
@@ -579,6 +606,31 @@ function drawCharacterSidescrollSprite(cx, ch, facing, bob) {
     cx.fillText('Z', 18 * dir, -8);
     cx.font = 'bold 8px Georgia,serif';
     cx.fillText('z', 23 * dir, -14);
+  } else if (ch.sprite === 'mouse') {
+    drawLine(cx, -12 * dir, 7, -20 * dir, 3, '#b87e80', 2.2);
+    drawEllipse(cx, -1 * dir, 8, 11, 7, ch.color, ch.outline, 2);
+    drawCircle(cx, 8 * dir, 2, 6.2, ch.color, ch.outline, 2);
+    drawCircle(cx, 5 * dir, -4, 3.2, ch.color, ch.outline, 1.5);
+    drawCircle(cx, 10 * dir, -3, 3, ch.color, ch.outline, 1.5);
+    drawCircle(cx, 10 * dir, 0.5, 1.1, '#201417');
+    drawEllipse(cx, 13.2 * dir, 3.5, 2.1, 1.6, '#f1b7bc');
+    drawLine(cx, 12.2 * dir, 4.4, 15.5 * dir, 5.3, '#5b3d40', 1);
+    drawLine(cx, 11.5 * dir, 2.5, 15.5 * dir, 1.8, '#5b3d40', 1);
+  } else if (ch.sprite === 'parrot') {
+    cx.save();
+    if (dir < 0) cx.scale(-1, 1);
+    drawLine(cx, -2, 14, -3, 23, '#245a2d', 2);
+    drawLine(cx, 2, 14, 2, 23, '#245a2d', 2);
+    drawEllipse(cx, -1, 7, 8, 10, '#45b95c', ch.outline, 2);
+    drawEllipse(cx, -5, 6, 4.5, 6, '#2e7f40', '#245a2d', 1.2);
+    drawEllipse(cx, 2, 7, 3.8, 6.5, '#7dd06a');
+    drawCircle(cx, 8, -2, 6.2, '#45b95c', ch.outline, 2);
+    drawEllipse(cx, 10, 1, 2.6, 5.4, '#d8f2d0');
+    cx.fillStyle = '#ef6944';
+    cx.beginPath(); cx.moveTo(12, -2); cx.lineTo(20, 1); cx.lineTo(12, 4); cx.closePath(); cx.fill();
+    drawCircle(cx, 7.5, -3.5, 1.1, '#17361c');
+    drawLine(cx, -8, 7, -14, 2, '#2e7f40', 3);
+    cx.restore();
   }
 }
 
