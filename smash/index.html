@@ -33,6 +33,7 @@
     <canvas id="game"></canvas>
   </div>
   <script src="../mucko-engine.js"></script>
+  <script src="ai/policy.js"></script>
   <script>
 'use strict';
 
@@ -318,9 +319,33 @@ var HARD_MODE_GENOME = {
 var CPU_MODE_META = {
   easy:   { label: 'EASY',   color: '#84b5e0', genome: EASY_MODE_GENOME },
   medium: { label: 'MEDIUM', color: '#f2c85a', genome: MEDIUM_MODE_GENOME },
-  hard:   { label: 'HARD',   color: '#e14f7a', genome: HARD_MODE_GENOME }
+  hard:   { label: 'HARD',   color: '#e14f7a', genome: HARD_MODE_GENOME },
+  expert: { label: 'EXPERT', color: '#b48cff', neural: true }
 };
-var CPU_MODES = ['off', 'easy', 'medium', 'hard'];
+var CPU_MODES = ['off', 'easy', 'medium', 'hard', 'expert'];
+
+var EXPERT_MODEL = null;
+var EXPERT_MODEL_STATUS = 'loading'; // 'loading' | 'ready' | 'missing'
+(function loadExpertModel() {
+  if (typeof fetch !== 'function' || !window.MuckoSmashPolicy) {
+    EXPERT_MODEL_STATUS = 'missing';
+    return;
+  }
+  fetch('ai/expert-v1.json')
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (m) {
+      if (!m) { EXPERT_MODEL_STATUS = 'missing'; return; }
+      try {
+        window.MuckoSmashPolicy.validateModel(m);
+        EXPERT_MODEL = m;
+        EXPERT_MODEL_STATUS = 'ready';
+      } catch (err) {
+        if (window.console) console.warn('Expert model failed validation:', err.message);
+        EXPERT_MODEL_STATUS = 'missing';
+      }
+    })
+    .catch(function () { EXPERT_MODEL_STATUS = 'missing'; });
+})();
 var NEXT_ENTITY_ID = 1;
 
 /* ── Drawing helpers (from lakehousemath) ──────────────────── */
@@ -841,6 +866,8 @@ function makeEntity(charId, x, y, isCPU, mode) {
     ai: isCPU ? {
       mode: cpuMode,
       genome: cpuMeta ? cpuMeta.genome : MEDIUM_MODE_GENOME,
+      neuralModel: (cpuMode === 'expert' && EXPERT_MODEL_STATUS === 'ready') ? EXPERT_MODEL : null,
+      nnState: null,
       state: 'idle',        // 'idle' | 'walk_left' | 'walk_right' | 'jump' | 'dash'
       timer: 0.3,
       inputLeft: false,
@@ -1311,7 +1338,27 @@ function cpuThinkHeuristic(e, dt, g) {
 /* ── CPU AI: picks new behaviour once per frame, latches inputs ─ */
 function cpuThink(e, dt) {
   var s = e.ai;
+  if (s.mode === 'expert' && s.neuralModel && window.MuckoSmashPolicy) {
+    cpuThinkNeural(e, dt, s.neuralModel);
+    return;
+  }
   cpuThinkHeuristic(e, dt, s.genome || MEDIUM_MODE_GENOME);
+}
+
+function cpuThinkNeural(e, dt, model) {
+  // policy.js expects a match-shaped view (entities + platforms). Share the
+  // live game state directly — no copying — so no frame cost beyond the
+  // forward pass itself.
+  var matchView = { entities: state.entities, platforms: state.platforms };
+  var input = window.MuckoSmashPolicy.neuralDecide(matchView, e, dt, model);
+  var s = e.ai;
+  s.inputLeft = input.left;
+  s.inputRight = input.right;
+  s.inputJumpPressed = input.jumpPressed;
+  s.inputJumpHeld = input.jumpHeld;
+  s.inputDashPressed = input.dashPressed;
+  s.inputSpecialPressed = input.specialPressed;
+  s.inputSpecialHeld = input.specialHeld;
 }
 
 /* ── Physics step ──────────────────────────────────────────── */
@@ -1810,11 +1857,15 @@ function hit(r) { return mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y 
 
 function slotModeLabel(s) {
   if (s.kind === 'player') return s.mode === 'play' ? 'PLAY' : 'SPECTATE';
+  if (s.mode === 'expert' && EXPERT_MODEL_STATUS !== 'ready') {
+    return EXPERT_MODEL_STATUS === 'loading' ? 'EXPERT…' : 'EXPERT?';
+  }
   return CPU_MODE_META[s.mode] ? CPU_MODE_META[s.mode].label : 'OFF';
 }
 function slotModeColor(s) {
   if (s.kind === 'player') return s.mode === 'play' ? '#5ec867' : '#9aa5ad';
   if (s.mode === 'off')    return '#9aa5ad';
+  if (s.mode === 'expert' && EXPERT_MODEL_STATUS !== 'ready') return '#6a5a8a';
   if (CPU_MODE_META[s.mode]) return CPU_MODE_META[s.mode].color;
   return '#9aa5ad';
 }
@@ -1837,6 +1888,11 @@ function cycleMode(slot) {
   } else {
     var i = CPU_MODES.indexOf(slot.mode);
     slot.mode = CPU_MODES[(i + 1) % CPU_MODES.length];
+    // Skip Expert if the model isn't ready yet; can't fight with no weights.
+    if (slot.mode === 'expert' && EXPERT_MODEL_STATUS !== 'ready') {
+      var j = CPU_MODES.indexOf(slot.mode);
+      slot.mode = CPU_MODES[(j + 1) % CPU_MODES.length];
+    }
   }
 }
 

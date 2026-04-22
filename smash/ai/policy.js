@@ -100,7 +100,7 @@
     var ents = match.entities;
     for (var i = 0; i < ents.length; i++) {
       var other = ents[i];
-      if (other.id === entity.id || other.ko) continue;
+      if (other === entity || other.ko) continue;
       var dx = other.x - entity.x;
       var dy = other.y - entity.y;
       var dist = Math.abs(dx) + Math.abs(dy) * 0.6;
