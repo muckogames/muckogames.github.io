@@ -1,0 +1,38 @@
+{
+  "label": "medium-current",
+  "tier": "medium",
+  "trainedAt": "2026-04-21",
+  "notes": "Upgraded medium bot from 150-gen run (pop=40, rounds=10, sec=75, seed=2026), warm-started from prior population. Beats old medium 62.5% (10/16) and loses to hard 56.25% (9/16) — solidly between the two tiers. High jump-pressure playstyle: very high jumpChance, strong chaseBias and pressureBonus, minimal retreating.",
+  "eval": {
+    "matchup": "samster vs samster",
+    "stocks": 3,
+    "seconds": 75,
+    "winRateVsOldMediumOver16": 0.625,
+    "winRateVsHardOver16": 0.4375,
+    "avgScoreVsDefaultOver16": 301.44,
+    "avgScoreVsMediumOver16": 299.63,
+    "avgScoreVsHardOver16": 173.29,
+    "trainingRunRealTime": "7m45.675s"
+  },
+  "genome": {
+    "dwellMin": 0.05,
+    "dwellMax": 0.08,
+    "idleChance": 0.15983551355078818,
+    "jumpChance": 0.7421402223413054,
+    "dashChance": 0.13672173357219436,
+    "chaseBias": 1.388805744396081,
+    "edgeBuffer": 124.77844460663756,
+    "airborneCenterBias": 1.3200734693212124,
+    "preferredRange": 30.083746102782413,
+    "rangeSlack": 23.36706865626981,
+    "jumpRange": 95.06286608295237,
+    "jumpAboveBias": 12.428326467531939,
+    "dashRange": 79.59593540818037,
+    "aggression": 0.6457442075411541,
+    "retreatAtDamage": 59.80099607449523,
+    "retreatBias": 0.09796710119969136,
+    "facingStickiness": 0.5479203286616439,
+    "pressureBonus": 1.308869465364689,
+    "jumpCooldown": 0.27936499439935825
+  }
+}

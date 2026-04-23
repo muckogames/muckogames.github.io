@@ -1,0 +1,51 @@
+{
+  "label": "samster-mirror-champion",
+  "trainedAt": "2026-04-21",
+  "notes": "Promoted to the live smash hard-mode CPU after a 4m3s mirror-match training run.",
+  "eval": {
+    "matchup": "samster vs samster",
+    "seconds": 75,
+    "stocks": 3,
+    "trainingRunRealTime": "4m3.447s",
+    "avgScoreVsDefaultOver32": 320.45555165506084,
+    "avgScoreVsPreviousChampionOver32": 150.7844770246942
+  },
+  "sourceCheckpoint": {
+    "generation": 39,
+    "bestFitness": 186.67213357348535,
+    "options": {
+      "population": 96,
+      "generations": 40,
+      "roundsPerGenome": 30,
+      "stocks": 3,
+      "maxSteps": 4500,
+      "elites": 4,
+      "parentPool": 8,
+      "mutationRate": 0.18,
+      "mutationScale": 0.1,
+      "charA": "samster",
+      "charB": "samster"
+    }
+  },
+  "genome": {
+    "dwellMin": 0.05,
+    "dwellMax": 0.08023069221970217,
+    "idleChance": 0.02199617925777858,
+    "jumpChance": 0.8063033212223671,
+    "dashChance": 0.09778584812302143,
+    "chaseBias": 0.8738832561531491,
+    "edgeBuffer": 125.87408119417375,
+    "airborneCenterBias": 0.8575250803335437,
+    "preferredRange": 186.99556485472175,
+    "rangeSlack": 134.76814607398813,
+    "jumpRange": 154.17748241605273,
+    "jumpAboveBias": 62.797452396342806,
+    "dashRange": 52.56154417705283,
+    "aggression": 1.2595372460641254,
+    "retreatAtDamage": 111.5059016952792,
+    "retreatBias": 0.10517608210496325,
+    "facingStickiness": 0.6523378568186853,
+    "pressureBonus": 1.006071435233136,
+    "jumpCooldown": 0.4708999652252533
+  }
+}

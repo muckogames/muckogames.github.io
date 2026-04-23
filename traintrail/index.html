@@ -97,15 +97,26 @@ button.btn-big    { font-size: 14px; padding: 8px 20px; }
 .setup-col   { flex: 1; display: flex; flex-direction: column; }
 .sec-label   { font-size: 15px; font-weight: bold; color: #c8901a; margin-bottom: 10px; }
 .diff-card {
-  border: 1px solid #3a2806; background: #1a1004;
-  padding: 10px 12px; margin-bottom: 8px; cursor: pointer;
-  transition: background 0.12s, border-color 0.12s;
+  border: 2px solid #3a2806; background: #1a1004;
+  padding: 10px 14px; margin-bottom: 8px; cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, box-shadow 0.12s;
 }
+.diff-card.tone-green { border-color: #225522; }
+.diff-card.tone-yellow { border-color: #887020; }
+.diff-card.tone-red { border-color: #772020; }
 .diff-card.selected { background: #2a1c08; border-color: #c8901a; }
+.diff-card.tone-green.selected { border-color: #44cc44; box-shadow: 0 0 10px rgba(68,204,68,.35); }
+.diff-card.tone-yellow.selected { border-color: #ffcc33; box-shadow: 0 0 10px rgba(255,204,51,.35); }
+.diff-card.tone-red.selected { border-color: #ff5544; box-shadow: 0 0 10px rgba(255,85,68,.35); }
 .diff-card label { cursor: pointer; display: block; }
+.diff-row-inner { display: flex; align-items: center; }
+.diff-row-inner > * + * { margin-left: 12px; }
+.diff-big { font-size: 38px; line-height: 1; flex-shrink: 0; }
+.diff-mid { flex: 1; }
+.diff-stars { font-size: 14px; letter-spacing: 3px; color: #ffd700; margin-bottom: 2px; }
 .diff-card .diff-name { font-weight: bold; font-size: 14px; color: #ffe8a0; }
-.diff-card .diff-detail { font-size: 11px; color: #907050; margin-top: 3px; padding-left: 20px; line-height: 1.4; }
-.diff-card input[type=radio] { margin-right: 6px; accent-color: #c8901a; }
+.diff-card .diff-detail { font-size: 11px; color: #907050; margin-top: 3px; line-height: 1.4; }
+.diff-card input[type=radio] { position: absolute; opacity: 0; pointer-events: none; }
 .name-row { display: flex; align-items: center; margin-bottom: 8px; gap: 8px; }
 .name-row label { font-size: 13px; width: 80px; color: #e8d8b0; flex-shrink: 0; }
 .name-row input {
@@ -135,6 +146,15 @@ button.btn-big    { font-size: 14px; padding: 8px 20px; }
 #log-panel p.alert { color: #e05050; }
 #log-panel p.good  { color: #50c070; }
 #log-panel p.gold  { color: #c8901a; }
+#log-panel .event-header {
+  display: flex; align-items: center;
+  padding: 6px 4px; margin: 6px 0 4px 0;
+  border-top: 1px solid #3a2806; border-bottom: 1px solid #3a2806;
+}
+#log-panel .event-big { font-size: 34px; line-height: 1; margin-right: 10px; flex-shrink: 0; }
+#log-panel .event-title { font-size: 14px; font-weight: bold; color: #c8901a; }
+.btn-big .ch-icon { font-size: 18px; margin-right: 8px; }
+.btn-big .ch-txt { }
 #status-panel {
   width: 195px; flex-shrink: 0; background: #1a1004;
   padding: 10px 12px; font-size: 12px;
@@ -211,6 +231,7 @@ button.btn-big    { font-size: 14px; padding: 8px 20px; }
 .end-title { font-size: 32px; font-weight: bold; text-align: center; margin-bottom: 14px; }
 .end-title.arrived { color: #c8901a; }
 .end-title.failed  { color: #c03030; }
+.end-big { font-size: 5em; line-height: 1; text-align: center; margin: 6px 0 4px; }
 .end-narrative { font-size: 14px; line-height: 1.7; text-align: center; max-width: 600px; margin-bottom: 18px; color: #e8d8b0; }
 .end-stats {
   background: #1a1004; border: 1px solid #c8901a;
@@ -297,7 +318,10 @@ function scaleToViewport() {
   app.style.top  = `${(vh - H*s)/2}px`;
 }
 window.addEventListener('resize', scaleToViewport);
-if (window.visualViewport) window.visualViewport.addEventListener('resize', scaleToViewport);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', scaleToViewport);
+  window.visualViewport.addEventListener('scroll', scaleToViewport);
+}
 
 // ── Screen manager ─────────────────────────────────────────────────────────
 let _cleanup = null;
@@ -503,7 +527,7 @@ function buildTitle(app) {
       <div class="title-main">🚂 TRAIN TRAIL</div>
       <div class="title-sub">A Trans-Atlantic Steam Adventure</div>
       <div class="title-route">Boston, MA → Leipzig, Germany</div>
-      <button class="btn-large" id="start-btn" style="font-size:18px;padding:12px 36px">Board the Train</button>
+      <button class="btn-large" id="start-btn" style="font-size:18px;padding:12px 36px">▶ Board the Train</button>
     </div>
   </div>`;
 
@@ -630,17 +654,41 @@ function buildSetup(app) {
       </div>
       <div class="setup-col">
         <div class="sec-label">Difficulty</div>
-        <div class="diff-card selected" id="dc-easy">
-          <label><input type="radio" name="diff" value="easy" checked> <span class="diff-name">🟢 Easy</span>
-          <div class="diff-detail">Start with full resources. Slower obstacles. 4 lives per minigame.</div></label>
+        <div class="diff-card tone-green selected" id="dc-easy">
+          <label><input type="radio" name="diff" value="easy" checked>
+            <div class="diff-row-inner">
+              <div class="diff-big" aria-hidden="true">🚂</div>
+              <div class="diff-mid">
+                <div class="diff-stars" aria-hidden="true">⭐</div>
+                <span class="diff-name">Easy</span>
+                <div class="diff-detail">Start with full resources. Slower obstacles. 4 lives per minigame.</div>
+              </div>
+            </div>
+          </label>
         </div>
-        <div class="diff-card" id="dc-normal">
-          <label><input type="radio" name="diff" value="normal"> <span class="diff-name">🟡 Normal</span>
-          <div class="diff-detail">Standard resources (80). Moderate obstacles. 3 lives per minigame.</div></label>
+        <div class="diff-card tone-yellow" id="dc-normal">
+          <label><input type="radio" name="diff" value="normal">
+            <div class="diff-row-inner">
+              <div class="diff-big" aria-hidden="true">🚆</div>
+              <div class="diff-mid">
+                <div class="diff-stars" aria-hidden="true">⭐⭐</div>
+                <span class="diff-name">Normal</span>
+                <div class="diff-detail">Standard resources (80). Moderate obstacles. 3 lives per minigame.</div>
+              </div>
+            </div>
+          </label>
         </div>
-        <div class="diff-card" id="dc-hard">
-          <label><input type="radio" name="diff" value="hard"> <span class="diff-name">🔴 Hard</span>
-          <div class="diff-detail">Fewer starting resources (60). Fast obstacles. 2 lives per minigame.</div></label>
+        <div class="diff-card tone-red" id="dc-hard">
+          <label><input type="radio" name="diff" value="hard">
+            <div class="diff-row-inner">
+              <div class="diff-big" aria-hidden="true">🐉</div>
+              <div class="diff-mid">
+                <div class="diff-stars" aria-hidden="true">⭐⭐⭐</div>
+                <span class="diff-name">Hard</span>
+                <div class="diff-detail">Fewer starting resources (60). Fast obstacles. 2 lives per minigame.</div>
+              </div>
+            </div>
+          </label>
         </div>
       </div>
     </div>
@@ -716,11 +764,16 @@ function showStep() {
   btns.innerHTML = '';
 
   if (step.type === 'event' || step.type === 'kraken' || step.type === 'steam' || step.type === 'mini') {
-    // Add step header to log
-    const h = document.createElement('p');
-    h.className = 'gold'; h.style.fontWeight = 'bold'; h.style.marginTop = '8px';
-    h.textContent = `── ${step.title} ──`;
-    log.appendChild(h);
+    // Add step header to log — big emoji + title
+    const emojiMatch = step.title.match(/^\s*(\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*)/u);
+    const bigIcon = emojiMatch ? emojiMatch[1] : '🎲';
+    const cleanTitle = emojiMatch ? step.title.slice(emojiMatch[0].length).trim() : step.title;
+    const hdr = document.createElement('div');
+    hdr.className = 'event-header';
+    const bi = document.createElement('span'); bi.className = 'event-big'; bi.textContent = bigIcon;
+    const bt = document.createElement('span'); bt.className = 'event-title'; bt.textContent = cleanTitle;
+    hdr.appendChild(bi); hdr.appendChild(bt);
+    log.appendChild(hdr);
 
     const d = document.createElement('p');
     d.style.whiteSpace = 'pre-wrap'; d.textContent = step.desc || step.desc;
@@ -731,11 +784,16 @@ function showStep() {
   refreshStatus();
 
   if (step.type === 'event') {
-    // Show choices
+    // Show choices — icon + text
     (step.choices || []).forEach((ch, i) => {
       const btn = document.createElement('button');
       btn.className = 'btn-big';
-      btn.textContent = ch.text;
+      const em = ch.text.match(/^\s*(\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*)/u);
+      const ic = em ? em[1] : '▶';
+      const tx = em ? ch.text.slice(em[0].length).trim() : ch.text;
+      const si = document.createElement('span'); si.className = 'ch-icon'; si.textContent = ic;
+      const st = document.createElement('span'); st.className = 'ch-txt'; st.textContent = tx;
+      btn.appendChild(si); btn.appendChild(st);
       btn.onclick = () => handleChoice(ch);
       btns.appendChild(btn);
     });
@@ -1610,9 +1668,30 @@ function buildSteam(app) {
 }
 
 // ── Ending screen ──────────────────────────────────────────────────────────
+var _endActx=null;
+function playEndSting(kind){
+  try{
+    if(!_endActx) _endActx = new (window.AudioContext||window.webkitAudioContext)();
+    var actx=_endActx; if(actx.state!=='running') actx.resume();
+    var t0=actx.currentTime;
+    var notes = kind==='win' ? [[523,0],[659,0.12],[784,0.24],[1047,0.36]] : [[392,0],[330,0.12],[262,0.24],[196,0.36]];
+    notes.forEach(function(n){
+      var o=actx.createOscillator(), g=actx.createGain();
+      o.type = kind==='win' ? 'triangle' : 'sine';
+      o.frequency.value = n[0];
+      g.gain.setValueAtTime(0.0001, t0+n[1]);
+      g.gain.exponentialRampToValueAtTime(0.22, t0+n[1]+0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0+n[1]+0.36);
+      o.connect(g); g.connect(actx.destination);
+      o.start(t0+n[1]); o.stop(t0+n[1]+0.4);
+    });
+  }catch(e){}
+}
+
 function buildEnding(app) {
   // Score calculation
   const arrived = gs.arrived;
+  playEndSting(arrived ? 'win' : 'lose');
   let score = 0;
   const breakdown = [];
 
@@ -1681,6 +1760,7 @@ function buildEnding(app) {
   const breakdownRows = breakdown.map(([l,v,cls])=>`<tr><td>${l}</td><td class="${cls}">${v>0?'+':''}${v}</td></tr>`).join('');
 
   app.innerHTML = `<div id="ending-screen">
+    <div class="end-big">${arrived?'🏆 🎉':'😵 💥'}</div>
     <div class="end-title ${arrived?'arrived':'failed'}">${title}</div>
     <div class="end-narrative">${narrative}</div>
     <div class="score-panel">

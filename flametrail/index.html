@@ -1,0 +1,1893 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flamethrower Trail</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext x='50%25' y='50%25' dy='.35em' text-anchor='middle' font-size='82'%3E%F0%9F%94%A5%3C/text%3E%3C/svg%3E">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html{width:100%;height:100%;overflow:hidden}
+body{
+  background:radial-gradient(circle at top,#1a0500 0%,#0d0200 60%,#000 100%);
+  width:100%;height:100%;overflow:hidden;position:relative;
+}
+#stage{
+  position:absolute;display:block;border:3px solid #8b3a00;border-radius:12px;overflow:hidden;
+  background:#0a0200;
+  box-shadow:0 20px 60px rgba(0,0,0,.7),0 0 0 6px rgba(139,58,0,.15),inset 0 0 0 2px rgba(220,100,0,.2);
+}
+#bgc,#gc{display:block;position:absolute;top:0;right:0;bottom:0;left:0;width:100%;height:100%}
+#bgc{pointer-events:none}
+#gc{cursor:default;background:transparent;touch-action:none}
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="bgc"></canvas>
+  <canvas id="gc"></canvas>
+</div>
+<script>
+'use strict';
+/* ===================================================================
+   FLAMETHROWER TRAIL
+   Lekan the panda torches Dieb hideouts one by one.
+   =================================================================== */
+
+/* ── roundRect polyfill ─────────────────────────────────────────── */
+if (!CanvasRenderingContext2D.prototype.roundRect) {
+  CanvasRenderingContext2D.prototype.roundRect = function(x,y,w,h,r) {
+    r = Math.min(r||0, Math.abs(w)/2, Math.abs(h)/2);
+    this.moveTo(x+r,y); this.lineTo(x+w-r,y);
+    this.quadraticCurveTo(x+w,y,x+w,y+r);
+    this.lineTo(x+w,y+h-r); this.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+    this.lineTo(x+r,y+h); this.quadraticCurveTo(x,y+h,x,y+h-r);
+    this.lineTo(x,y+r); this.quadraticCurveTo(x,y,x+r,y);
+    this.closePath();
+  };
+}
+
+/* ── Canvas setup ───────────────────────────────────────────────── */
+const W = 800, H = 560;
+const MAX_RENDER_DPR = 1.5;
+const LOW_FPS_PHASES = new Set(['title','diff','map','travel','burn','victory','highscores']);
+
+const stage   = document.getElementById('stage');
+const bgCanvas = document.getElementById('bgc');
+const canvas  = document.getElementById('gc');
+const bgCtx   = bgCanvas.getContext('2d');
+const ctx     = canvas.getContext('2d');
+let canvasScale = 1;
+
+const backdropCache = new Map();
+let activeBackdropKey = null;
+
+function configCtx(c) { c.lineJoin='round'; c.lineCap='round'; c.imageSmoothingEnabled=true; }
+function renderDpr() { return Math.min(MAX_RENDER_DPR, Math.max(1, window.devicePixelRatio||1)); }
+function clearBackdropCache() { backdropCache.clear(); clearBackdropLayer(); }
+function clearBackdropLayer() { bgCtx.clearRect(0,0,W,H); activeBackdropKey=null; }
+function snapshotBackdrop() {
+  const c=document.createElement('canvas'); c.width=canvas.width; c.height=canvas.height;
+  const cx=c.getContext('2d'); cx.imageSmoothingEnabled=true; cx.drawImage(canvas,0,0); return c;
+}
+function presentBackdrop(c) { bgCtx.clearRect(0,0,W,H); bgCtx.drawImage(c,0,0,c.width,c.height,0,0,W,H); }
+function drawCachedBackdrop(key, fn) {
+  let c = backdropCache.get(key);
+  if (!c) { fn(); c=snapshotBackdrop(); backdropCache.set(key,c); ctx.clearRect(0,0,W,H); }
+  if (activeBackdropKey !== key) { presentBackdrop(c); activeBackdropKey=key; }
+}
+
+function safeViewH() { const vv=window.visualViewport; return vv?vv.height:window.innerHeight; }
+function safeViewW() { const vv=window.visualViewport; return vv?vv.width:window.innerWidth; }
+function resize() {
+  const vw=safeViewW(), vh=safeViewH();
+  const dpr=renderDpr();
+  const s=Math.min(vw/(W+6),(vh-6)/(H+6));
+  canvasScale=s;
+  const sw=Math.max(1,Math.round(W*s)), sh=Math.max(1,Math.round(H*s));
+  stage.style.width=sw+'px'; stage.style.height=sh+'px';
+  stage.style.left=Math.round((vw-sw)/2)+'px';
+  stage.style.top=Math.round((vh-sh)/2)+'px';
+  bgCanvas.width=Math.max(1,Math.round(W*dpr)); bgCanvas.height=Math.max(1,Math.round(H*dpr));
+  canvas.width=Math.max(1,Math.round(W*dpr)); canvas.height=Math.max(1,Math.round(H*dpr));
+  bgCtx.setTransform(dpr,0,0,dpr,0,0); ctx.setTransform(dpr,0,0,dpr,0,0);
+  configCtx(bgCtx); configCtx(ctx); clearBackdropCache();
+}
+window.addEventListener('resize', resize);
+if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
+resize();
+
+/* ── Input ──────────────────────────────────────────────────────── */
+const K = {}, JP = {};
+document.addEventListener('keydown', function(e) { if(!K[e.code])JP[e.code]=true; K[e.code]=true; });
+document.addEventListener('keyup',   function(e) { K[e.code]=false; });
+function eat(c) { if(JP[c]){JP[c]=false;return true;} return false; }
+function held(c) { return !!K[c]; }
+
+let mx=W/2, my=H/2, mclk=false;
+const TOUCH_UI = ('ontouchstart' in window)||(navigator.maxTouchPoints||0)>0||
+                 (window.matchMedia&&window.matchMedia('(pointer: coarse)').matches);
+let touchSuppressUntil = 0;
+
+canvas.addEventListener('click', function(e) {
+  if (performance.now()<touchSuppressUntil) return;
+  const r=canvas.getBoundingClientRect();
+  mx=(e.clientX-r.left)*(W/r.width); my=(e.clientY-r.top)*(H/r.height); mclk=true;
+});
+canvas.addEventListener('mousemove', function(e) {
+  const r=canvas.getBoundingClientRect();
+  mx=(e.clientX-r.left)*(W/r.width); my=(e.clientY-r.top)*(H/r.height);
+});
+
+/* ── Mobile button layout ───────────────────────────────────────── */
+// dpad center: (108, H-108), fire button: (W-80, H-90), action: (W-80, H-178)
+const DPAD_CX=108, DPAD_CY=H-108, DPAD_R=62;
+const BTN_FIRE = {cx:W-80, cy:H-90,  r:52, id:'fire',   label:'FIRE'};
+const BTN_ACT  = {cx:W-80, cy:H-178, r:34, id:'action', label:'A'};
+
+function mobileControlsOn() { return TOUCH_UI && phase==='heist'; }
+
+function getMobileDpadDir(tx, ty) {
+  const dx=tx-DPAD_CX, dy=ty-DPAD_CY;
+  if (Math.hypot(dx,dy) > DPAD_R*2.5) return null;
+  if (Math.abs(dx) >= Math.abs(dy)) return dx<0?'left':'right';
+  return dy<0?'up':'down';
+}
+
+const touchState = { dirs: new Set(), fire: false, action: false };
+
+function syncTouchControls(e) {
+  const r=canvas.getBoundingClientRect(), sx=W/r.width, sy=H/r.height;
+  const dirs=new Set();
+  let fire=false, action=false;
+  const touches = e.touches;
+  for (let i=0; i<touches.length; i++) {
+    const tx=(touches[i].clientX-r.left)*sx, ty=(touches[i].clientY-r.top)*sy;
+    if (mobileControlsOn()) {
+      if (Math.hypot(tx-BTN_FIRE.cx, ty-BTN_FIRE.cy) < BTN_FIRE.r) { fire=true; continue; }
+      if (Math.hypot(tx-BTN_ACT.cx,  ty-BTN_ACT.cy)  < BTN_ACT.r)  { action=true; continue; }
+      const dir = getMobileDpadDir(tx, ty);
+      if (dir) { dirs.add(dir); continue; }
+    }
+    // not hitting any control — treat first such touch as cursor/click
+  }
+  if (!touchState.fire && fire) JP.Space=true;
+  if (!touchState.action && action) JP.KeyE=true;
+  touchState.fire=fire; touchState.action=action;
+  touchState.dirs=dirs;
+  K.ArrowLeft=dirs.has('left'); K.ArrowRight=dirs.has('right');
+  K.ArrowUp=dirs.has('up'); K.ArrowDown=dirs.has('down');
+}
+
+canvas.addEventListener('touchstart', function(e) {
+  touchSuppressUntil = performance.now()+500;
+  const r=canvas.getBoundingClientRect(), sx=W/r.width, sy=H/r.height;
+  for (let i=0; i<e.changedTouches.length; i++) {
+    const tx=(e.changedTouches[i].clientX-r.left)*sx, ty=(e.changedTouches[i].clientY-r.top)*sy;
+    if (!mobileControlsOn()) { mx=tx; my=ty; mclk=true; break; }
+    const onBtn = Math.hypot(tx-BTN_FIRE.cx,ty-BTN_FIRE.cy)<BTN_FIRE.r ||
+                  Math.hypot(tx-BTN_ACT.cx, ty-BTN_ACT.cy)<BTN_ACT.r  ||
+                  Math.hypot(tx-DPAD_CX,    ty-DPAD_CY)<DPAD_R*2.5;
+    if (!onBtn) { mx=tx; my=ty; mclk=true; }
+  }
+  syncTouchControls(e); e.preventDefault();
+},{passive:false});
+canvas.addEventListener('touchmove',   function(e){ syncTouchControls(e); e.preventDefault(); },{passive:false});
+canvas.addEventListener('touchend',    function(e){ syncTouchControls(e); e.preventDefault(); },{passive:false});
+canvas.addEventListener('touchcancel', function(e){ syncTouchControls(e); e.preventDefault(); },{passive:false});
+window.addEventListener('blur', function(){
+  touchState.dirs.clear(); touchState.fire=false; touchState.action=false;
+  K.ArrowLeft=K.ArrowRight=K.ArrowUp=K.ArrowDown=false;
+});
+
+/* ── Draw utilities ─────────────────────────────────────────────── */
+const TAU = Math.PI*2;
+
+function drect(x,y,w,h,c) { ctx.fillStyle=c; ctx.fillRect(x,y,w,h); }
+function circ(x,y,r,c,sc,sw) {
+  ctx.beginPath(); ctx.arc(x,y,r,0,TAU);
+  if(c){ctx.fillStyle=c; ctx.fill();}
+  if(sc){ctx.strokeStyle=sc; ctx.lineWidth=sw||2; ctx.stroke();}
+}
+function ell(x,y,rx,ry,c,rot) {
+  ctx.fillStyle=c; ctx.beginPath(); ctx.ellipse(x,y,rx,ry,rot||0,0,TAU); ctx.fill();
+}
+function strokeEll(x,y,rx,ry,c,w,rot) {
+  ctx.strokeStyle=c; ctx.lineWidth=w||2; ctx.beginPath(); ctx.ellipse(x,y,rx,ry,rot||0,0,TAU); ctx.stroke();
+}
+function ln(x1,y1,x2,y2,c,w) {
+  ctx.strokeStyle=c; ctx.lineWidth=w||2; ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+}
+function rnd(x,y,w,h,r,fill,strk,sw) {
+  ctx.beginPath();
+  if (typeof ctx.roundRect==='function') ctx.roundRect(x,y,w,h,r||0);
+  else {
+    const rr=Math.min(r||0,Math.abs(w)/2,Math.abs(h)/2);
+    ctx.moveTo(x+rr,y); ctx.lineTo(x+w-rr,y); ctx.quadraticCurveTo(x+w,y,x+w,y+rr);
+    ctx.lineTo(x+w,y+h-rr); ctx.quadraticCurveTo(x+w,y+h,x+w-rr,y+h);
+    ctx.lineTo(x+rr,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-rr);
+    ctx.lineTo(x,y+rr); ctx.quadraticCurveTo(x,y,x+rr,y); ctx.closePath();
+  }
+  if(fill){ctx.fillStyle=fill; ctx.fill();}
+  if(strk){ctx.strokeStyle=strk; ctx.lineWidth=sw||2; ctx.stroke();}
+}
+function txt(s,x,y,c,sz,align,font) {
+  ctx.fillStyle=c; ctx.font=(sz||16)+'px '+(font||'Georgia');
+  ctx.textAlign=align||'left'; ctx.textBaseline='alphabetic'; ctx.fillText(s,x,y);
+}
+function vgrad(x,y,w,h,stops) {
+  const g=ctx.createLinearGradient(x,y,x,y+h);
+  stops.forEach(function(s){g.addColorStop(s[0],s[1]);});
+  ctx.fillStyle=g; ctx.fillRect(x,y,w,h);
+}
+
+/* ── Difficulty ─────────────────────────────────────────────────── */
+const DIFFS = [
+  { id:'easy',   label:'Firestarter',    col:'#88cc88', guardSpd:70,  visionR:90,  fuelDrain:8,  fuelStart:100, fuelPickups:3 },
+  { id:'medium', label:'Arson Artist',   col:'#e8b820', guardSpd:100, visionR:120, fuelDrain:12, fuelStart:85,  fuelPickups:2 },
+  { id:'hard',   label:'Scorched Earth', col:'#dd4444', guardSpd:140, visionR:150, fuelDrain:18, fuelStart:70,  fuelPickups:1 },
+];
+let diff = DIFFS[0];
+
+/* ── Global state ───────────────────────────────────────────────── */
+let phase = 'title';
+let gT = 0;           // global tick counter for animations
+let lives = 3;
+let fuel = 100;       // percent 0-100
+let hideoutIdx = 0;   // which of the 4 hideouts we're on (0-3)
+let runScore = 0;
+let scoreSaved = false;
+
+let heist = null;     // heist phase state
+
+/* ── High scores ────────────────────────────────────────────────── */
+const HS_KEY = 'mucko_ftrail_hs';
+function getHS() { try { return JSON.parse(localStorage.getItem(HS_KEY)||'[]'); } catch(e) { return []; } }
+function saveHS(entry) {
+  const sc=getHS(); sc.push(entry); sc.sort(function(a,b){return b.score-a.score;});
+  const t=sc.slice(0,10); localStorage.setItem(HS_KEY,JSON.stringify(t));
+  return t.findIndex(function(e){return e.score===entry.score&&e.date===entry.date;})+1;
+}
+
+function resetRun() {
+  lives=3; fuel=diff.fuelStart; hideoutIdx=0; runScore=0; scoreSaved=false; heist=null;
+}
+
+/* ── Fire particle system ───────────────────────────────────────── */
+// Shared pool for title embers + heist flamethrower + burn phase
+const fireParticles = [];
+
+function emitEmber(x, y) {
+  // upward-drifting ember for title / burn
+  const ang = -Math.PI/2 + (Math.random()-0.5)*0.8;
+  const spd = 30 + Math.random()*50;
+  fireParticles.push({
+    x: x, y: y,
+    vx: Math.cos(ang)*spd, vy: Math.sin(ang)*spd,
+    life: 1.0, maxLife: 1.0 + Math.random()*1.2,
+    r: 2 + Math.random()*4,
+    mode: 'ember'
+  });
+}
+
+function emitFlame(ox, oy, angle) {
+  for (var i=0; i<8; i++) {
+    const spread = (Math.random()-0.5)*0.65;
+    const spd = 180 + Math.random()*140;
+    fireParticles.push({
+      x: ox + Math.cos(angle)*16,
+      y: oy + Math.sin(angle)*16,
+      vx: Math.cos(angle+spread)*spd,
+      vy: Math.sin(angle+spread)*spd,
+      life: 1.0, maxLife: 0.3 + Math.random()*0.15,
+      r: 4 + Math.random()*5,
+      mode: 'flame'
+    });
+  }
+  // cap pool
+  while (fireParticles.length > 220) fireParticles.shift();
+}
+
+function updateFireParticles(dt) {
+  for (var i=fireParticles.length-1; i>=0; i--) {
+    const p = fireParticles[i];
+    p.x += p.vx*dt; p.y += p.vy*dt;
+    p.vy -= 18*dt; // embers rise; flame particles barely affected
+    p.vx *= Math.max(0, 1-1.2*dt);
+    p.life -= dt/p.maxLife;
+    if (p.life <= 0) fireParticles.splice(i,1);
+  }
+}
+
+function drawFireParticles() {
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (var i=0; i<fireParticles.length; i++) {
+    const p = fireParticles[i];
+    const t = p.life; // 1→0
+    // color: t>0.7→yellow-white, 0.4-0.7→orange, <0.4→deep red
+    let r, g, b;
+    if (t > 0.7) { r=255; g=Math.round(200+55*(t-0.7)/0.3); b=Math.round(80*(t-0.7)/0.3); }
+    else if (t > 0.4) { r=255; g=Math.round(100+(t-0.4)/0.3*100); b=0; }
+    else { r=Math.round(200+55*t/0.4); g=Math.round(50*t/0.4); b=0; }
+    ctx.globalAlpha = t * 0.85;
+    ctx.fillStyle = 'rgb('+r+','+g+','+b+')';
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, Math.max(0.5, p.r*t), 0, TAU);
+    ctx.fill();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+/* ── Character drawings ─────────────────────────────────────────── */
+function drawLekan(x, y, angle, moving) {
+  // Lekan = panda. angle = facing direction.
+  ctx.save();
+  ctx.translate(x, y);
+  // shadow
+  ctx.save(); ctx.globalAlpha=0.2; ell(0,14,12,4,'#000'); ctx.restore();
+  // body (white)
+  ell(0,2,14,11,'#f0f0f0'); strokeEll(0,2,14,11,'#222',1.5);
+  // black ear patches
+  ell(-10,-14,5,5,'#111'); ell(10,-14,5,5,'#111');
+  // head (white)
+  circ(0,-8,11,'#f0f0f0','#222',1.5);
+  // eye patches (black)
+  ell(-4.5,-8,4,3,'#111',-0.3); ell(4.5,-8,4,3,'#111',0.3);
+  // eyes (white dots)
+  circ(-4.5,-8,1.5,'#fff'); circ(4.5,-8,1.5,'#fff');
+  // nose
+  ell(0,-5,2.5,1.5,'#333');
+  // flamethrower tank on back
+  ctx.save();
+  ctx.rotate(angle);
+  // tank (green cylinder on back)
+  rnd(-6,0,8,14,3,'#336633','#1a3d1a',1.5);
+  // nozzle pointing in facing direction
+  ln(0,0, Math.cos(0)*22, Math.sin(0)*22,'#555',4);
+  ln(0,0, Math.cos(0)*22, Math.sin(0)*22,'#777',2);
+  ctx.restore();
+  ctx.restore();
+}
+
+function drawGuard(x, y, facing, alertLevel) {
+  // Dieb raccoon guard
+  ctx.save();
+  ctx.translate(x, y);
+  // shadow
+  ctx.save(); ctx.globalAlpha=0.15; ell(0,14,10,4,'#000'); ctx.restore();
+  // body
+  ell(0,2,11,9,'#888899'); strokeEll(0,2,11,9,'#333',1.5);
+  // striped tail (behind body)
+  ctx.save();
+  ctx.rotate(-facing-1.0);
+  for (var ti=0; ti<4; ti++) {
+    const ty = ti*7;
+    ell(0, 12+ty, 5-ti*0.5, 3, ti%2===0?'#aaa':'#333');
+  }
+  ctx.restore();
+  // head
+  circ(0,-8,9,'#aaaaaa','#333',1.5);
+  // mask (dark stripe through eyes)
+  ell(0,-8,9,4,'rgba(40,30,30,0.7)');
+  // eyes (based on alertLevel)
+  const eyeCol = alertLevel>0.7?'#ff3300':alertLevel>0.3?'#ffaa00':'#ffff88';
+  circ(-4,-8,2.5,eyeCol); circ(4,-8,2.5,eyeCol);
+  // ears
+  ell(-8,-16,4,5,'#888899'); ell(8,-16,4,5,'#888899');
+  // nose ring (detail)
+  ell(0,-5,3,2,'#666');
+  ctx.restore();
+}
+
+function drawVisionCone(gx, gy, facing, radius, alertLevel) {
+  const halfAng = Math.PI/6; // ±30 degrees
+  const alpha = 0.10 + alertLevel*0.15;
+  var baseR=255, baseG, baseB=0;
+  if (alertLevel>0.7)      baseG=50;
+  else if (alertLevel>0.3) baseG=150;
+  else                     baseG=200;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = 'rgb('+baseR+','+baseG+','+baseB+')';
+  ctx.beginPath();
+  ctx.moveTo(gx, gy);
+  ctx.arc(gx, gy, radius, facing-halfAng, facing+halfAng);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+/* ── Hideout data ───────────────────────────────────────────────── */
+// Each hideout: walls (player collision rects), ignPts (4 gas cans),
+// guards (positions+patrol), exit, pin (null or {x,y,code})
+// The heist area is W=800, H=480 (below 80px HUD)
+const HUD_H = 50;
+const PLAY_H = H - HUD_H; // 510px playable height
+
+const HIDEOUTS = [
+  // ── Hideout 1: Riverside Warehouse, Basel ──────────────────────
+  {
+    name: 'Riverside Warehouse', location: 'Basel Waterfront',
+    wallColor: '#5a4a3a', floorColor: '#3a3028',
+    walls: [
+      {x:0,   y:HUD_H, w:12, h:PLAY_H},
+      {x:788, y:HUD_H, w:12, h:PLAY_H},
+      {x:0,   y:HUD_H, w:W,  h:12},
+      {x:0,   y:H-12,  w:W,  h:12},
+      // crate stacks
+      {x:120, y:HUD_H+55,  w:90, h:28},
+      {x:120, y:HUD_H+100, w:90, h:28},
+      {x:300, y:HUD_H+75,  w:28, h:130},
+      {x:500, y:HUD_H+55,  w:110,h:28},
+      {x:500, y:HUD_H+100, w:110,h:28},
+      {x:200, y:HUD_H+255, w:28, h:130},
+      {x:500, y:HUD_H+255, w:28, h:130},
+      {x:345, y:HUD_H+370, w:130,h:28},
+    ],
+    ignPts: [
+      {x:75,  y:HUD_H+130},
+      {x:690, y:HUD_H+105},
+      {x:90,  y:HUD_H+430},
+      {x:680, y:HUD_H+410},
+    ],
+    guards: [
+      { x:400, y:HUD_H+130, facing:0,
+        waypoints:[{x:400,y:HUD_H+130},{x:630,y:HUD_H+130},{x:630,y:HUD_H+310},{x:400,y:HUD_H+310}] },
+      { x:190, y:HUD_H+330, facing:Math.PI,
+        waypoints:[{x:190,y:HUD_H+330},{x:420,y:HUD_H+330},{x:420,y:HUD_H+450},{x:190,y:HUD_H+450}] },
+    ],
+    fuelPickups: [{x:390,y:HUD_H+248},{x:555,y:HUD_H+385},{x:125,y:HUD_H+248}],
+    exit: {x:776, y:HUD_H+195, w:12, h:150},
+    pin: null,
+  },
+
+  // ── Hideout 2: Forest Cabin, Black Forest ──────────────────────
+  {
+    name: 'Forest Cabin', location: 'Black Forest',
+    wallColor: '#4a3820', floorColor: '#2d2416',
+    walls: [
+      {x:0,   y:HUD_H, w:12, h:PLAY_H},
+      {x:788, y:HUD_H, w:12, h:PLAY_H},
+      {x:0,   y:HUD_H, w:W,  h:12},
+      {x:0,   y:H-12,  w:W,  h:12},
+      // interior room dividers (log walls)
+      {x:240, y:HUD_H,    w:20, h:210},  // left divider, top section
+      {x:240, y:HUD_H+270,w:20, h:PLAY_H-270},
+      {x:520, y:HUD_H+130,w:20, h:PLAY_H-130},
+      // furniture/obstacles
+      {x:50,  y:HUD_H+60,  w:80, h:50},  // bunk bed left
+      {x:50,  y:HUD_H+160, w:80, h:50},
+      {x:320, y:HUD_H+60,  w:100,h:40},  // table
+      {x:320, y:HUD_H+140, w:40, h:60},
+      {x:620, y:HUD_H+60,  w:80, h:60},  // fireplace
+      {x:100, y:HUD_H+350, w:130,h:40},
+      {x:350, y:HUD_H+350, w:130,h:40},
+    ],
+    ignPts: [
+      {x:150, y:HUD_H+280},
+      {x:380, y:HUD_H+220},
+      {x:680, y:HUD_H+150},
+      {x:680, y:HUD_H+400},
+    ],
+    guards: [
+      { x:130, y:HUD_H+160, facing:Math.PI/2,
+        waypoints:[{x:130,y:HUD_H+130},{x:130,y:HUD_H+440},{x:200,y:HUD_H+440},{x:200,y:HUD_H+130}] },
+      { x:600, y:HUD_H+280, facing:-Math.PI/2,
+        waypoints:[{x:600,y:HUD_H+200},{x:760,y:HUD_H+200},{x:760,y:HUD_H+460},{x:600,y:HUD_H+460}] },
+    ],
+    fuelPickups: [{x:420,y:HUD_H+290},{x:660,y:HUD_H+300}],
+    exit: {x:0, y:HUD_H+200, w:12, h:150},   // left door
+    // PIN door blocks passage from right room to the bottom-left ignition point
+    pin: {
+      code: '2013',
+      kx: 520, ky: HUD_H+110,          // keypad position (beside the divider wall)
+      wall: {x:520, y:HUD_H+70, w:20, h:60},
+    },
+  },
+
+  // ── Hideout 3: Cologne Rooftop ─────────────────────────────────
+  {
+    name: 'Cologne Rooftop', location: 'Cologne',
+    wallColor: '#2a3840', floorColor: '#1a2530',
+    walls: [
+      {x:0,   y:HUD_H, w:12, h:PLAY_H},
+      {x:788, y:HUD_H, w:12, h:PLAY_H},
+      {x:0,   y:HUD_H, w:W,  h:12},
+      {x:0,   y:H-12,  w:W,  h:12},
+      // AC units / rooftop obstacles
+      {x:80,  y:HUD_H+60,  w:60, h:60},
+      {x:220, y:HUD_H+60,  w:60, h:60},
+      {x:460, y:HUD_H+60,  w:60, h:60},
+      {x:620, y:HUD_H+60,  w:60, h:60},
+      {x:80,  y:HUD_H+220, w:60, h:60},
+      {x:660, y:HUD_H+220, w:60, h:60},
+      {x:80,  y:HUD_H+370, w:60, h:60},
+      {x:220, y:HUD_H+370, w:60, h:60},
+      {x:460, y:HUD_H+370, w:60, h:60},
+      {x:620, y:HUD_H+370, w:60, h:60},
+      // central skylight frame
+      {x:300, y:HUD_H+180, w:200,h:16},
+      {x:300, y:HUD_H+300, w:200,h:16},
+      {x:300, y:HUD_H+196, w:16, h:120},
+      {x:484, y:HUD_H+196, w:16, h:120},
+    ],
+    ignPts: [
+      {x:155, y:HUD_H+145},
+      {x:645, y:HUD_H+145},
+      {x:155, y:HUD_H+430},
+      {x:645, y:HUD_H+430},
+    ],
+    guards: [
+      { x:400, y:HUD_H+100, facing:Math.PI,
+        waypoints:[{x:155,y:HUD_H+100},{x:645,y:HUD_H+100}] },
+      { x:400, y:HUD_H+460, facing:0,
+        waypoints:[{x:645,y:HUD_H+460},{x:155,y:HUD_H+460}] },
+      { x:400, y:HUD_H+245, facing:-Math.PI/2,
+        waypoints:[{x:400,y:HUD_H+155},{x:400,y:HUD_H+355},{x:220,y:HUD_H+355},{x:220,y:HUD_H+155}] },
+    ],
+    fuelPickups: [{x:400,y:HUD_H+248},{x:155,y:HUD_H+290}],
+    exit: {x:0, y:HUD_H+195, w:12, h:150},
+    pin: null,
+  },
+
+  // ── Hideout 4: Dieb HQ, Rotterdam Docks ───────────────────────
+  {
+    name: 'Dieb HQ', location: 'Rotterdam Docks',
+    wallColor: '#1a1a2e', floorColor: '#0d0d1e',
+    walls: [
+      {x:0,   y:HUD_H, w:12, h:PLAY_H},
+      {x:788, y:HUD_H, w:12, h:PLAY_H},
+      {x:0,   y:HUD_H, w:W,  h:12},
+      {x:0,   y:H-12,  w:W,  h:12},
+      // server racks and vault walls
+      {x:100, y:HUD_H+60,  w:20, h:200},
+      {x:180, y:HUD_H+60,  w:20, h:200},
+      {x:260, y:HUD_H+60,  w:20, h:200},
+      // vault door area (right half)
+      {x:440, y:HUD_H,    w:20, h:340},    // vault divider wall
+      // inside vault: obstacle table
+      {x:560, y:HUD_H+100, w:120,h:30},
+      {x:560, y:HUD_H+160, w:120,h:30},
+      // lower zone obstacles
+      {x:100, y:HUD_H+340, w:280,h:20},
+      {x:500, y:HUD_H+340, w:280,h:20},
+      {x:180, y:HUD_H+400, w:20, h:PLAY_H-400},
+      {x:600, y:HUD_H+400, w:20, h:PLAY_H-400},
+    ],
+    ignPts: [
+      {x:60,  y:HUD_H+310},
+      {x:370, y:HUD_H+130},
+      {x:680, y:HUD_H+250},
+      {x:400, y:HUD_H+440},
+    ],
+    guards: [
+      { x:50,  y:HUD_H+130, facing:Math.PI/2,
+        waypoints:[{x:50,y:HUD_H+80},{x:370,y:HUD_H+80},{x:370,y:HUD_H+290},{x:50,y:HUD_H+290}] },
+      { x:600, y:HUD_H+200, facing:Math.PI,
+        waypoints:[{x:700,y:HUD_H+80},{x:480,y:HUD_H+80},{x:480,y:HUD_H+310},{x:700,y:HUD_H+310}] },
+      { x:300, y:HUD_H+420, facing:0,
+        waypoints:[{x:50,y:HUD_H+390},{x:440,y:HUD_H+390}] },
+      { x:600, y:HUD_H+420, facing:Math.PI,
+        waypoints:[{x:760,y:HUD_H+390},{x:480,y:HUD_H+390}] },
+    ],
+    fuelPickups: [{x:320,y:HUD_H+200},{x:680,y:HUD_H+180}],
+    exit: {x:0, y:HUD_H+360, w:12, h:100},
+    // Vault PIN: blocks access into the right half where ign point 3 lives
+    pin: {
+      code: '4488',
+      kx: 440, ky: HUD_H+370,
+      wall: {x:440, y:HUD_H+340, w:20, h:80},
+    },
+  },
+];
+
+/* ── Heist phase ────────────────────────────────────────────────── */
+function initHeist() {
+  var hdTemplate = HIDEOUTS[hideoutIdx % HIDEOUTS.length];
+
+  // Deep-copy guards
+  var guards = hdTemplate.guards.map(function(g) {
+    return {
+      x:g.x, y:g.y, facing:g.facing,
+      alertTimer:0, alertLevel:0,
+      state:'patrol',
+      returnTarget:{x:g.x, y:g.y},
+      waypoints: g.waypoints.map(function(wp){return{x:wp.x,y:wp.y};}),
+      wpIdx:0, wpT:0,
+    };
+  });
+  var ignPts = hdTemplate.ignPts.map(function(p) {
+    return { x:p.x, y:p.y, progress:0, lit:false };
+  });
+  var fuelPickups = hdTemplate.fuelPickups.map(function(p) {
+    return { x:p.x, y:p.y, collected:false };
+  });
+  // Deep-copy walls (never mutate the template)
+  var walls = hdTemplate.walls.map(function(w) {
+    return { x:w.x, y:w.y, w:w.w, h:w.h };
+  });
+
+  // Set up PIN door state; add the locked door to OUR copy of walls
+  var pinState = null;
+  if (hdTemplate.pin) {
+    var pw = hdTemplate.pin.wall;
+    walls.push({ x:pw.x, y:pw.y, w:pw.w, h:pw.h, isPinDoor:true });
+    pinState = {
+      active: false,
+      unlocked: false,
+      nearKeypad: false,
+      code: hdTemplate.pin.code,
+      entered: '',
+      shakeT: 0,
+      kx: hdTemplate.pin.kx,
+      ky: hdTemplate.pin.ky,
+      buttons: buildPinButtons(),
+    };
+  }
+
+  // Use the template for read-only metadata (name/colors/exit), live copies for mutable state
+  heist = {
+    hd: hdTemplate,
+    walls: walls,
+    px: 50, py: HUD_H + PLAY_H/2,
+    pFacing: 0,
+    pMoveT: 0,
+    guards: guards,
+    ignPts: ignPts,
+    fuelPickups: fuelPickups,
+    allLit: false,
+    escapeTimer: 0,
+    caught: false,
+    escaped: false,
+    caughtTimer: 0,
+    escapedTimer: 0,
+    pin: pinState,
+    patrolRouteFlash: 0,
+  };
+}
+
+const PLAYER_SPD = 120;
+const PLAYER_R   = 12;   // collision half-width
+const IGN_RANGE  = 70;   // max distance to ignite
+const IGN_TIME   = 1.5;  // seconds to fully light a can
+const FUEL_PICKUP_R = 28;
+
+const FIRE_ANGLE_TOL = Math.PI * 0.28; // ±~50° toward ignition point counts
+
+function updateHeist(dt) {
+  if (!heist) return;
+  if (heist.caught || heist.escaped) {
+    if (heist.caught) {
+      heist.caughtTimer += dt;
+      if (heist.caughtTimer > 2.2) {
+        lives--;
+        if (lives <= 0) {
+          startPhase('gameover');
+        } else {
+          initHeist();
+        }
+      }
+    } else {
+      heist.escapedTimer += dt;
+      if (heist.escapedTimer > 1.0) startPhase('burn');
+    }
+    return;
+  }
+
+  // ── PIN keypad overlay ──────────────────────────────────────────
+  if (heist.pin && heist.pin.active) {
+    updatePin(dt);
+    return; // block all other input while PIN is open
+  }
+
+  // ── Player movement ─────────────────────────────────────────────
+  var dx=0, dy=0;
+  if (held('ArrowLeft')||held('KeyA'))  dx-=1;
+  if (held('ArrowRight')||held('KeyD')) dx+=1;
+  if (held('ArrowUp')||held('KeyW'))    dy-=1;
+  if (held('ArrowDown')||held('KeyS'))  dy+=1;
+  if (TOUCH_UI) {
+    if (touchState.dirs.has('left'))  dx-=1;
+    if (touchState.dirs.has('right')) dx+=1;
+    if (touchState.dirs.has('up'))    dy-=1;
+    if (touchState.dirs.has('down'))  dy+=1;
+  }
+  if (dx!==0 && dy!==0) { dx*=0.707; dy*=0.707; }
+  if (dx!==0 || dy!==0) {
+    heist.pFacing = Math.atan2(dy, dx);
+    heist.pMoveT += dt;
+  }
+
+  var nx = heist.px + dx*PLAYER_SPD*dt;
+  var ny = heist.py + dy*PLAYER_SPD*dt;
+  // wall collision (AABB against each wall rect)
+  var finalX = nx, finalY = ny;
+  var pw = PLAYER_R, ph = PLAYER_R;
+  var walls = heist.walls;
+  for (var wi=0; wi<walls.length; wi++) {
+    var w = walls[wi];
+    if (finalX+pw>w.x && finalX-pw<w.x+w.w && finalY+ph>w.y && finalY-ph<w.y+w.h) {
+      var overL = (finalX+pw) - w.x;
+      var overR = (w.x+w.w) - (finalX-pw);
+      var overT = (finalY+ph) - w.y;
+      var overB = (w.y+w.h) - (finalY-ph);
+      var minOvX = Math.min(overL,overR);
+      var minOvY = Math.min(overT,overB);
+      if (minOvX < minOvY) {
+        finalX += overL<overR ? -overL : overR;
+      } else {
+        finalY += overT<overB ? -overT : overB;
+      }
+    }
+  }
+  heist.px = finalX;
+  heist.py = finalY;
+
+  // ── PIN door approach ────────────────────────────────────────────
+  if (heist.pin && !heist.pin.unlocked) {
+    var pdist = Math.hypot(heist.px - heist.pin.kx, heist.py - heist.pin.ky);
+    heist.pin.nearKeypad = pdist < 44;
+    if (heist.pin.nearKeypad && (eat('KeyE')||eat('Enter')||(TOUCH_UI&&eat('KeyE')))) {
+      heist.pin.active = true;
+    }
+  }
+
+  // ── Flamethrower ────────────────────────────────────────────────
+  var firing = held('Space') || (TOUCH_UI && touchState.fire);
+  if (firing && fuel > 0) {
+    fuel = Math.max(0, fuel - diff.fuelDrain * dt);
+    emitFlame(heist.px, heist.py, heist.pFacing);
+    // check ignition points in range + facing direction
+    for (var ii=0; ii<heist.ignPts.length; ii++) {
+      var ip = heist.ignPts[ii];
+      if (ip.lit) continue;
+      var toIgX = ip.x - heist.px, toIgY = ip.y - heist.py;
+      var idist = Math.hypot(toIgX, toIgY);
+      if (idist < IGN_RANGE) {
+        var toAng = Math.atan2(toIgY, toIgX);
+        var da = toAng - heist.pFacing;
+        while (da >  Math.PI) da -= TAU;
+        while (da < -Math.PI) da += TAU;
+        if (Math.abs(da) < FIRE_ANGLE_TOL) {
+          ip.progress += dt;
+          if (ip.progress >= IGN_TIME) {
+            ip.lit = true;
+            ip.progress = IGN_TIME;
+          }
+        }
+      }
+    }
+  } else {
+    // cool off ignition when not actively heating a can
+    for (var ii2=0; ii2<heist.ignPts.length; ii2++) {
+      var ip2 = heist.ignPts[ii2];
+      if (!ip2.lit && ip2.progress > 0) {
+        ip2.progress = Math.max(0, ip2.progress - dt*0.4); // slow cooldown
+      }
+    }
+  }
+
+  // ── Check all lit ────────────────────────────────────────────────
+  if (!heist.allLit) {
+    var allDone = true;
+    for (var ii3=0; ii3<heist.ignPts.length; ii3++) {
+      if (!heist.ignPts[ii3].lit) { allDone=false; break; }
+    }
+    if (allDone) {
+      heist.allLit = true;
+      heist.escapeTimer = 5.0;
+    }
+  }
+
+  // ── Fuel pickup ─────────────────────────────────────────────────
+  for (var fi=0; fi<heist.fuelPickups.length; fi++) {
+    var fp = heist.fuelPickups[fi];
+    if (!fp.collected && Math.hypot(heist.px-fp.x, heist.py-fp.y) < FUEL_PICKUP_R) {
+      fp.collected = true;
+      fuel = Math.min(100, fuel+30);
+    }
+  }
+
+  // ── Escape zone check ───────────────────────────────────────────
+  if (heist.allLit) {
+    heist.escapeTimer -= dt;
+    if (heist.escapeTimer < 0) heist.escapeTimer = 0;
+    var ex=heist.hd.exit;
+    if (heist.px>ex.x-8 && heist.px<=ex.x+ex.w+PLAYER_R &&
+        heist.py>ex.y && heist.py<ex.y+ex.h) {
+      heist.escaped = true;
+    }
+    if (heist.escapeTimer <= 0 && !heist.escaped) {
+      heist.caught = true; // time ran out
+    }
+  }
+
+  // ── Guard update ────────────────────────────────────────────────
+  if (heist.patrolRouteFlash > 0) heist.patrolRouteFlash -= dt;
+  for (var gi=0; gi<heist.guards.length; gi++) {
+    updateGuard(heist.guards[gi], dt);
+  }
+}
+
+/* ── PIN door ───────────────────────────────────────────────────── */
+function updatePin(dt) {
+  var pin = heist.pin;
+  if (pin.shakeT > 0) pin.shakeT -= dt;
+  if (mclk) {
+    mclk = false;
+    // hit test each numpad button
+    for (var bi=0; bi<pin.buttons.length; bi++) {
+      var b = pin.buttons[bi];
+      if (Math.hypot(mx-b.cx, my-b.cy) < b.r) {
+        if (b.id === 'del') {
+          pin.entered = pin.entered.slice(0,-1);
+        } else if (b.id === 'ok') {
+          if (pin.entered === pin.code) {
+            pin.active = false; pin.unlocked = true;
+            // remove PIN door from heist.walls (our live copy, not the template)
+            heist.walls = heist.walls.filter(function(w){ return !w.isPinDoor; });
+            clearBackdropCache(); // rebuild room backdrop without door
+          } else {
+            pin.entered = '';
+            pin.shakeT = 0.35;
+          }
+        } else if (b.id === 'close') {
+          pin.active = false;
+        } else {
+          if (pin.entered.length < 4) pin.entered += b.id;
+        }
+        break;
+      }
+    }
+  }
+  if (eat('Escape')) { heist.pin.active = false; }
+}
+
+function buildPinButtons() {
+  var cx=W/2, cy=H/2;
+  var btns=[];
+  var digits=['1','2','3','4','5','6','7','8','9','del','0','ok'];
+  var cols=3, r=28;
+  for (var i=0;i<digits.length;i++) {
+    var col=i%cols, row=Math.floor(i/cols);
+    btns.push({ id:digits[i], cx:cx-46+col*46, cy:cy-20+row*62, r:r });
+  }
+  btns.push({ id:'close', cx:cx+100, cy:cy-120, r:20 });
+  return btns;
+}
+
+function drawPinKeypad() {
+  var pin = heist.pin;
+  var ox = heist.pin.shakeT>0 ? Math.sin(pin.shakeT*60)*6 : 0;
+  ctx.save(); ctx.translate(ox, 0);
+  // overlay
+  ctx.globalAlpha=0.75; drect(0,0,W,H,'#000'); ctx.globalAlpha=1;
+  rnd(W/2-140, H/2-150, 280, 330, 16, '#1a0800', '#ff6600', 3);
+  // title
+  txt('KEYPAD', W/2, H/2-122, '#ff8844', 15, 'center', 'bold monospace');
+  // entered dots
+  for (var di=0;di<4;di++) {
+    var filled = di < pin.entered.length;
+    circ(W/2-42+di*28, H/2-92, 10, filled?'#ff6600':'#333', filled?'#ff8844':'#555', 2);
+  }
+  // buttons
+  for (var bi=0;bi<pin.buttons.length;bi++) {
+    var b=pin.buttons[bi];
+    var hov=Math.hypot(mx-b.cx, my-b.cy)<b.r;
+    var col = b.id==='ok'?'#228833':b.id==='del'?'#882200':b.id==='close'?'#444':'#334';
+    var hcol = b.id==='ok'?'#33aa44':b.id==='del'?'#cc3300':b.id==='close'?'#666':'#556';
+    circ(b.cx, b.cy, b.r, hov?hcol:col, hov?'#fff':'#888', 1.5);
+    var lbl = b.id==='del'?'\u232B':b.id==='ok'?'OK':b.id==='close'?'\u00D7':b.id;
+    txt(lbl, b.cx, b.cy+5, '#fff', b.id==='ok'?12:14, 'center', 'bold monospace');
+  }
+  // wrong flash
+  if (pin.shakeT>0) {
+    ctx.globalAlpha=pin.shakeT*0.6;
+    rnd(W/2-140, H/2-150, 280, 330, 16, '#ff0000', null, 0);
+    ctx.globalAlpha=1;
+  }
+  ctx.restore();
+}
+
+function updateGuard(g, dt) {
+  const px=heist.px, py=heist.py;
+  const dist = Math.hypot(px-g.x, py-g.y);
+
+  // ── Can guard see player? ────────────────────────────────────────
+  const toPlayerAng = Math.atan2(py-g.y, px-g.x);
+  let angDiff = toPlayerAng - g.facing;
+  // normalize to [-PI, PI]
+  while (angDiff >  Math.PI) angDiff -= TAU;
+  while (angDiff < -Math.PI) angDiff += TAU;
+  const visionR = diff.visionR;
+  const canSee = dist < visionR && Math.abs(angDiff) < Math.PI/6;
+
+  if (canSee) {
+    g.alertLevel = Math.min(1, g.alertLevel + dt*1.8);
+    if (g.alertLevel > 0.5) g.state = 'chase';
+  } else {
+    g.alertLevel = Math.max(0, g.alertLevel - dt*0.8);
+    if (g.alertLevel < 0.1 && g.state === 'chase') {
+      g.state = 'return';
+    }
+  }
+
+  const spd = diff.guardSpd;
+
+  if (g.state === 'chase') {
+    const angleToPlayer = Math.atan2(py-g.y, px-g.x);
+    g.facing = angleToPlayer;
+    g.x += Math.cos(angleToPlayer)*spd*dt;
+    g.y += Math.sin(angleToPlayer)*spd*dt;
+    if (dist < 18) {
+      heist.caught = true;
+    }
+  } else if (g.state === 'return') {
+    const tx=g.returnTarget.x, ty=g.returnTarget.y;
+    const d = Math.hypot(tx-g.x, ty-g.y);
+    if (d < 4) {
+      g.x=tx; g.y=ty; g.state='patrol'; g.wpIdx=0; g.wpT=0;
+    } else {
+      const a = Math.atan2(ty-g.y, tx-g.x);
+      g.facing = a;
+      g.x += Math.cos(a)*spd*dt;
+      g.y += Math.sin(a)*spd*dt;
+    }
+  } else {
+    // patrol: walk waypoints in a loop
+    const wps = g.waypoints;
+    if (wps.length > 0) {
+      const target = wps[g.wpIdx];
+      const d = Math.hypot(target.x-g.x, target.y-g.y);
+      if (d < 4) {
+        g.wpIdx = (g.wpIdx+1) % wps.length;
+        g.returnTarget = { x:g.x, y:g.y };
+      } else {
+        const a = Math.atan2(target.y-g.y, target.x-g.x);
+        g.facing = a;
+        g.x += Math.cos(a)*spd*dt; g.y += Math.sin(a)*spd*dt;
+      }
+    }
+  }
+}
+
+function drawHeist() {
+  if (!heist) return;
+  const hd = heist.hd;
+
+  // ── Floor ───────────────────────────────────────────────────────
+  drawCachedBackdrop('heist_bg_'+hideoutIdx, function() {
+    drect(0, HUD_H, W, PLAY_H, hd.floorColor);
+    // floor planks hint
+    ctx.save(); ctx.globalAlpha=0.07; ctx.strokeStyle='#000'; ctx.lineWidth=1;
+    for (var px2=0; px2<W; px2+=40) { ln(px2,HUD_H,px2,H,'#000',1); }
+    for (var py2=HUD_H; py2<H; py2+=40) { ln(0,py2,W,py2,'#000',1); }
+    ctx.restore();
+    // walls
+    for (var wi=0; wi<hd.walls.length; wi++) {
+      const w=hd.walls[wi];
+      rnd(w.x,w.y,w.w,w.h,3,hd.wallColor,'#222',2);
+      // highlight
+      ctx.save(); ctx.globalAlpha=0.15;
+      rnd(w.x+2,w.y+2,w.w-4,6,2,'#fff',null,0);
+      ctx.restore();
+    }
+  });
+
+  // ── PIN door (live — not in backdrop cache) ──────────────────────
+  if (heist.pin && !heist.pin.unlocked) {
+    var pw2 = heist.hd.pin.wall;
+    // draw door as a heavy steel plate
+    rnd(pw2.x, pw2.y, pw2.w, pw2.h, 2, '#1a2a3a', '#4488aa', 3);
+    // keypad indicator
+    circ(heist.pin.kx, heist.pin.ky, 10, '#223344', '#4488aa', 2);
+    txt('\u2022\u2022\u2022\u2022', heist.pin.kx, heist.pin.ky+4, '#88ccdd', 8, 'center', 'monospace');
+  }
+
+  // ── Fuel pickups ─────────────────────────────────────────────────
+  for (var fi=0; fi<heist.fuelPickups.length; fi++) {
+    const fp=heist.fuelPickups[fi];
+    if (fp.collected) continue;
+    // yellow canister
+    ctx.save(); ctx.translate(fp.x, fp.y);
+    rnd(-8,-14,16,20,3,'#ccaa00','#887700',2);
+    rnd(-4,-18,8,6,2,'#ddbb00','#887700',1);
+    txt('FUEL',0,0,'#fff',7,'center','bold monospace');
+    ctx.restore();
+  }
+
+  // ── Ignition points ──────────────────────────────────────────────
+  for (var ii=0; ii<heist.ignPts.length; ii++) {
+    const p=heist.ignPts[ii];
+    ctx.save(); ctx.translate(p.x, p.y);
+    if (p.lit) {
+      // glowing lit can
+      const fg = ctx.createRadialGradient(0,0,2,0,0,22);
+      fg.addColorStop(0,'rgba(255,160,0,0.8)'); fg.addColorStop(1,'rgba(255,60,0,0)');
+      ctx.fillStyle=fg; ctx.beginPath(); ctx.arc(0,0,22,0,TAU); ctx.fill();
+      ctx.globalAlpha=0.7+Math.sin(gT*0.18)*0.3;
+    }
+    // gas can body
+    rnd(-9,-16,18,22,3, p.lit?'#cc4400':'#cc2200', p.lit?'#ff8844':'#881100', 2);
+    rnd(-5,-22,10,8,2,  p.lit?'#dd5500':'#991100', p.lit?'#ff6600':'#660000', 1.5);
+    // flame icon on can
+    txt('\uD83D\uDD25',0,-4,'rgba(255,200,0,0.9)',12,'center');
+    // progress ring
+    if (!p.lit && p.progress>0) {
+      const prog = Math.min(1, p.progress / IGN_TIME);
+      ctx.strokeStyle='#ff6600'; ctx.lineWidth=3; ctx.globalAlpha=0.85;
+      ctx.beginPath(); ctx.arc(0,0,18,-Math.PI/2,-Math.PI/2+prog*TAU); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // ── Exit zone ────────────────────────────────────────────────────
+  const ex=hd.exit;
+  const exitGlow = heist.allLit ? 1 : 0.3;
+  ctx.save(); ctx.globalAlpha=exitGlow*(0.5+Math.sin(gT*0.15)*0.25);
+  rnd(ex.x, ex.y, ex.w+8, ex.h, 4, '#00cc44', '#00ff66', 2);
+  var exitTxtX = ex.x < W/2 ? ex.x+ex.w+22 : ex.x-18;
+  txt('EXIT', exitTxtX, ex.y+ex.h/2+6, '#00ff66', 11, 'center', 'bold monospace');
+  ctx.restore();
+
+  // ── Guards ───────────────────────────────────────────────────────
+  // draw patrol routes if revealed
+  if (heist.patrolRouteFlash > 0) {
+    ctx.save();
+    ctx.globalAlpha = Math.min(0.5, heist.patrolRouteFlash * 0.1);
+    ctx.strokeStyle = '#44aaff'; ctx.lineWidth = 1.5; ctx.setLineDash([5,7]);
+    for (var ri=0; ri<heist.guards.length; ri++) {
+      var rg=heist.guards[ri];
+      ctx.beginPath(); ctx.moveTo(rg.waypoints[0].x, rg.waypoints[0].y);
+      for (var wi2=1; wi2<rg.waypoints.length; wi2++) ctx.lineTo(rg.waypoints[wi2].x, rg.waypoints[wi2].y);
+      ctx.closePath(); ctx.stroke();
+    }
+    ctx.setLineDash([]); ctx.restore();
+  }
+  for (var gi=0; gi<heist.guards.length; gi++) {
+    var g=heist.guards[gi];
+    drawVisionCone(g.x, g.y, g.facing, diff.visionR, g.alertLevel);
+    drawGuard(g.x, g.y, g.facing, g.alertLevel);
+    // alert indicator
+    if (g.alertLevel > 0.15) {
+      const excl = g.alertLevel>0.7?'!!':'!';
+      txt(excl, g.x, g.y-28, g.alertLevel>0.7?'#ff2200':'#ffaa00', 14,'center','bold monospace');
+    }
+  }
+
+  // ── Player ───────────────────────────────────────────────────────
+  drawLekan(heist.px, heist.py, heist.pFacing, heist.pMoveT);
+
+  // ── Fire particles ───────────────────────────────────────────────
+  drawFireParticles();
+
+  // ── HUD ──────────────────────────────────────────────────────────
+  drawHeistHUD();
+
+  // ── Escape countdown ─────────────────────────────────────────────
+  if (heist.allLit && heist.escapeTimer > 0) {
+    const s = Math.ceil(heist.escapeTimer);
+    const pulse = 1+Math.sin(gT*0.2)*0.05;
+    ctx.save(); ctx.translate(W/2, HUD_H+40); ctx.scale(pulse,pulse);
+    rnd(-120,-22,240,44,10,'rgba(200,50,0,0.88)','#ff6600',2);
+    txt('ESCAPE! '+s+'s', 0, 7, '#fff', 18, 'center', 'bold monospace');
+    ctx.restore();
+  }
+
+  // ── Start hint (fades after 3s) ──────────────────────────────────
+  if (heist.pMoveT < 3) {
+    var ha = Math.max(0, 1 - heist.pMoveT/3);
+    ctx.save(); ctx.globalAlpha = ha;
+    rnd(W/2-150, H/2-22, 300, 44, 10, 'rgba(0,0,0,0.75)', 'rgba(255,100,0,0.5)', 1.5);
+    txt(TOUCH_UI ? 'D-pad: move  |  FIRE: flamethrower' : 'Arrows: move  |  SPACE: flamethrower',
+        W/2, H/2+7, '#ffcc88', 12, 'center', 'monospace');
+    ctx.restore();
+  }
+
+  // ── Caught overlay ───────────────────────────────────────────────
+  if (heist.caught) {
+    ctx.save(); ctx.globalAlpha=Math.min(0.7, heist.caughtTimer/0.5*0.7);
+    drect(0,0,W,H,'#ff0000');
+    ctx.restore();
+    ctx.save(); ctx.globalAlpha=Math.min(1, heist.caughtTimer);
+    rnd(W/2-160,H/2-40,320,80,14,'rgba(0,0,0,0.9)','#cc2200',3);
+    txt('CAUGHT!', W/2, H/2-8, '#ff4444', 26, 'center', 'bold Georgia');
+    txt('Lives: '+Math.max(0,lives-1), W/2, H/2+22, '#ffaaaa', 14, 'center', 'monospace');
+    ctx.restore();
+  }
+
+  // ── PIN keypad near indicator ────────────────────────────────────
+  if (heist.pin && !heist.pin.unlocked && heist.pin.nearKeypad) {
+    rnd(heist.pin.kx-30, heist.pin.ky-42, 60, 22, 6, 'rgba(0,0,0,0.8)', '#ff8844', 1.5);
+    txt(TOUCH_UI?'[A] KEYPAD':'[E] KEYPAD', heist.pin.kx, heist.pin.ky-25, '#ffcc88', 9, 'center', 'bold monospace');
+  }
+
+  // ── PIN overlay (on top of everything) ──────────────────────────
+  if (heist.pin && heist.pin.active) { drawPinKeypad(); }
+
+  // ── Mobile controls ──────────────────────────────────────────────
+  if (mobileControlsOn()) drawMobileControls();
+}
+
+function drawHeistHUD() {
+  drect(0, 0, W, HUD_H, 'rgba(10,5,0,0.88)');
+  // fuel bar
+  const fuelW = 180;
+  rnd(14, 12, fuelW, 16, 4, 'rgba(255,255,255,0.1)', 'rgba(255,120,0,0.5)', 1);
+  const fc = fuel/100;
+  const fcol = fc>0.5?'#ff8800':fc>0.25?'#ff5500':'#ff2200';
+  rnd(14, 12, Math.round(fuelW*fc), 16, 4, fcol, null, 0);
+  txt('\uD83D\uDD25 FUEL', 14, 10, '#ff9944', 10, 'left', 'bold monospace');
+  // lives
+  for (var li=0; li<3; li++) {
+    const a = li<lives?1:0.2;
+    ctx.save(); ctx.globalAlpha=a;
+    txt('\u2764', 210+li*22, 28, '#ff4444', 16, 'left');
+    ctx.restore();
+  }
+  // hideout name
+  txt(HIDEOUTS[hideoutIdx%HIDEOUTS.length].name, W/2, 30, '#cc8844', 13, 'center', 'bold monospace');
+  // ignition count
+  const litCount = heist ? heist.ignPts.filter(function(p){return p.lit;}).length : 0;
+  txt('\uD83D\uDD25 '+litCount+'/4', W-14, 30, litCount===4?'#ff6600':'#886644', 14, 'right', 'bold monospace');
+}
+
+function drawMobileControls() {
+  ctx.save(); ctx.globalAlpha=0.55;
+  // D-pad
+  circ(DPAD_CX, DPAD_CY, DPAD_R+8, 'rgba(255,255,255,0.08)');
+  const arrs = [[0,-1,'\u25B2'],[0,1,'\u25BC'],[-1,0,'\u25C4'],[1,0,'\u25BA']];
+  for (var ai=0; ai<arrs.length; ai++) {
+    const ar=arrs[ai];
+    txt(ar[2], DPAD_CX+ar[0]*38, DPAD_CY+ar[1]*38+6, '#fff', 14, 'center');
+  }
+  // Fire button
+  circ(BTN_FIRE.cx, BTN_FIRE.cy, BTN_FIRE.r, 'rgba(220,60,0,0.55)');
+  ctx.strokeStyle='rgba(255,120,0,0.8)'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.arc(BTN_FIRE.cx,BTN_FIRE.cy,BTN_FIRE.r,0,TAU); ctx.stroke();
+  txt('FIRE', BTN_FIRE.cx, BTN_FIRE.cy+6, '#ffcc88', 15, 'center', 'bold monospace');
+  // Action button
+  circ(BTN_ACT.cx, BTN_ACT.cy, BTN_ACT.r, 'rgba(50,100,50,0.55)');
+  ctx.strokeStyle='rgba(100,200,100,0.8)'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.arc(BTN_ACT.cx,BTN_ACT.cy,BTN_ACT.r,0,TAU); ctx.stroke();
+  txt('A', BTN_ACT.cx, BTN_ACT.cy+5, '#88ff88', 13, 'center', 'bold monospace');
+  ctx.restore();
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   PHASE: BURN ANIMATION
+   Facade view of the building catching fire after escape.
+   ══════════════════════════════════════════════════════════════════ */
+const BURN_COLS = 22, BURN_ROWS = 14;
+const BURN_DUR  = 8.5;
+
+var burnState = null;
+
+function initBurn() {
+  fireParticles.length = 0;
+  var grid = [];
+  for (var r=0; r<BURN_ROWS; r++) {
+    grid.push([]);
+    for (var c=0; c<BURN_COLS; c++) grid[r].push(0); // 0=intact, 1=burning, 2=ash
+  }
+  // seed fire at four corners (matching ignition point positions roughly)
+  var seeds = [{r:BURN_ROWS-2,c:1},{r:1,c:BURN_COLS-2},{r:1,c:1},{r:BURN_ROWS-2,c:BURN_COLS-2}];
+  for (var si=0; si<seeds.length; si++) {
+    grid[seeds[si].r][seeds[si].c] = 1;
+  }
+  burnState = {
+    t: 0,
+    grid: grid,
+    burnedCount: 4,
+    totalCells: BURN_COLS * BURN_ROWS,
+    spreadTimer: 0,
+    spreadInterval: 0.14,
+    collapseStage: 0,   // 0=none 1=cracked 2=falling
+    collapseY: 0,
+    fadeAlpha: 0,
+  };
+}
+
+function spreadFire() {
+  var toIgnite = [];
+  for (var r=0; r<BURN_ROWS; r++) {
+    for (var c=0; c<BURN_COLS; c++) {
+      if (burnState.grid[r][c] !== 1) continue;
+      var nb = [[r-1,c],[r+1,c],[r,c-1],[r,c+1]];
+      for (var ni=0; ni<nb.length; ni++) {
+        var nr=nb[ni][0], nc=nb[ni][1];
+        if (nr<0||nr>=BURN_ROWS||nc<0||nc>=BURN_COLS) continue;
+        if (burnState.grid[nr][nc]===0 && Math.random()<0.5) toIgnite.push([nr,nc]);
+      }
+      if (Math.random()<0.12) burnState.grid[r][c]=2; // burn out to ash
+    }
+  }
+  for (var i=0; i<toIgnite.length; i++) {
+    var cell=toIgnite[i];
+    if (burnState.grid[cell[0]][cell[1]]===0) {
+      burnState.grid[cell[0]][cell[1]]=1;
+      burnState.burnedCount++;
+    }
+  }
+}
+
+function updateBurn(dt) {
+  if (!burnState) return;
+  burnState.t += dt;
+
+  // spread fire
+  burnState.spreadTimer += dt;
+  while (burnState.spreadTimer >= burnState.spreadInterval && burnState.t < BURN_DUR-1.5) {
+    burnState.spreadTimer -= burnState.spreadInterval;
+    spreadFire();
+  }
+
+  // collapse stages
+  var cov = burnState.burnedCount / burnState.totalCells;
+  if (cov > 0.65 && burnState.collapseStage===0) burnState.collapseStage=1;
+  if (cov > 0.88 && burnState.collapseStage===1) burnState.collapseStage=2;
+  if (burnState.collapseStage===2) burnState.collapseY += 55*dt;
+
+  // ember spawning from burning cells
+  if (Math.random()<0.6) {
+    var r2=Math.floor(Math.random()*BURN_ROWS), c2=Math.floor(Math.random()*BURN_COLS);
+    if (burnState.grid[r2][c2]===1) {
+      var bx = 80 + c2*(W-160)/BURN_COLS;
+      var by = 100 + r2*(H-200)/BURN_ROWS;
+      emitEmber(bx, by);
+    }
+  }
+  updateFireParticles(dt);
+
+  // fade to black at end
+  if (burnState.t > BURN_DUR - 1.5) burnState.fadeAlpha = Math.min(1,(burnState.t-(BURN_DUR-1.5))/1.5);
+
+  if (burnState.t > BURN_DUR) {
+    runScore += Math.round(80*(fuel/100) + 60);
+    hideoutIdx++;
+    if (hideoutIdx >= 4) {
+      startPhase('victory');
+    } else {
+      fuel = Math.min(100, fuel+20); // partial refuel
+      startPhase('map');
+    }
+  }
+}
+
+function drawBurn() {
+  // Night sky background
+  drect(0,0,W,H,'#080210');
+  // stars
+  ctx.save(); ctx.globalAlpha=0.4;
+  for (var si=0; si<60; si++) {
+    var sx=((si*137)%W), sy=((si*97)%120)+10;
+    ctx.fillStyle='#fff'; ctx.fillRect(sx,sy,1,1);
+  }
+  ctx.restore();
+
+  if (!burnState) return;
+  var hd = HIDEOUTS[Math.min(hideoutIdx, HIDEOUTS.length-1)];
+
+  ctx.save();
+  if (burnState.collapseStage===2) ctx.translate(0, Math.min(burnState.collapseY, 80));
+
+  // ── Building facade ───────────────────────────────────────────────
+  // Ground line
+  drect(0, H-60, W, 60, '#1a1208');
+  // Building body
+  var bLeft=60, bTop=80, bW=W-120, bH=H-60-80;
+  drect(bLeft, bTop, bW, bH, hd.wallColor||'#4a3a2a');
+  // roof trim
+  drect(bLeft-10, bTop-12, bW+20, 16, '#3a2a1a');
+  drect(bLeft-10, bTop-20, bW+20, 10, hd.wallColor||'#5a4a3a');
+
+  // ── Burn grid overlay ─────────────────────────────────────────────
+  var cellW = bW/BURN_COLS, cellH = bH/BURN_ROWS;
+  for (var r=0; r<BURN_ROWS; r++) {
+    for (var c=0; c<BURN_COLS; c++) {
+      var state = burnState.grid[r][c];
+      if (state===0) continue;
+      var cx2 = bLeft + c*cellW, cy2 = bTop + r*cellH;
+      if (state===1) {
+        // burning cell — orange/red gradient
+        var flicker = 0.7+Math.sin((gT+r*7+c*13)*0.15)*0.3;
+        ctx.globalAlpha = flicker;
+        var gr = ctx.createRadialGradient(cx2+cellW/2,cy2+cellH/2,0,cx2+cellW/2,cy2+cellH/2,cellW*0.9);
+        gr.addColorStop(0,'rgba(255,220,80,0.9)');
+        gr.addColorStop(0.4,'rgba(255,80,0,0.85)');
+        gr.addColorStop(1,'rgba(180,20,0,0.3)');
+        ctx.fillStyle=gr; ctx.fillRect(cx2,cy2,cellW+1,cellH+1);
+        ctx.globalAlpha=1;
+      } else {
+        // ash — very dark with reddish glow
+        ctx.globalAlpha=0.85;
+        ctx.fillStyle='#1a0a00'; ctx.fillRect(cx2,cy2,cellW+1,cellH+1);
+        ctx.globalAlpha=1;
+      }
+    }
+  }
+
+  // ── Windows (light flickers where fire is) ────────────────────────
+  var winCols=5, winRows=4;
+  for (var wr=0; wr<winRows; wr++) {
+    for (var wc=0; wc<winCols; wc++) {
+      var wx = bLeft+30+(wc*(bW-60)/(winCols-1));
+      var wy = bTop+30+(wr*(bH-60)/(winRows-1));
+      // map window to grid cell
+      var gc2 = Math.floor((wc/winCols)*BURN_COLS);
+      var gr2 = Math.floor((wr/winRows)*BURN_ROWS);
+      gc2 = Math.min(gc2, BURN_COLS-1); gr2 = Math.min(gr2, BURN_ROWS-1);
+      var cellState = burnState.grid[gr2][gc2];
+      var winAlpha = cellState===1?1:cellState===2?0.15:0.5;
+      var winCol = cellState===1?'#ff8800':cellState===2?'#220500':'#ffcc44';
+      ctx.save(); ctx.globalAlpha=winAlpha*(0.7+Math.sin(gT*0.1+wr*wc)*0.3);
+      rnd(wx-12, wy-10, 24, 18, 2, winCol, '#222', 1);
+      ctx.restore();
+    }
+  }
+
+  // ── Cracks (collapse stage 1+) ────────────────────────────────────
+  if (burnState.collapseStage >= 1) {
+    ctx.save(); ctx.strokeStyle='#111'; ctx.lineWidth=2; ctx.globalAlpha=0.7;
+    ln(bLeft+bW*0.3, bTop+bH*0.1, bLeft+bW*0.4, bTop+bH*0.5,'#111',3);
+    ln(bLeft+bW*0.6, bTop+bH*0.05, bLeft+bW*0.55, bTop+bH*0.4,'#111',2.5);
+    ln(bLeft+bW*0.2, bTop+bH*0.6, bLeft+bW*0.35, bTop+bH*0.9,'#111',2);
+    ctx.restore();
+  }
+
+  ctx.restore(); // end collapse translate
+
+  // Embers on top
+  drawFireParticles();
+
+  // HUD overlay: "BUILDING BURNS" banner
+  var bta = Math.min(1, burnState.t*2);
+  ctx.save(); ctx.globalAlpha=bta;
+  rnd(W/2-170,24,340,44,10,'rgba(0,0,0,0.8)','rgba(255,80,0,0.6)',2);
+  txt('\uD83D\uDD25 ' + (HIDEOUTS[Math.min(hideoutIdx,HIDEOUTS.length-1)].name||'Hideout') + ' — BURNING!',
+      W/2, 54, '#ff9944', 15, 'center', 'bold monospace');
+  ctx.restore();
+
+  // Escape text
+  if (burnState.t < 3) {
+    var ea = Math.min(1, burnState.t*1.5);
+    ctx.save(); ctx.globalAlpha=ea;
+    txt('YOU GOT OUT!', W/2, H-80, '#88ff88', 32, 'center', 'bold Georgia');
+    txt('Lekan escapes into the night...', W/2, H-46, '#448844', 14, 'center', 'italic Georgia');
+    ctx.restore();
+  }
+
+  // Fade to black
+  if (burnState.fadeAlpha > 0) {
+    ctx.globalAlpha=burnState.fadeAlpha; drect(0,0,W,H,'#000'); ctx.globalAlpha=1;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   PHASE: TRAVEL EVENTS (between hideouts on the map)
+   ══════════════════════════════════════════════════════════════════ */
+var TRAVEL_EVENTS = [
+  { txt:'You found an abandoned fuel drum in an alley!',        fuelDelta:+25, liveDelta:0, pinClue:false,
+    flavor:'Lekan fills up the tank. Nice.' },
+  { txt:'A Dieb patrol spots your van and confiscates a canister.',fuelDelta:-20, liveDelta:0, pinClue:false,
+    flavor:'Quick — change routes.' },
+  { txt:'A friendly mechanic tips you off about guard patrols.',  fuelDelta:0,  liveDelta:0, pinClue:false,
+    revealPatrol:true, flavor:'Guard routes revealed for the next hideout!' },
+  { txt:'Engine trouble on the autobahn. Lekan loses precious time.',fuelDelta:-10,liveDelta:0,pinClue:false,
+    flavor:'Fixed it with duct tape.' },
+  { txt:'You find the keypad code scratched inside a matchbook.',  fuelDelta:0,  liveDelta:0, pinClue:true,
+    flavor:'Somebody left their notes behind.' },
+  { txt:'A Dieb informant gives you a full fuel can for a small bribe.',fuelDelta:+30,liveDelta:0,pinClue:false,
+    flavor:'Expensive, but worth it.' },
+  { txt:'Samster radios in: "The guards changed their shift early!"', fuelDelta:0, liveDelta:0, pinClue:false,
+    flavor:'Guards are 20% faster this hideout.' },
+];
+
+var MAP_STOPS = [
+  { x:110, y:290, label:'Basel',    sub:'Riverside Warehouse' },
+  { x:280, y:180, label:'Black\nForest', sub:'Forest Cabin' },
+  { x:500, y:220, label:'Cologne',  sub:'Rooftop' },
+  { x:680, y:310, label:'Rotterdam',sub:'Dieb HQ' },
+];
+
+var mapState = null;   // { events:[], cardIdx, pinRevealed, patrolRevealed }
+
+function initMap() {
+  // pick 1-2 random events for this leg
+  var shuffled = TRAVEL_EVENTS.slice().sort(function(){return Math.random()-0.5;});
+  // check whether the next hideout has a PIN — only offer pinClue events if it does
+  var nextHd = HIDEOUTS[hideoutIdx % HIDEOUTS.length];
+  var events = [];
+  for (var i=0; i<shuffled.length && events.length<2; i++) {
+    if (shuffled[i].pinClue && !nextHd.pin) continue;
+    events.push(shuffled[i]);
+  }
+  mapState = {
+    t: 0,
+    events: events,
+    cardIdx: 0,
+    done: false,
+    pinRevealed: false,
+    patrolRevealed: false,
+    nextPinCode: nextHd.pin ? nextHd.pin.code : null,
+  };
+}
+
+function applyEvent(ev) {
+  if (ev.fuelDelta)     fuel = Math.max(5, Math.min(100, fuel + ev.fuelDelta));
+  if (ev.pinClue)       mapState.pinRevealed = true;
+  if (ev.revealPatrol)  mapState.patrolRevealed = true;
+}
+
+function updateMap(dt) {
+  if (!mapState) return;
+  mapState.t += dt;
+  if (mapState.done) {
+    // brief pause then start heist
+    if (mapState.t > 0.6) {
+      var revealPatrol = mapState.patrolRevealed;
+      startPhase('heist');
+      if (revealPatrol && heist) heist.patrolRouteFlash = 15;
+    }
+  }
+}
+
+function drawMap() {
+  drect(0,0,W,H,'#0a0500');
+
+  // ── Parchment-style map background ───────────────────────────────
+  ctx.save();
+  var mg = ctx.createRadialGradient(W/2,H/2,50,W/2,H/2,420);
+  mg.addColorStop(0,'#2a1a08'); mg.addColorStop(1,'#0a0500');
+  ctx.fillStyle=mg; ctx.fillRect(0,0,W,H);
+
+  // Dotted route line
+  ctx.setLineDash([8,10]); ctx.strokeStyle='rgba(180,120,40,0.4)'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(MAP_STOPS[0].x, MAP_STOPS[0].y);
+  for (var si=1; si<MAP_STOPS.length; si++) ctx.lineTo(MAP_STOPS[si].x, MAP_STOPS[si].y);
+  ctx.stroke(); ctx.setLineDash([]); ctx.restore();
+
+  // Stop nodes
+  for (var ni=0; ni<MAP_STOPS.length; ni++) {
+    var stop = MAP_STOPS[ni];
+    var done2 = ni < hideoutIdx;
+    var current = ni === hideoutIdx;
+    var locked = ni > hideoutIdx;
+    var nodeCol = done2?'#884422':current?'#ff6600':'#442211';
+    var borderCol = done2?'#cc6633':current?'#ffaa44':'#553322';
+    circ(stop.x, stop.y, current?18:13, nodeCol, borderCol, current?3:2);
+    if (done2) txt('\uD83D\uDD25', stop.x, stop.y+6, '#ffcc44', 14, 'center');
+    else if (current) {
+      var pulse = 1+Math.sin(mapState?mapState.t*3:0)*0.12;
+      ctx.save(); ctx.translate(stop.x,stop.y); ctx.scale(pulse,pulse);
+      txt('?', 0, 6, '#fff', 16, 'center', 'bold monospace');
+      ctx.restore();
+    }
+    // label
+    var lcolor = locked?'#443322':done2?'#cc8844':'#ffcc88';
+    var lsz = current?13:11;
+    txt(stop.label.replace('\n',' '), stop.x, stop.y+(current?34:26), lcolor, lsz, 'center', 'bold monospace');
+    if (!locked) txt(stop.sub, stop.x, stop.y+(current?50:40), locked?'#332211':'#886644', 9, 'center', 'monospace');
+  }
+
+  // ── HUD strip ────────────────────────────────────────────────────
+  drect(0,0,W,42,'rgba(10,5,0,0.88)');
+  // fuel
+  txt('\uD83D\uDD25 FUEL', 14, 10, '#ff9944', 9, 'left', 'bold monospace');
+  rnd(14,14,150,14,4,'rgba(255,255,255,0.08)','rgba(255,120,0,0.4)',1);
+  var fc=fuel/100;
+  rnd(14,14,Math.round(150*fc),14,4,fc>0.5?'#ff8800':fc>0.25?'#ff5500':'#ff2200',null,0);
+  // lives
+  for (var li=0; li<3; li++) {
+    ctx.save(); ctx.globalAlpha=li<lives?1:0.2;
+    txt('\u2764', 176+li*22, 27, '#ff4444', 16, 'left');
+    ctx.restore();
+  }
+  // hideout count
+  txt('HIDEOUTS BURNED: '+hideoutIdx+'/4', W-14, 27, '#cc8844', 12, 'right', 'bold monospace');
+
+  if (!mapState) return;
+
+  // ── Travel event cards ───────────────────────────────────────────
+  if (!mapState.done && mapState.events.length > 0 && mapState.cardIdx < mapState.events.length) {
+    var ev = mapState.events[mapState.cardIdx];
+    var cardA = Math.min(1, mapState.t*3);
+    ctx.save(); ctx.globalAlpha=cardA;
+    rnd(W/2-230, H/2-90, 460, 200, 14, 'rgba(20,10,2,0.97)', '#cc6622', 2.5);
+    // header
+    rnd(W/2-230, H/2-90, 460, 40, 14, 'rgba(100,40,5,0.9)', null, 0);
+    txt('\u26A0  ROAD EVENT', W/2, H/2-62, '#ffcc44', 13, 'center', 'bold monospace');
+    // event text (word-wrapped manually)
+    var words = ev.txt.split(' ');
+    var line1='', line2='', line3='';
+    words.forEach(function(w){
+      if ((line1+' '+w).trim().length<=46) line1=(line1+' '+w).trim();
+      else if ((line2+' '+w).trim().length<=46) line2=(line2+' '+w).trim();
+      else line3=(line3+' '+w).trim();
+    });
+    txt(line1, W/2, H/2-32, '#ffddbb', 13, 'center', 'Georgia');
+    if (line2) txt(line2, W/2, H/2-14, '#ffddbb', 13, 'center', 'Georgia');
+    if (line3) txt(line3, W/2, H/2+4, '#ffddbb', 13, 'center', 'Georgia');
+    // effect
+    var fuelStr = ev.fuelDelta>0?'\uD83D\uDD25 +'+ev.fuelDelta+'% fuel':ev.fuelDelta<0?'\uD83D\uDD25 '+ev.fuelDelta+'% fuel':'';
+    var effStr = fuelStr || (ev.pinClue?'\uD83D\uDD11 PIN code revealed':ev.revealPatrol?'\uD83D\uDC41 Patrol routes revealed':'');
+    if (effStr) txt(effStr, W/2, H/2+28, ev.fuelDelta>0?'#88ff88':ev.fuelDelta<0?'#ff8888':'#88ccff', 12, 'center', 'bold monospace');
+    txt(ev.flavor, W/2, H/2+50, '#886644', 11, 'center', 'italic Georgia');
+    // continue button
+    var cbhov=mx>W/2-100&&mx<W/2+100&&my>H/2+66&&my<H/2+100;
+    rnd(W/2-100,H/2+66,200,34,8,cbhov?'#441100':'#220800','#ff6600',2);
+    txt('CONTINUE  \u25BA', W/2, H/2+90, '#ffaa55', 13, 'center', 'bold monospace');
+    ctx.restore();
+    if ((mclk&&cbhov)||(eat('Space')||eat('Enter'))) {
+      mclk=false;
+      applyEvent(ev);
+      mapState.cardIdx++;
+      mapState.t=0;
+      if (mapState.cardIdx >= mapState.events.length) {
+        // show PIN if revealed
+        if (!mapState.pinRevealed) { mapState.done=true; mapState.t=0; }
+      }
+    }
+  } else if (!mapState.done && mapState.pinRevealed && mapState.cardIdx >= mapState.events.length) {
+    // PIN reveal card
+    var nextCode = mapState.nextPinCode;
+    var cardA2 = Math.min(1, mapState.t*3);
+    ctx.save(); ctx.globalAlpha=cardA2;
+    rnd(W/2-200, H/2-80, 400, 180, 14, 'rgba(10,20,40,0.97)', '#4488cc', 2.5);
+    rnd(W/2-200, H/2-80, 400, 38, 14, 'rgba(20,40,80,0.9)', null, 0);
+    txt('\uD83D\uDD11  KEYPAD CODE FOUND', W/2, H/2-52, '#88ccff', 13, 'center', 'bold monospace');
+    txt('The next hideout keypad code is:', W/2, H/2-20, '#aaccee', 13, 'center', 'Georgia');
+    txt(nextCode||'????', W/2, H/2+20, '#ffff88', 32, 'center', 'bold monospace');
+    txt('Don\'t forget it!', W/2, H/2+50, '#6688aa', 11, 'center', 'italic Georgia');
+    var cbhov2=mx>W/2-100&&mx<W/2+100&&my>H/2+64&&my<H/2+98;
+    rnd(W/2-100,H/2+64,200,34,8,cbhov2?'#112244':'#081222','#4488cc',2);
+    txt('GOT IT  \u25BA', W/2, H/2+88, '#88aacc', 13, 'center', 'bold monospace');
+    ctx.restore();
+    if ((mclk&&cbhov2)||(eat('Space')||eat('Enter'))) {
+      mclk=false; mapState.pinRevealed=false; mapState.done=true; mapState.t=0;
+    }
+  } else if (!mapState.done) {
+    // No events or all events shown — straight to heist
+    var cbhov3=mx>W/2-130&&mx<W/2+130&&my>H-90&&my<H-44;
+    rnd(W/2-130,H-90,260,46,10,cbhov3?'#551100':'#330800','#ff8800',2.5);
+    txt('\uD83D\uDD25  BURN IT DOWN', W/2, H-61, '#ffcc88', 16, 'center', 'bold monospace');
+    if ((mclk&&cbhov3)||(eat('Space')||eat('Enter'))) {
+      mclk=false; mapState.done=true; mapState.t=0;
+    }
+  }
+}
+
+/* ── Game Over ───────────────────────────────────────────────────── */
+var _goT = 0;
+function initGameOver() { _goT=0; }
+function updateGameOver(dt) {
+  _goT+=dt;
+  for (var i=0;i<3;i++) if (Math.random()<0.08) emitEmber(Math.random()*W, H+10);
+  updateFireParticles(dt);
+}
+function drawGameOver() {
+  drect(0,0,W,H,'#0a0000');
+  drawFireParticles();
+  ctx.save();
+  const pulse = 1+Math.sin(_goT*2)*0.03;
+  ctx.translate(W/2,H/2-40); ctx.scale(pulse,pulse);
+  txt('CAPTURED!', 0, 0, '#cc2200', 48, 'center', 'bold Georgia');
+  ctx.restore();
+  txt('The Diebs got Lekan.', W/2, H/2+10, '#cc6644', 16, 'center', 'italic Georgia');
+  // Try again
+  const bx=W/2-120, by=H/2+40, bw=240, bh=44;
+  const bhov=mx>bx&&mx<bx+bw&&my>by&&my<by+bh;
+  rnd(bx,by,bw,bh,10,bhov?'#331100':'#1a0800','rgba(220,80,0,0.7)',2);
+  txt('TRY AGAIN', W/2, by+30, '#ff9944', 16, 'center', 'bold monospace');
+  if ((mclk&&bhov)||(eat('Space')||eat('Enter'))) {
+    mclk=false; resetRun(); startPhase('heist');
+  }
+}
+
+/* ── Victory ─────────────────────────────────────────────────────── */
+var vic = null;
+function initVictory() {
+  // score: each hideout awards ~140 base; fuel bonus; lives bonus
+  var lifeBonus = lives * 80;
+  var fuelBonus = Math.round(fuel * 0.8);
+  runScore += lifeBonus + fuelBonus;
+  var stars = runScore >= 600 ? 3 : runScore >= 380 ? 2 : 1;
+  var rank = 0;
+  var entry = { score:runScore, stars:stars, diff:diff.id, date:new Date().toISOString() };
+  if (!scoreSaved) { rank=saveHS(entry); scoreSaved=true; }
+  vic = { t:0, stars:stars, rank:rank };
+}
+function updateVictory(dt) {
+  vic.t+=dt;
+  for(var i=0;i<4;i++) if(Math.random()<0.1) emitEmber(Math.random()*W,H+10);
+  updateFireParticles(dt);
+}
+function drawVictory() {
+  drect(0,0,W,H,'#080200');
+  drawFireParticles();
+
+  // Title
+  ctx.save();
+  var pulse=1+Math.sin(vic.t*1.5)*0.025;
+  ctx.translate(W/2,100); ctx.scale(pulse,pulse);
+  ctx.font='bold 44px Georgia'; ctx.textAlign='center'; ctx.textBaseline='alphabetic';
+  ctx.shadowColor='rgba(255,100,0,0.8)'; ctx.shadowBlur=28;
+  ctx.fillStyle='#ffffff'; ctx.fillText('MISSION COMPLETE!',0,0);
+  ctx.shadowBlur=0; ctx.restore();
+  txt('All Dieb hideouts reduced to ash.', W/2, 140, '#cc6633', 15, 'center', 'italic Georgia');
+
+  // Stars
+  var starY=170;
+  for (var si=0; si<3; si++) {
+    var lit = si < vic.stars;
+    var sa = lit ? Math.min(1,(vic.t-si*0.3)*4) : 1;
+    ctx.save(); ctx.globalAlpha=Math.max(0,sa);
+    txt(lit?'\u2B50':'', W/2-52+si*52, starY+24, '#ffdd44', lit?38:28, 'center');
+    ctx.restore();
+    if (!lit) {
+      ctx.save(); ctx.globalAlpha=0.2;
+      txt('\u2606', W/2-52+si*52, starY+24, '#886633', 38, 'center');
+      ctx.restore();
+    }
+  }
+
+  // Score breakdown
+  var sy=220;
+  rnd(W/2-200,sy,400,120,12,'rgba(20,8,0,0.85)','rgba(180,80,0,0.5)',1.5);
+  var fuelBon=Math.round(fuel*0.8), lifeBon=lives*80;
+  txt('Hideouts burned: 4 \u00D7 ~140', W/2, sy+26, '#cc9966', 12, 'center', 'monospace');
+  txt('Fuel bonus: +'+fuelBon, W/2, sy+48, '#cc9966', 12, 'center', 'monospace');
+  txt('Lives bonus: '+lives+' \u00D7 80 = +'+lifeBon, W/2, sy+70, '#cc9966', 12, 'center', 'monospace');
+  txt('TOTAL: '+runScore, W/2, sy+100, '#ffcc44', 18, 'center', 'bold monospace');
+
+  if (vic.rank > 0) {
+    txt('#'+vic.rank+' on the scoreboard!', W/2, sy+128, '#88ff88', 13, 'center', 'bold monospace');
+  }
+
+  // High scores table
+  var scores = getHS();
+  var tx=W/2, ty=365;
+  rnd(tx-200,ty-18,400,Math.min(5,scores.length)*22+30,10,'rgba(10,4,0,0.88)','rgba(150,60,0,0.4)',1);
+  txt('HIGH SCORES', tx, ty+6, '#cc8844', 11, 'center', 'bold monospace');
+  for (var hi=0; hi<Math.min(5,scores.length); hi++) {
+    var hs=scores[hi];
+    var hcol=hi===0?'#ffcc44':hi<3?'#cc9944':'#886633';
+    txt((hi+1)+'. '+hs.score+' pts  ['+hs.diff+']', tx, ty+28+hi*22, hcol, 11, 'center', 'monospace');
+  }
+
+  // Buttons
+  var bx1=W/2-130, bx2=W/2+14, by2=H-60, bh2=40;
+  var bh1=mx>bx1&&mx<bx1+116&&my>by2&&my<by2+bh2;
+  var bh2hov=mx>bx2&&mx<bx2+116&&my>by2&&my<by2+bh2;
+  rnd(bx1,by2,116,bh2,9,bh1?'#552200':'#331100','#ff8800',2);
+  txt('PLAY AGAIN', bx1+58, by2+27, '#ffcc88', 13, 'center', 'bold monospace');
+  rnd(bx2,by2,116,bh2,9,bh2hov?'#112244':'#08111e','#4488cc',2);
+  txt('\u2190 MENU', bx2+58, by2+27, '#88aacc', 13, 'center', 'bold monospace');
+
+  if (mclk&&bh1) { mclk=false; resetRun(); startPhase('diff'); }
+  if (mclk&&bh2hov) { mclk=false; resetRun(); startPhase('title'); }
+  if (eat('Space')||eat('Enter')) { resetRun(); startPhase('title'); }
+}
+
+/* ── Phase controller ───────────────────────────────────────────── */
+function startPhase(p) {
+  phase = p;
+  clearBackdropCache();
+  if (p==='heist')    initHeist();
+  if (p==='burn')     initBurn();
+  if (p==='map')      initMap();
+  if (p==='gameover') initGameOver();
+  if (p==='victory')  initVictory();
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   PHASE: TITLE
+   ══════════════════════════════════════════════════════════════════ */
+let titleT = 0;
+function updateTitle(dt) {
+  titleT += dt;
+  // spawn embers along bottom
+  if (Math.random() < 0.4) emitEmber(Math.random()*W, H+8);
+  updateFireParticles(dt);
+}
+function drawTitle() {
+  drect(0,0,W,H,'#080200');
+  // dark vignette floor
+  const vg=ctx.createLinearGradient(0,H-180,0,H);
+  vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,'rgba(40,10,0,0.7)');
+  ctx.fillStyle=vg; ctx.fillRect(0,H-180,W,180);
+
+  drawFireParticles();
+
+  // Warehouse silhouette hint
+  ctx.save(); ctx.globalAlpha=0.18;
+  drect(50,  H-180, 120, 180, '#333');
+  drect(180, H-140, 80,  140, '#444');
+  drect(300, H-200, 180, 200, '#333');
+  drect(520, H-160, 90,  160, '#444');
+  drect(650, H-190, 140, 190, '#333');
+  // windows
+  ctx.globalAlpha=0.4;
+  for (var wy=0; wy<3; wy++) {
+    for (var wx=0; wx<5; wx++) {
+      const wx2 = 60+wx*140, wy2 = H-170+wy*50;
+      if (wy2>H-30) continue;
+      ctx.fillStyle=Math.random()<0.3?'#ff8800':'#ffcc44';
+      ctx.fillRect(wx2,wy2,16,12);
+    }
+  }
+  ctx.restore();
+
+  // Title
+  const pulse = 1+Math.sin(titleT*1.4)*0.025;
+  ctx.save(); ctx.translate(W/2,160); ctx.scale(pulse,pulse);
+  ctx.font='bold 58px Georgia'; ctx.textAlign='center'; ctx.textBaseline='alphabetic';
+  ctx.shadowColor='rgba(255,100,0,0.9)'; ctx.shadowBlur=30;
+  ctx.fillStyle='#ffffff'; ctx.fillText('FLAMETHROWER',0,0);
+  ctx.shadowColor='rgba(255,80,0,0.9)'; ctx.shadowBlur=20;
+  ctx.fillStyle='#ff8800'; ctx.fillText('TRAIL',0,55);
+  ctx.shadowBlur=0; ctx.restore();
+
+  txt('Lekan strikes back.', W/2, 240, '#cc6633', 16, 'center', 'italic Georgia');
+
+  // Small panda
+  ctx.save(); ctx.translate(W/2, 300);
+  ell(0,4,18,14,'#f0f0f0'); strokeEll(0,4,18,14,'#222',1.5);
+  ell(-13,-16,6,6,'#111'); ell(13,-16,6,6,'#111');
+  circ(0,-10,13,'#f0f0f0','#222',1.5);
+  ell(-5,-10,5,3.5,'#111',-0.3); ell(5,-10,5,3.5,'#111',0.3);
+  circ(-5,-10,2,'#fff'); circ(5,-10,2,'#fff');
+  ell(0,-7,3,2,'#333');
+  // flamethrower
+  rnd(10,-4,10,16,3,'#336633','#1a3d1a',2);
+  ln(14,4,36,4,'#555',5); ln(14,4,36,4,'#777',2.5);
+  ctx.restore();
+
+  // Start button
+  const by=360, bx=W/2-130;
+  const bhov=mx>bx&&mx<bx+260&&my>by&&my<by+52;
+  ctx.save(); ctx.shadowColor='rgba(255,80,0,0.6)'; ctx.shadowBlur=bhov?24:12;
+  rnd(bx,by,260,52,12,bhov?'#441100':'#220800','#ff6600',2.5);
+  ctx.restore();
+  txt('\uD83D\uDD25  START MISSION', W/2, by+36, '#ffcc88', 18, 'center', 'bold monospace');
+
+  // Back link
+  txt('\u2190 Mucko\'s Games', W/2, H-14, '#443322', 12, 'center', 'monospace');
+
+  if (mclk) {
+    mclk=false;
+    if (bhov) { startPhase('diff'); return; }
+    if (my > H-28) { window.location.href='../index.html'; }
+  }
+  if (eat('Space')||eat('Enter')) startPhase('diff');
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   PHASE: DIFFICULTY
+   ══════════════════════════════════════════════════════════════════ */
+let diffT = 0;
+function updateDiff(dt) {
+  diffT += dt;
+  if (Math.random()<0.15) emitEmber(Math.random()*W, H+8);
+  updateFireParticles(dt);
+}
+function drawDiff() {
+  drect(0,0,W,H,'#080200');
+  drawFireParticles();
+  txt('CHOOSE YOUR MISSION', W/2, 64, '#cc8844', 22, 'center', 'bold monospace');
+  txt('How bold is Lekan feeling tonight?', W/2, 94, '#885533', 14, 'center', 'italic Georgia');
+
+  const cw=210, ch=290, gap=18;
+  const totalW=3*cw+2*gap;
+  const startX=(W-totalW)/2;
+
+  for (var di=0; di<DIFFS.length; di++) {
+    const d=DIFFS[di];
+    const cx=startX+di*(cw+gap), cy=130;
+    const sel=diff.id===d.id;
+    const hov=mx>cx&&mx<cx+cw&&my>cy&&my<cy+ch;
+
+    ctx.save();
+    if (sel) { ctx.shadowColor=d.col; ctx.shadowBlur=18; }
+    rnd(cx,cy,cw,ch,12, sel?'rgba(80,20,0,0.95)':hov?'rgba(50,15,0,0.9)':'rgba(20,8,0,0.9)',
+        sel?d.col:'rgba(160,80,0,0.4)', sel?3:1.5);
+    ctx.restore();
+
+    // fire icon
+    txt('\uD83D\uDD25', cx+cw/2, cy+50, d.col, di===0?28:di===1?36:44, 'center');
+
+    // title
+    ctx.font='bold 18px Georgia'; ctx.textAlign='center'; ctx.fillStyle=d.col;
+    ctx.fillText(d.label, cx+cw/2, cy+82);
+
+    // stats
+    const stats=[
+      'Guard speed: '+(di===0?'slow':di===1?'medium':'fast'),
+      'Fuel drain:  '+(di===0?'low':di===1?'medium':'high'),
+      'Vision:      '+(di===0?'short':di===1?'medium':'wide'),
+    ];
+    for (var si=0; si<stats.length; si++) {
+      txt(stats[si], cx+cw/2, cy+110+si*22, sel?'#ffcc88':'#996644', 11, 'center', 'monospace');
+    }
+
+    // description
+    const descs=['Perfect for a first arson.','A proper heist challenge.','Diebs are always watching.'];
+    txt(descs[di], cx+cw/2, cy+190, sel?'#cc9966':'#664433', 11, 'center', 'italic Georgia');
+
+    if (sel) {
+      rnd(cx+20,cy+ch-54,cw-40,38,8,'rgba(220,80,0,0.9)','rgba(255,150,50,0.8)',2);
+      txt('SELECTED', cx+cw/2, cy+ch-30, '#fff', 14, 'center', 'bold monospace');
+    }
+
+    if (mclk && hov) { mclk=false; diff=DIFFS[di]; }
+  }
+
+  // Start button
+  const sbx=W/2-130, sby=445;
+  const sbhov=mx>sbx&&mx<sbx+260&&my>sby&&my<sby+50;
+  ctx.save(); ctx.shadowColor='rgba(255,100,0,0.6)'; ctx.shadowBlur=sbhov?20:10;
+  rnd(sbx,sby,260,50,12,sbhov?'#551100':'#331100','#ff8800',2.5);
+  ctx.restore();
+  txt('BURN IT DOWN  \uD83D\uDD25', W/2, sby+34, '#ffcc88', 17, 'center', 'bold monospace');
+
+  if (mclk&&sbhov) { mclk=false; resetRun(); startPhase('heist'); }
+  if (eat('Space')||eat('Enter')) { resetRun(); startPhase('heist'); }
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   GAME LOOP
+   ══════════════════════════════════════════════════════════════════ */
+const SIM_STEP = 1/60;
+let simDebt = 0, lastTs = 0;
+
+function targetFps() {
+  return LOW_FPS_PHASES.has(phase) ? 30 : 60;
+}
+
+function loop(ts) {
+  const elapsed = lastTs ? Math.min((ts-lastTs)/1000, SIM_STEP*6) : SIM_STEP;
+  lastTs = ts;
+  gT++;
+
+  // Fixed-timestep sim
+  simDebt += elapsed;
+  while (simDebt >= SIM_STEP) {
+    const dt = SIM_STEP;
+    switch (phase) {
+      case 'title':    updateTitle(dt);    break;
+      case 'diff':     updateDiff(dt);     break;
+      case 'heist':    updateFireParticles(dt); updateHeist(dt); break;
+      case 'burn':     updateBurn(dt);     break;
+      case 'map':      updateMap(dt);      break;
+      case 'gameover': updateGameOver(dt); break;
+      case 'victory':  updateVictory(dt);  break;
+    }
+    simDebt -= SIM_STEP;
+  }
+
+  // Render at target fps
+  ctx.clearRect(0,0,W,H);
+  switch (phase) {
+    case 'title':    drawTitle();    break;
+    case 'diff':     drawDiff();     break;
+    case 'heist':    drawHeist();    break;
+    case 'burn':     drawBurn();     break;
+    case 'map':      drawMap();      break;
+    case 'gameover': drawGameOver(); break;
+    case 'victory':  drawVictory();  break;
+  }
+
+  mclk = false;
+  const codes = Object.keys(JP);
+  for (var i=0; i<codes.length; i++) JP[codes[i]]=false;
+
+  requestAnimationFrame(loop);
+}
+
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

@@ -202,6 +202,22 @@ series with a championship burst). Setup screen is HTML DOM; game board is canva
 
 ---
 
+#### Mucko Smash (`smash/index.html`) — Canvas  · browser platform fighter
+
+Small four-slot platform fighter with local play, CPU opponents, stocks, damage-based
+knockback, dash collisions, generated arenas, and a growing roster of Mucko characters.
+The character select screen now supports portraits, side-view sprites, thumbnails,
+per-slot randomization, difficulty/lives settings, and restart-from-same-setup flow.
+
+The browser game has a matching headless simulator in `smash/sim.js`, plus an evolution
+harness in `smash/train.js`. Those two files are intentionally kept behaviorally aligned:
+if you change knockback, recovery, specials, or CPU decision rules in one, update the
+other. Current shipped specials include Duck Dieb sustained flight, J. Long neck-hammer,
+Saturn V abort-module shot, Hippo's "Margaritaville" pool shield, and Digory's
+mass-boost bounce stance.
+
+---
+
 ### Educational
 
 #### Lake House Math Mystery (`lakehousemath/`) — Canvas  · uses `mucko-engine.js`
@@ -264,12 +280,19 @@ wants a PB&J and a good night's sleep. Purple-grey coloring. NPC in Lake House M
 "surprisingly chill once you meet him." Difficulty label "Panda Mastermind" in Hippo
 refers to him. NPC in Lake House Math.
 
-**Nik** — A seal; Lekan's distraction agent. In Hippo, using Nik causes a deafening
-yell that freezes all keepers in a zone temporarily. Light blue coloring. NPC in Lake
-House Math.
+**Nik** — A brown monkey; Lekan's distraction agent. In Hippo, using Nik causes a
+deafening yell that freezes all keepers in a zone temporarily. NPC in Lake House Math.
+(Was drawn as a seal in earlier games; canon is now brown monkey.)
 
-**Basil** — A zookeeper, reluctant and bookish ("would rather be reading"). Cheat `BASIL`
-makes him unable to see the player. NPC in Lake House Math.
+**Basil** — An otter, reluctant and bookish ("would rather be reading"). Cheat `BASIL`
+makes him unable to see the player. NPC in Lake House Math. (Was drawn as a human
+zookeeper in earlier games; canon is now otter.)
+
+**Digory** — A black-and-white fox terrier. Mostly white, with a big black spot on
+one side and a smaller black spot (the kids call it his "on/off button"); a black
+rump patch extends up the tail which ends in a white tip; his face is black with
+triangle upright ears and a bit of brown around the muzzle. Usually wears a gray
+collar with a silver tag. Appears in *Pflueger and the Hippo*.
 
 **Pras the Koala** — Referenced in Hippo's dialog as always being asleep. Immortalized
 by cheat code `PRASTHEKOALA` which slows keepers "having an epic dream."
@@ -277,14 +300,17 @@ by cheat code `PRASTHEKOALA` which slows keepers "having an epic dream."
 **Saturn V** — The rocket from Rocket Trail. Appears as a full character NPC in Lake
 House Math, listed alongside organic beings. Played completely straight.
 
+**Mandy Mouse** — A mouse NPC from Hippo's open plaza who gives patrol timing tips.
+Now promoted into the active Smash roster.
+
 ### Minor / Background
 
 **Gerald** — A giant squid who hosts dinner in Train Trail. Event NPC.
 
-**Mandy Mouse** — A mouse NPC in Hippo Zone 3 who gives keeper patrol timing tips.
-
 **J. Long (the Giraffe)** — Giraffe NPC in Hippo who peers over a fence with patrol
 hints.
+
+**Natasha** — A parrot NPC in Hippo's plaza. Now also part of the active Smash roster.
 
 **Lisa** — Friend of Pflueger who discovers the hippo is a zoo escapee (dialog reference).
 

@@ -52,9 +52,12 @@ body{background:#0d0b08;color:#d4c9a8;font-family:Georgia,serif;width:100%;heigh
 /* Events */
 .ev-box{background:rgba(25,20,8,0.95);border:2px solid rgba(160,130,60,0.45);border-radius:10px;padding:20px;margin:8px 0;}
 .ev-title{font-size:1.15em;color:#d4b858;font-weight:bold;margin-bottom:8px;}
+.ev-big{font-size:3.2em;line-height:1;text-align:center;display:block;margin:2px 0 10px;}
 .ev-text{font-size:0.9em;color:#b8aa88;font-style:italic;line-height:1.55;margin-bottom:14px;}
 .ev-choices{display:flex;flex-direction:column;gap:8px;}
-.ev-choice{background:rgba(30,24,8,0.9);border:1px solid rgba(130,100,40,0.5);color:#c8b888;padding:10px 16px;border-radius:6px;cursor:pointer;font-family:Georgia,serif;font-size:0.88em;text-align:left;transition:background 0.15s,border-color 0.15s;}
+.ev-choice{background:rgba(30,24,8,0.9);border:1px solid rgba(130,100,40,0.5);color:#c8b888;padding:10px 16px;border-radius:6px;cursor:pointer;font-family:Georgia,serif;font-size:0.88em;text-align:left;transition:background 0.15s,border-color 0.15s;display:flex;align-items:center;}
+.ev-choice .ch-icon{font-size:1.5em;margin-right:10px;flex-shrink:0;}
+.ev-choice .ch-txt{flex:1;}
 .ev-choice:hover{background:rgba(50,38,10,0.95);border-color:#c8a84a;}
 
 /* Port shop */
@@ -112,6 +115,7 @@ function resize(){
 }
 window.addEventListener('resize',resize);
 if(window.visualViewport)window.visualViewport.addEventListener('resize',resize);
+if(window.visualViewport)window.visualViewport.addEventListener('scroll',resize);
 resize();
 
 /* ── INPUT ───────────────────────────────────────────────────────────────── */
@@ -163,50 +167,50 @@ const STOPS=[
 
 const RIVER_EVENTS=[
   {title:'🌫️ Rhine Fog',text:'A thick fog rolls in overnight. You cannot see ten meters from the bow. But then again — neither can anyone else.',
-   choices:[{t:'Push through (full speed)',out:'You navigate by instinct. Progress gained, but the hull scrapes a hidden sandbar.',fx:function(){G.coal=c(G.coal-8,0,100);G.progress+=15;G.integrity=c(G.integrity-12,0,100);}},
-            {t:'Anchor and wait',out:'You wait till dawn. Lost time, but the barge and her cargo are intact.',fx:function(){G.day++;G.msg='You lost a day to fog — but the Weimar fog was worse.'}}]},
+   choices:[{i:'🚀',t:'Push through (full speed)',out:'You navigate by instinct. Progress gained, but the hull scrapes a hidden sandbar.',fx:function(){G.coal=c(G.coal-8,0,100);G.progress+=15;G.integrity=c(G.integrity-12,0,100);}},
+            {i:'⚓',t:'Anchor and wait',out:'You wait till dawn. Lost time, but the barge and her cargo are intact.',fx:function(){G.day++;G.msg='You lost a day to fog — but the Weimar fog was worse.'}}]},
   {title:'🚓 River Police Patrol',text:'A police launch cuts across your bow. The officer shines a light. You have three options.',
-   choices:[{t:'Bribe (30 Marks)',out:'The officer pockets your note without a word. You sail on.',fx:function(){if(G.marks>=30){G.marks-=30;G.heat=c(G.heat-5,0,100);}else{G.heat=c(G.heat+25,0,100);G.msg='No money for bribes — they log your name.'}}},
-            {t:'Act innocent',out:'Your papers are in order. They let you pass — but something felt off.',fx:function(){G.heat=c(G.heat+10,0,100);}}]},
+   choices:[{i:'💰',t:'Bribe (30 Marks)',out:'The officer pockets your note without a word. You sail on.',fx:function(){if(G.marks>=30){G.marks-=30;G.heat=c(G.heat-5,0,100);}else{G.heat=c(G.heat+25,0,100);G.msg='No money for bribes — they log your name.'}}},
+            {i:'😇',t:'Act innocent',out:'Your papers are in order. They let you pass — but something felt off.',fx:function(){G.heat=c(G.heat+10,0,100);}}]},
   {title:'💨 Favorable Current',text:'The current shifts and carries you forward faster than the charts said. A gift from the river.',
-   choices:[{t:'Ride it (save coal)',out:'You cut the engines and drift. Twenty kilometers for free.',fx:function(){G.progress+=18;G.coal=c(G.coal+8,0,100);}},
-            {t:'Run engines too (go fast)',out:'You fly down the river. Progress, but the coal runs hot.',fx:function(){G.progress+=28;G.coal=c(G.coal-10,0,100);}}]},
+   choices:[{i:'🏄',t:'Ride it (save coal)',out:'You cut the engines and drift. Twenty kilometers for free.',fx:function(){G.progress+=18;G.coal=c(G.coal+8,0,100);}},
+            {i:'💨',t:'Run engines too (go fast)',out:'You fly down the river. Progress, but the coal runs hot.',fx:function(){G.progress+=28;G.coal=c(G.coal-10,0,100);}}]},
   {title:'⚙️ Engine Trouble',text:'A knock from below decks. The mechanic shrugs. "Probably nothing. Probably."',
-   choices:[{t:'Stop and fix (costs 20 Marks)',out:'Three hours of work. But she runs clean now.',fx:function(){if(G.marks>=20){G.marks-=20;G.coal=c(G.coal+15,0,100);}else{G.heat=c(G.heat+5,0,100);G.coal=c(G.coal-15,0,100);G.msg='Ran without repairs — efficiency suffered.'}}},
-            {t:'Keep moving, keep praying',out:'She holds... for now. The knocking stops. Mostly.',fx:function(){G.coal=c(G.coal-20,0,100);}}]},
+   choices:[{i:'🔧',t:'Stop and fix (costs 20 Marks)',out:'Three hours of work. But she runs clean now.',fx:function(){if(G.marks>=20){G.marks-=20;G.coal=c(G.coal+15,0,100);}else{G.heat=c(G.heat+5,0,100);G.coal=c(G.coal-15,0,100);G.msg='Ran without repairs — efficiency suffered.'}}},
+            {i:'🙏',t:'Keep moving, keep praying',out:'She holds... for now. The knocking stops. Mostly.',fx:function(){G.coal=c(G.coal-20,0,100);}}]},
   {title:'🤝 Fellow Traveler',text:'A small boat pulls alongside. The skipper has the look of a man who moves things. He nods at your cargo.',
-   choices:[{t:'Ignore him',out:'He shrugs and peels away. Maybe a missed connection. Maybe not.',fx:function(){}},
-            {t:'Talk (he offers a tip)',out:'He names a contact in the next port. Your heat drops — someone smooth the way.',fx:function(){G.heat=c(G.heat-15,0,100);G.marks=c(G.marks+10,0,9999);}}]},
+   choices:[{i:'🙈',t:'Ignore him',out:'He shrugs and peels away. Maybe a missed connection. Maybe not.',fx:function(){}},
+            {i:'🗣️',t:'Talk (he offers a tip)',out:'He names a contact in the next port. Your heat drops — someone smooth the way.',fx:function(){G.heat=c(G.heat-15,0,100);G.marks=c(G.marks+10,0,9999);}}]},
   {title:'⛈️ Rhine Storm',text:'The sky goes dark in an hour. By midnight the waves are throwing spray across the deck.',
-   choices:[{t:'Shelter at river bank',out:'You tie off in a reed bed. Lost two days, but the cargo is dry.',fx:function(){G.day+=2;G.integrity=c(G.integrity+5,0,100);}},
-            {t:'Run for cover (full throttle)',out:'You make port but the cargo took water. Integrity is down.',fx:function(){G.coal=c(G.coal-18,0,100);G.integrity=c(G.integrity-20,0,100);}}]},
+   choices:[{i:'⚓',t:'Shelter at river bank',out:'You tie off in a reed bed. Lost two days, but the cargo is dry.',fx:function(){G.day+=2;G.integrity=c(G.integrity+5,0,100);}},
+            {i:'🌊',t:'Run for cover (full throttle)',out:'You make port but the cargo took water. Integrity is down.',fx:function(){G.coal=c(G.coal-18,0,100);G.integrity=c(G.integrity-20,0,100);}}]},
   {title:'👂 Someone Is Listening',text:'At the tavern dock, you notice a man writing in a small notebook. He watches your barge too carefully.',
-   choices:[{t:'Change berth, move quietly',out:'You relocate before dawn. He does not follow.',fx:function(){G.marks=c(G.marks-15,0,9999);G.heat=c(G.heat-10,0,100);}},
-            {t:'Do nothing, stay calm',out:'He may be nothing. He may not. You sleep badly.',fx:function(){G.heat=c(G.heat+20,0,100);}}]},
+   choices:[{i:'🌙',t:'Change berth, move quietly',out:'You relocate before dawn. He does not follow.',fx:function(){G.marks=c(G.marks-15,0,9999);G.heat=c(G.heat-10,0,100);}},
+            {i:'😶',t:'Do nothing, stay calm',out:'He may be nothing. He may not. You sleep badly.',fx:function(){G.heat=c(G.heat+20,0,100);}}]},
   {title:'💊 Sympathetic Custom Official',text:'An official flags you down, then leans in quietly. "I know what you carry. I know why. Here." He hands you a clearance stamp.',
-   choices:[{t:'Accept it gratefully',out:'The stamp gets you through three checkpoints without question.',fx:function(){G.heat=c(G.heat-25,0,100);G.marks=c(G.marks+20,0,9999);}},
-            {t:'Refuse — too risky',out:'You cannot trust gifts from officials. But you remember his face.',fx:function(){}}]},
+   choices:[{i:'🙏',t:'Accept it gratefully',out:'The stamp gets you through three checkpoints without question.',fx:function(){G.heat=c(G.heat-25,0,100);G.marks=c(G.marks+20,0,9999);}},
+            {i:'👎',t:'Refuse — too risky',out:'You cannot trust gifts from officials. But you remember his face.',fx:function(){}}]},
   {title:'🧱 Bridge Toll',text:'The toll keeper demands papers AND money. The bridge is the only crossing for forty kilometers.',
-   choices:[{t:'Pay the toll (25 Marks)',out:'You pay. You pass. No further complications.',fx:function(){G.marks=c(G.marks-25,0,9999);}},
-            {t:'Argue the charge',out:'You argue and lose. He charges double and notes your registration.',fx:function(){G.marks=c(G.marks-45,0,9999);G.heat=c(G.heat+10,0,100);}}]},
+   choices:[{i:'💰',t:'Pay the toll (25 Marks)',out:'You pay. You pass. No further complications.',fx:function(){G.marks=c(G.marks-25,0,9999);}},
+            {i:'😠',t:'Argue the charge',out:'You argue and lose. He charges double and notes your registration.',fx:function(){G.marks=c(G.marks-45,0,9999);G.heat=c(G.heat+10,0,100);}}]},
   {title:'🎻 River Festival',text:'A village holds its summer festival on the banks. Lanterns float. An accordion plays. The police are busy with crowd control.',
-   choices:[{t:'Dock and blend in',out:'You spend the evening among farmers and river workers. Your cargo moves unmolested.',fx:function(){G.heat=c(G.heat-20,0,100);G.marks=c(G.marks+15,0,9999);}},
-            {t:'Keep moving — no time',out:'You push on through the music and lights.',fx:function(){G.progress+=12;}}]},
+   choices:[{i:'🎉',t:'Dock and blend in',out:'You spend the evening among farmers and river workers. Your cargo moves unmolested.',fx:function(){G.heat=c(G.heat-20,0,100);G.marks=c(G.marks+15,0,9999);}},
+            {i:'🚀',t:'Keep moving — no time',out:'You push on through the music and lights.',fx:function(){G.progress+=12;}}]},
   {title:'🔧 Coal Barge Alongside',text:'A passing coal barge offers to sell. The price is fair. The skipper does not ask questions.',
-   choices:[{t:'Buy coal (20 Marks)',out:'Your bunkers are full. The barge departs without a word.',fx:function(){G.marks=c(G.marks-20,0,9999);G.coal=c(G.coal+30,0,100);}},
-            {t:'Decline',out:'You wave him off. You have enough for now.',fx:function(){}}]},
+   choices:[{i:'⛽',t:'Buy coal (20 Marks)',out:'Your bunkers are full. The barge departs without a word.',fx:function(){G.marks=c(G.marks-20,0,9999);G.coal=c(G.coal+30,0,100);}},
+            {i:'👎',t:'Decline',out:'You wave him off. You have enough for now.',fx:function(){}}]},
   {title:'🌙 Night Crossing',text:'You can make the next checkpoint tonight or wait until morning. Night crossings avoid the day shift — but they are technically illegal.',
-   choices:[{t:'Cross at night',out:'You cut engines and drift past without lights. No one sees you.',fx:function(){G.heat=c(G.heat-8,0,100);G.progress+=22;}},
-            {t:'Wait for morning',out:'You anchor. Prudent. Dull. Safe.',fx:function(){G.day++;}}]},
+   choices:[{i:'🌙',t:'Cross at night',out:'You cut engines and drift past without lights. No one sees you.',fx:function(){G.heat=c(G.heat-8,0,100);G.progress+=22;}},
+            {i:'☀️',t:'Wait for morning',out:'You anchor. Prudent. Dull. Safe.',fx:function(){G.day++;}}]},
   {title:'📦 Cargo Shift',text:'A hard turn and the cargo shifts below. You hear something that may or may not have been a crack.',
-   choices:[{t:'Stop and re-pack (lose time)',out:'You spend two hours restowing everything carefully.',fx:function(){G.day++;G.integrity=c(G.integrity+15,0,100);}},
-            {t:'Keep moving',out:'She rides different now. The cargo will survive — probably.',fx:function(){G.integrity=c(G.integrity-18,0,100);}}]},
+   choices:[{i:'📦',t:'Stop and re-pack (lose time)',out:'You spend two hours restowing everything carefully.',fx:function(){G.day++;G.integrity=c(G.integrity+15,0,100);}},
+            {i:'🚀',t:'Keep moving',out:'She rides different now. The cargo will survive — probably.',fx:function(){G.integrity=c(G.integrity-18,0,100);}}]},
   {title:'🚢 Suspicious Barge',text:'A large cargo barge overtakes you and then slows. They match your speed for twenty minutes. Nobody waves.',
-   choices:[{t:'Duck into a side channel',out:'You lose them in the backwaters of the Rhine delta. Thirty minutes lost.',fx:function(){G.heat=c(G.heat-15,0,100);}},
-            {t:'Maintain course',out:'They eventually pull away. But you are shaken.',fx:function(){G.heat=c(G.heat+12,0,100);}}]},
+   choices:[{i:'🌿',t:'Duck into a side channel',out:'You lose them in the backwaters of the Rhine delta. Thirty minutes lost.',fx:function(){G.heat=c(G.heat-15,0,100);}},
+            {i:'➡️',t:'Maintain course',out:'They eventually pull away. But you are shaken.',fx:function(){G.heat=c(G.heat+12,0,100);}}]},
   {title:'📰 Headline at the Dock Kiosk',text:'The morning paper: CONTRABAND ARRESTS TRIPLE ON RHINE. Officers quoted saying they have "reliable information."',
-   choices:[{t:'Take the back channels (+1 day)',out:'Longer route but far fewer patrols.',fx:function(){G.day++;G.heat=c(G.heat-20,0,100);}},
-            {t:'Stick to the main river',out:'You read the article twice, then fold the paper carefully.',fx:function(){G.heat=c(G.heat+15,0,100);}}]},
+   choices:[{i:'🗺️',t:'Take the back channels (+1 day)',out:'Longer route but far fewer patrols.',fx:function(){G.day++;G.heat=c(G.heat-20,0,100);}},
+            {i:'🚢',t:'Stick to the main river',out:'You read the article twice, then fold the paper carefully.',fx:function(){G.heat=c(G.heat+15,0,100);}}]},
 ];
 
 /* ── GAME STATE ──────────────────────────────────────────────────────────── */
@@ -312,11 +316,16 @@ function startNewGame(){
 
 function showCargoSelect(){
   var items=CARGO_TYPES.map(function(ct){
-    return '<div class="card" style="cursor:pointer;transition:border-color 0.15s" onclick="selectCargo(\''+ct.id+'\')" onmouseover="this.style.borderColor=\'#c8a84a\'" onmouseout="this.style.borderColor=\'\'">'+
-      '<div style="font-size:1.6em;margin-bottom:6px">'+ct.icon+'</div>'+
+    var risk = ct.riskMod>=30?3:ct.riskMod>=15?2:1;
+    var riskStars = risk===1?'⭐':risk===2?'⭐⭐':'⭐⭐⭐';
+    var riskColor = risk===1?'#50c070':risk===2?'#c8a84a':'#c05050';
+    var riskBorder = risk===1?'#225522':risk===2?'#887020':'#772020';
+    return '<div class="card" style="cursor:pointer;transition:border-color 0.15s;border-color:'+riskBorder+'" onclick="selectCargo(\''+ct.id+'\')" onmouseover="this.style.borderColor=\'#c8a84a\'" onmouseout="this.style.borderColor=\''+riskBorder+'\'">'+
+      '<div style="font-size:3.2em;margin-bottom:2px;line-height:1" aria-hidden="true">'+ct.icon+'</div>'+
+      '<div style="font-size:1.05em;letter-spacing:3px;color:'+riskColor+';margin-bottom:4px" aria-hidden="true">'+riskStars+'</div>'+
       '<div style="color:#c8a84a;font-weight:bold;margin-bottom:4px">'+ct.name+'</div>'+
       '<div style="font-size:0.82em;color:#9a8a68;font-style:italic;margin-bottom:6px">'+ct.desc+'</div>'+
-      '<div style="font-size:0.78em;color:#7a6040;font-family:monospace">Base value: '+ct.baseValue+' Marks &nbsp;·&nbsp; Risk mod: +'+ct.riskMod+'% heat</div>'+
+      '<div style="font-size:0.78em;color:#7a6040;font-family:monospace">💰 '+ct.baseValue+' Marks &nbsp;·&nbsp; 🔥 +'+ct.riskMod+'% heat</div>'+
       '</div>';
   }).join('');
   el().innerHTML='<div class="page">'+
@@ -399,14 +408,19 @@ function sailDay(){
 
 function showEvent(){
   var ev=G.curEvent;
+  var emojiMatch=ev.title.match(/^\s*(\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*)/u);
+  var bigIcon=emojiMatch?emojiMatch[1]:'🎲';
+  var cleanTitle=emojiMatch?ev.title.slice(emojiMatch[0].length).trim():ev.title;
   var choices=ev.choices.map(function(ch,i){
+    var ic=ch.i||'▶';
     return '<button class="ev-choice" onclick="resolveEvent('+i+')">'+
-      '<strong>'+(i+1)+'.</strong> '+ch.t+'</button>';
+      '<span class="ch-icon">'+ic+'</span><span class="ch-txt">'+ch.t+'</span></button>';
   }).join('');
   el().innerHTML='<div class="page">'+
     statusBar()+
     '<div class="ev-box">'+
-    '<div class="ev-title">'+ev.title+'</div>'+
+    '<div class="ev-big">'+bigIcon+'</div>'+
+    '<div class="ev-title" style="text-align:center">'+cleanTitle+'</div>'+
     '<div class="ev-text">'+ev.text+'</div>'+
     '<div class="ev-choices">'+choices+'</div>'+
     '</div></div>';
@@ -860,26 +874,48 @@ function drawPort(){
 }
 
 /* ── GAME OVER & VICTORY ─────────────────────────────────────────────────── */
+var _endActx=null;
+function playEndSting(kind){
+  try{
+    if(!_endActx) _endActx = new (window.AudioContext||window.webkitAudioContext)();
+    var actx=_endActx; if(actx.state!=='running') actx.resume();
+    var t0=actx.currentTime;
+    var notes = kind==='win' ? [[523,0],[659,0.12],[784,0.24],[1047,0.36]] : [[392,0],[330,0.12],[262,0.24],[196,0.36]];
+    notes.forEach(function(n){
+      var o=actx.createOscillator(), g=actx.createGain();
+      o.type = kind==='win' ? 'triangle' : 'sine';
+      o.frequency.value = n[0];
+      g.gain.setValueAtTime(0.0001, t0+n[1]);
+      g.gain.exponentialRampToValueAtTime(0.22, t0+n[1]+0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0+n[1]+0.36);
+      o.connect(g); g.connect(actx.destination);
+      o.start(t0+n[1]); o.stop(t0+n[1]+0.4);
+    });
+  }catch(e){}
+}
+
 function showArrested(){
+  playEndSting('lose');
   el().innerHTML='<div class="page" style="justify-content:center;align-items:center;text-align:center;gap:16px">'+
-    '<div style="font-size:4em">🚔</div>'+
+    '<div style="font-size:5em;line-height:1">😵 🚔</div>'+
     '<div class="page-title" style="color:#cc4444">ARRESTED</div>'+
     '<div class="card" style="max-width:480px;text-align:left">'+
     '<div style="font-size:0.9em;color:#aa8888;line-height:1.6">'+G.msg+'</div>'+
     '</div>'+
     '<div style="font-size:0.85em;color:#7a5a40">Day '+G.day+' · '+STOPS[Math.min(G.leg,4)].name+'</div>'+
-    '<button class="btn primary" onclick="startNewGame()">Try Again</button>'+
-    '<a href="../index.html" style="color:#5a3a28;font-size:0.8em;text-decoration:none">← Back</a>'+
+    '<button class="btn primary" onclick="startNewGame()">🔄 Try Again</button>'+
+    '<a href="../index.html" style="color:#5a3a28;font-size:0.8em;text-decoration:none">🏠 Main Menu</a>'+
     '</div>';
 }
 
 function showVictory(){
+  playEndSting('win');
   var final=Math.round(G.marks+(G.heat<30?80:G.heat<60?40:0));
   var grade=final>500?'S':final>350?'A':final>220?'B':'C';
   var gradeCol={'S':'#f0d060','A':'#88ff88','B':'#aaddff','C':'#cc9966'}[grade];
   el().innerHTML='<div class="page" style="justify-content:center;align-items:center;text-align:center;gap:16px">'+
-    '<div style="font-size:3em">⛵</div>'+
-    '<div class="page-title">ROTTERDAM</div>'+
+    '<div style="font-size:5em;line-height:1">🏆 🎉</div>'+
+    '<div class="page-title" style="color:#ffd700;text-shadow:0 0 12px rgba(255,215,0,.4)">ROTTERDAM</div>'+
     '<div class="page-sub">You made it. The Rhine is behind you. The buyer is pleased.</div>'+
     '<div class="card" style="max-width:480px">'+
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;text-align:left">'+
@@ -890,8 +926,8 @@ function showVictory(){
     '</div>'+
     '</div>'+
     '<div class="btn-row">'+
-    '<button class="btn primary" onclick="startNewGame()">Run Again</button>'+
-    '<a href="../index.html" class="btn" style="text-decoration:none">← Mucko\'s Games</a>'+
+    '<button class="btn primary" onclick="startNewGame()">🔄 Run Again</button>'+
+    '<a href="../index.html" class="btn" style="text-decoration:none">🏠 Mucko\'s Games</a>'+
     '</div></div>';
 }
 

@@ -28,7 +28,7 @@ const touchState = { dirs: new Set(), buttons: new Set() };
 
 const CHARACTERS = {
   samster: { name: 'Samster', color: '#dfc18e', accent: '#8d5f35', outline: '#4f311d', speakerColor: '#ffe0b2', sprite: 'hamster' },
-  duck: { name: 'Duck Dieb', color: '#f3f1eb', accent: '#161616', outline: '#2a2217', speakerColor: '#fff4cf', sprite: 'duck' },
+  duck: { name: 'Duck Dieb', color: '#8b6030', accent: '#2a7a38', outline: '#3c2814', speakerColor: '#fff4cf', sprite: 'duck' },
   hippo: { name: 'Hippo', color: '#8f7ea8', accent: '#63557b', outline: '#40324c', speakerColor: '#ead9ff', sprite: 'hippo' },
   nik: { name: 'Nik', color: '#83c7e3', accent: '#3f7da0', outline: '#24506d', speakerColor: '#d6f6ff', sprite: 'seal' },
   lekan: { name: 'Lekan', color: '#f4f4f4', accent: '#242424', outline: '#202020', speakerColor: '#ffffff', sprite: 'panda' },
@@ -1258,18 +1258,27 @@ function drawCharacter(cx, id, x, y, facing, bob, shadowScale) {
     drawCircle(cx, 4, -4, 2, '#35231b');
     drawCircle(cx, 0, 1, 2.2, '#c56f62');
   } else if (ch.sprite === 'duck') {
-    drawEllipse(cx, -2, 4, 16, 12, '#f2f0eb', ch.outline, 2);
-    drawEllipse(cx, 10, -6, 10, 9, '#f2f0eb', ch.outline, 2);
-    fillRoundRect(cx, 4, -10, 14, 6, 3, ch.accent);
-    drawCircle(cx, 9, -8, 1.8, '#f2f0eb');
-    drawEllipse(cx, 20, -2, 7, 4, '#e8a34a', '#9c5e1d', 1.4);
-    cx.fillStyle = '#202020';
+    // Mallard body — brown with darker wing shading
+    drawEllipse(cx, -2, 4, 16, 12, '#8b6030', ch.outline, 2);
+    drawEllipse(cx, -2, 5, 12, 7, '#7a5020');
+    // Tail feather (dark)
+    cx.fillStyle = '#3c2814';
     cx.beginPath();
     cx.moveTo(-12, 2);
-    cx.lineTo(-22, 16);
-    cx.lineTo(-6, 12);
+    cx.lineTo(-22, 14);
+    cx.lineTo(-6, 10);
     cx.closePath();
     cx.fill();
+    // Dark green mallard head with iridescent highlight
+    drawCircle(cx, 10, -7, 8, '#2a7a38', ch.outline, 2);
+    drawCircle(cx, 8, -9, 3.4, 'rgba(0,200,160,0.32)');
+    // Black mask bar
+    cx.fillStyle = '#111';
+    cx.fillRect(4, -9, 13, 4);
+    drawCircle(cx, 8, -7, 1.4, '#fff');
+    drawCircle(cx, 13, -7, 1.4, '#fff');
+    // Yellow bill
+    drawEllipse(cx, 20, -3, 7, 3.5, '#e8b800', '#9c7900', 1.4);
   } else if (ch.sprite === 'hippo') {
     drawEllipse(cx, 0, 5, 20, 15, ch.color, ch.outline, 2);
     drawCircle(cx, -9, -7, 5, ch.color, ch.outline, 2);

@@ -470,8 +470,8 @@ body {
       </div>
       <div class="section-sub">Who Goes First?</div>
       <div class="tog-row">
-        <button class="tog-btn on" id="t-huf" onclick="setCpuFirst(false)">You (P1)</button>
-        <button class="tog-btn"    id="t-cpf" onclick="setCpuFirst(true)">CPU goes first</button>
+        <button class="tog-btn on" id="t-huf" onclick="setCpuFirst(false)">🧒 You (P1)</button>
+        <button class="tog-btn"    id="t-cpf" onclick="setCpuFirst(true)">🤖 CPU goes first</button>
       </div>
     </div>
   </div>
@@ -537,7 +537,7 @@ body {
   </div>
 
   <div id="game-controls">
-    <button class="btn-game primary" onclick="newGame()">New Game</button>
+    <button class="btn-game primary" onclick="newGame()">🔄 New Game</button>
     <button class="btn-game" onclick="showSetup()">◀ Setup</button>
   </div>
 </div>
@@ -552,8 +552,8 @@ body {
     <div id="res-sub"></div>
     <div id="res-tourney" style="display:none;margin:8px 0 4px;font-size:0.95em;color:#d4a853;font-weight:bold;letter-spacing:0.04em;"></div>
     <div class="res-btns">
-      <button class="btn-game primary" id="btn-again" onclick="newGame()">Play Again!</button>
-      <button class="btn-game" onclick="showSetup()">Setup</button>
+      <button class="btn-game primary" id="btn-again" onclick="newGame()">🔄 Play Again!</button>
+      <button class="btn-game" onclick="showSetup()">⚙️ Setup</button>
     </div>
   </div>
 </div>
@@ -1014,6 +1014,12 @@ const G = {
 
   tourney: {active:false, goal:2, p1:0, p2:0, done:false},
 };
+const AI_STATE = {
+  cache: new Map(),
+  deadline: 0,
+  timedOut: false,
+  nodeCount: 0,
+};
 
 /* ════════════════════════════════════════════════════════════════════════════
    WIN LINE GENERATION
@@ -1099,6 +1105,17 @@ function availMoves(board) {
   return moves;
 }
 
+function movePriority(idx) {
+  const n = G.size;
+  const mid = Math.floor(n / 2);
+  return Math.abs(Math.floor(idx / n) - mid) + Math.abs(idx % n - mid);
+}
+
+function orderMoves(moves) {
+  moves.sort((a,b) => movePriority(a) - movePriority(b));
+  return moves;
+}
+
 function evalBoard(board) {
   let score = 0;
   const mid = Math.floor(G.size/2);
@@ -1113,17 +1130,26 @@ function evalBoard(board) {
 }
 
 function minimax(board, depth, isMax, alpha, beta) {
+  AI_STATE.nodeCount++;
+  if ((AI_STATE.nodeCount & 127) === 0 && performance.now() > AI_STATE.deadline) {
+    AI_STATE.timedOut = true;
+    return evalBoard(board);
+  }
+  const key = board.join('') + '|' + depth + '|' + (isMax ? 'M' : 'm');
+  if (AI_STATE.cache.has(key)) return AI_STATE.cache.get(key);
   const w = checkWin(board);
-  if (w) return w.player===2 ? 1000+depth : -(1000+depth);
+  if (w) {
+    const winScore = w.player===2 ? 1000+depth : -(1000+depth);
+    AI_STATE.cache.set(key, winScore);
+    return winScore;
+  }
   const moves = availMoves(board);
-  if (!moves.length || depth===0) return evalBoard(board);
-
-  const n=G.size, mid=Math.floor(n/2);
-  moves.sort((a,b) => {
-    const da=Math.abs(Math.floor(a/n)-mid)+Math.abs(a%n-mid);
-    const db=Math.abs(Math.floor(b/n)-mid)+Math.abs(b%n-mid);
-    return da-db;
-  });
+  if (!moves.length || depth===0) {
+    const leafScore = evalBoard(board);
+    AI_STATE.cache.set(key, leafScore);
+    return leafScore;
+  }
+  orderMoves(moves);
 
   if (isMax) {
     let best=-Infinity;
@@ -1131,9 +1157,11 @@ function minimax(board, depth, isMax, alpha, beta) {
       board[mv]=2;
       best=Math.max(best, minimax(board,depth-1,false,alpha,beta));
       board[mv]=0;
+      if (AI_STATE.timedOut) break;
       alpha=Math.max(alpha,best);
       if (beta<=alpha) break;
     }
+    AI_STATE.cache.set(key, best);
     return best;
   } else {
     let best=Infinity;
@@ -1141,15 +1169,23 @@ function minimax(board, depth, isMax, alpha, beta) {
       board[mv]=1;
       best=Math.min(best, minimax(board,depth-1,true,alpha,beta));
       board[mv]=0;
+      if (AI_STATE.timedOut) break;
       beta=Math.min(beta,best);
       if (beta<=alpha) break;
     }
+    AI_STATE.cache.set(key, best);
     return best;
   }
 }
 
 function getMaxDepth() {
-  const branch = G.gravity ? G.size : G.size*G.size;
+  if (G.gravity) {
+    if (G.size <= 4) return 8;
+    if (G.size === 5) return 7;
+    if (G.size === 6) return 6;
+    return 5;
+  }
+  const branch = G.size*G.size;
   if (branch <= 9)  return 18;
   if (branch <= 16) return 7;
   if (branch <= 25) return 5;
@@ -1159,6 +1195,7 @@ function getMaxDepth() {
 function cpuMove(board) {
   const moves = availMoves(board);
   if (!moves.length) return -1;
+  orderMoves(moves);
 
   if (G.diff === 'easy') {
     // Purely random — easy enough for any kid to beat
@@ -1174,6 +1211,10 @@ function cpuMove(board) {
     }
     // 55% random, 45% shallow minimax (depth 2)
     if (Math.random() < 0.55) return moves[Math.floor(Math.random()*moves.length)];
+    AI_STATE.cache.clear();
+    AI_STATE.deadline = Infinity;
+    AI_STATE.timedOut = false;
+    AI_STATE.nodeCount = 0;
     let best=-Infinity, bestMv=moves[0];
     for (const mv of moves) {
       board[mv]=2;
@@ -1186,21 +1227,32 @@ function cpuMove(board) {
 
   // Hard: full minimax with alpha-beta
   const depth = getMaxDepth();
-  let best=-Infinity, bests=[];
-  for (const mv of moves) {
-    board[mv]=2;
-    const s=minimax(board,depth-1,false,-Infinity,Infinity);
-    board[mv]=0;
-    if(s>best){best=s;bests=[mv];}
-    else if(s===best) bests.push(mv);
+  for (const mv of moves) { board[mv]=2; const w=checkWin(board); board[mv]=0; if (w) return mv; }
+  for (const mv of moves) { board[mv]=1; const w=checkWin(board); board[mv]=0; if (w) return mv; }
+  const budgetMs = G.gravity ? 28 : 42;
+  const deadline = performance.now() + budgetMs;
+  let bestMv = moves[0];
+  for (let searchDepth = 2; searchDepth <= depth; searchDepth++) {
+    AI_STATE.cache.clear();
+    AI_STATE.deadline = deadline;
+    AI_STATE.timedOut = false;
+    AI_STATE.nodeCount = 0;
+    let depthBest = -Infinity;
+    let depthBestMv = bestMv;
+    for (const mv of moves) {
+      board[mv]=2;
+      const s=minimax(board,searchDepth-1,false,-Infinity,Infinity);
+      board[mv]=0;
+      if (AI_STATE.timedOut) break;
+      if(s>depthBest){depthBest=s;depthBestMv=mv;}
+    }
+    if (!AI_STATE.timedOut) {
+      bestMv = depthBestMv;
+    } else {
+      break;
+    }
   }
-  const n=G.size, mid=Math.floor(n/2);
-  bests.sort((a,b)=>{
-    const da=Math.abs(Math.floor(a/n)-mid)+Math.abs(a%n-mid);
-    const db=Math.abs(Math.floor(b/n)-mid)+Math.abs(b%n-mid);
-    return da-db;
-  });
-  return bests[0];
+  return bestMv;
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -1725,10 +1777,10 @@ function showResult(winner, isDraw) {
       tourneyEl.textContent = `Series: P1 ${pips(tn.p1,tn.goal)} — ${pips(tn.p2,tn.goal)} P2  (${gamesLeft} game${gamesLeft!==1?'s':''} left)`;
     }
     tourneyEl.style.display = '';
-    againBtn.textContent = tn.done ? 'New Match!' : 'Next Game!';
+    againBtn.textContent = tn.done ? '🏆 New Match!' : '▶ Next Game!';
   } else {
     tourneyEl.style.display = 'none';
-    againBtn.textContent = 'Play Again!';
+    againBtn.textContent = '🔄 Play Again!';
   }
 
   overlay.classList.add('show');

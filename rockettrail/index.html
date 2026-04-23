@@ -52,7 +52,10 @@ function resize() {
   stage.style.top  = Math.round((vh - H*s) / 2) + 'px';
 }
 window.addEventListener('resize', resize);
-if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', resize);
+  window.visualViewport.addEventListener('scroll', resize);
+}
 resize();
 
 /* ── AUDIO ───────────────────────────────────────────────────────────────── */
@@ -1351,14 +1354,24 @@ function drawDeepSpace() {
   txt('EVENT '+(ds.eventIdx+1)+' of '+DS_EVENTS.length, bx+bw-16, by+22, '#446688', 11, 'right', 'monospace');
   // Title
   txt(ev.title, W/2, by+46, '#ccddff', 16, 'center', 'bold Georgia');
-  // Body text (simple word-wrap)
-  var words=ev.body.split(' '), line='', cy=by+76, maxW=bw-40;
+  // Cache wrapped body lines when the event changes instead of remeasuring every frame.
+  if (!ev._wrappedBody) {
+    var words=ev.body.split(' '), line='', lines=[], maxW=bw-40;
+    ctx.font='14px Georgia,serif';
+    words.forEach(function(w){
+      var test=line+(line?' ':'')+w;
+      if(ctx.measureText(test).width>maxW&&line){lines.push(line);line=w;}
+      else line=test;
+    });
+    if(line) lines.push(line);
+    ev._wrappedBody = lines;
+  }
+  var cy=by+76;
   ctx.font='14px Georgia,serif'; ctx.fillStyle='#99aacc'; ctx.textAlign='center';
-  words.forEach(function(w){
-    var test=line+(line?' ':'')+w;
-    if(ctx.measureText(test).width>maxW&&line){ctx.fillText(line,W/2,cy);line=w;cy+=18;}
-    else line=test;
-  }); if(line) ctx.fillText(line,W/2,cy);
+  ev._wrappedBody.forEach(function(line){
+    ctx.fillText(line,W/2,cy);
+    cy+=18;
+  });
   // Choices
   ev.opts.forEach(function(opt, i) {
     var btnY=by+152+i*56, btnH=48;
@@ -2133,17 +2146,19 @@ function drawMoonLand() {
     if (ml.walkPhase) fa = Math.max(0, 1 - ml.walkT*2); // fade during moonwalk
     if (fa > 0.01) {
       ctx.save(); ctx.globalAlpha=fa;
-      rnd(W/2-160,H/2-55,320,160,14,'rgba(0,10,30,0.9)','rgba(100,200,255,0.5)',2);
+      rnd(W/2-160,H/2-85,320,190,14,'rgba(0,10,30,0.9)','rgba(100,200,255,0.5)',2);
       if (ml.crashed) {
-        txt('CRASH!',W/2,H/2-22,'#ff4444',32,'center','bold Georgia');
-        txt(ml.crashReason||'No landing score',W/2,H/2+10,'#cc8888',13,'center','Georgia');
-        txt('Impact: '+Math.round(ml.landingSpeed)+' px/s  \u2014  Safe max: '+Math.round(ml.dMaxSafe)+' px/s',W/2,H/2+34,'#996666',11,'center','monospace');
-        txt('Horizontal drift: '+Math.round(Math.abs(ml.crashVx||0))+' px/s',W/2,H/2+51,'#996666',11,'center','monospace');
-        txt('Fuel remaining: '+Math.round(ml.crashFuel||0)+'%',W/2,H/2+68,'#996666',11,'center','monospace');
+        txt('\uD83D\uDCA5',W/2,H/2-44,'#ffffff',44,'center','sans-serif');
+        txt('CRASH!',W/2,H/2-8,'#ff4444',30,'center','bold Georgia');
+        txt(ml.crashReason||'No landing score',W/2,H/2+14,'#cc8888',13,'center','Georgia');
+        txt('Impact: '+Math.round(ml.landingSpeed)+' px/s  \u2014  Safe max: '+Math.round(ml.dMaxSafe)+' px/s',W/2,H/2+38,'#996666',11,'center','monospace');
+        txt('Horizontal drift: '+Math.round(Math.abs(ml.crashVx||0))+' px/s',W/2,H/2+55,'#996666',11,'center','monospace');
+        txt('Fuel remaining: '+Math.round(ml.crashFuel||0)+'%',W/2,H/2+72,'#996666',11,'center','monospace');
       } else {
-        txt(ml.onPad?'PERFECT LANDING!':'SAFE LANDING',W/2,H/2-10,
+        txt(ml.onPad?'\uD83C\uDF89':'\u2705',W/2,H/2-44,'#ffffff',40,'center','sans-serif');
+        txt(ml.onPad?'PERFECT LANDING!':'SAFE LANDING',W/2,H/2-2,
             ml.onPad?'#ffee44':'#88ffaa',ml.onPad?26:22,'center','bold Georgia');
-        txt('Score: '+runScore.landing,W/2,H/2+30,'#ccddff',18,'center','Georgia');
+        txt('Score: '+runScore.landing,W/2,H/2+38,'#ccddff',18,'center','Georgia');
       }
       ctx.restore();
     }
@@ -2761,10 +2776,12 @@ function drawVictory() {
   // Title
   var fa=Math.min(1, vic.t*1.5);
   ctx.save(); ctx.globalAlpha=fa;
-  ctx.font='bold 42px Georgia'; ctx.textAlign='center'; ctx.textBaseline='alphabetic';
-  ctx.shadowColor='rgba(100,200,255,0.8)'; ctx.shadowBlur=20;
+  ctx.font='44px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='alphabetic';
   ctx.fillStyle='#ffffff';
-  ctx.fillText(apollo13Mode ? 'WE MADE IT HOME!' : 'MISSION COMPLETE!', W/2, 80);
+  ctx.fillText('\uD83C\uDFC6 \uD83C\uDF89', W/2, 42);
+  ctx.font='bold 40px Georgia';
+  ctx.shadowColor='rgba(100,200,255,0.8)'; ctx.shadowBlur=20;
+  ctx.fillText(apollo13Mode ? 'WE MADE IT HOME!' : 'MISSION COMPLETE!', W/2, 82);
   ctx.shadowBlur=0;
   // Difficulty badge (+ Apollo 13 marker)
   var dcLabel={'mercury':'MERCURY','gemini':'GEMINI','apollo':'APOLLO'}[difficulty];

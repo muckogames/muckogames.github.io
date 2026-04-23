@@ -13,6 +13,35 @@
 'use strict';
 
 /* ── CANVAS SETUP ─────────────────────────────────────────────────────────── */
+function getViewportSize() {
+  return {
+    width: (window.visualViewport && window.visualViewport.width) || window.innerWidth,
+    height: (window.visualViewport && window.visualViewport.height) || window.innerHeight
+  };
+}
+function bindViewportResize(handler) {
+  window.addEventListener('resize', handler);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', handler);
+    window.visualViewport.addEventListener('scroll', handler);
+  }
+  return function unbind() {
+    window.removeEventListener('resize', handler);
+    if (window.visualViewport) {
+      window.visualViewport.removeEventListener('resize', handler);
+      window.visualViewport.removeEventListener('scroll', handler);
+    }
+  };
+}
+function scaleStage(stageEl, W, H) {
+  const size = getViewportSize();
+  const s = Math.min(size.width / W, size.height / H);
+  const sw = W * s, sh = H * s;
+  stageEl.style.transform = 'scale(' + s + ')';
+  stageEl.style.left = Math.round((size.width - sw) / 2) + 'px';
+  stageEl.style.top  = Math.round((size.height - sh) / 2) + 'px';
+  return s;
+}
 function initCanvas(canvasEl, W, H) {
   const stage = canvasEl.parentElement;
   const DPR = Math.min(window.devicePixelRatio || 1, 2);
@@ -32,21 +61,10 @@ function initCanvas(canvasEl, W, H) {
   stage.style.transformOrigin = 'top left';
   stage.style.left = '0px';
   stage.style.top  = '0px';
-  function viewW(){ return (window.visualViewport && window.visualViewport.width)  || window.innerWidth;  }
-  function viewH(){ return (window.visualViewport && window.visualViewport.height) || window.innerHeight; }
   function resize() {
-    const vw = viewW(), vh = viewH();
-    const s = Math.min(vw / W, vh / H);
-    const sw = W * s, sh = H * s;
-    stage.style.transform = 'scale(' + s + ')';
-    stage.style.left = Math.round((vw - sw) / 2) + 'px';
-    stage.style.top  = Math.round((vh - sh) / 2) + 'px';
+    scaleStage(stage, W, H);
   }
-  window.addEventListener('resize', resize);
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener('resize', resize);
-    window.visualViewport.addEventListener('scroll', resize);
-  }
+  bindViewportResize(resize);
   resize();
   return ctx;
 }
@@ -67,7 +85,12 @@ function makeInput() {
     return false;
   }
   function held(code) { return !!K[code]; }
-  return { K, JP, eat, held };
+  function clearPressed() {
+    for (var code in JP) {
+      if (Object.prototype.hasOwnProperty.call(JP, code)) JP[code] = false;
+    }
+  }
+  return { K, JP, eat, held, clearPressed };
 }
 
 /* ── AUDIO (Web Audio API) ──────────────────────────────────────────────── */
@@ -222,6 +245,8 @@ function wrapDialogText(ctx, text, maxW, size) {
 
 /* ── PUBLIC API ─────────────────────────────────────────────────────────── */
 var MuckoEngine = {
+  bindViewportResize,
+  getViewportSize,
   initCanvas,
   makeInput,
   makeAudio,
@@ -229,6 +254,7 @@ var MuckoEngine = {
   makeLoop,
   makeDrawHelpers,
   renderDialog,
+  scaleStage,
   TOUCH_UI: function() { return TOUCH_UI; },
 };
 global.MuckoEngine = MuckoEngine;

@@ -127,10 +127,27 @@ h1 {
   font-weight: bold;
   margin-bottom: 8px;
 }
+.game-pictos {
+  font-size: 1.6em;
+  letter-spacing: 8px;
+  margin-bottom: 10px;
+  line-height: 1;
+}
 .game-desc {
   color: #c8a060;
   font-size: 0.85em;
   line-height: 1.5;
+}
+.game-card.hint {
+  animation: hintPulse 2.2s ease-in-out infinite;
+}
+@keyframes hintPulse {
+  0%,100% { border-color: #8b6914; box-shadow: 0 0 0 rgba(255,215,0,0); }
+  50%     { border-color: #ffd700; box-shadow: 0 0 18px rgba(255,215,0,0.35); }
+}
+.game-card:active {
+  transform: translateY(-2px) scale(0.98);
+  border-color: #ffd700;
 }
 </style>
 </head>
@@ -138,70 +155,100 @@ h1 {
   <h1>Mucko's Games</h1>
   <p class="subtitle">Pick a game and play!</p>
   <div class="games">
-    <a class="game-card" href="airplanetrail.html">
+    <a class="game-card hint" href="airplanetrail.html">
       <div class="game-icon">✈️</div>
       <div class="game-title">Airplane Trail</div>
+      <div class="game-pictos" aria-hidden="true">✈️ ⛅ ⛽</div>
       <div class="game-desc">Fly a plane across the country, managing fuel and making stops.</div>
     </a>
-    <a class="game-card" href="ttrail/onlineGame/index.html">
+    <a class="game-card hint" href="ttrail/onlineGame/index.html">
       <div class="game-icon">🚢</div>
       <div class="game-title">Titanic Trail</div>
+      <div class="game-pictos" aria-hidden="true">🚢 🌊 ⚓</div>
       <div class="game-desc">Navigate the Titanic's fateful voyage across the Atlantic.</div>
     </a>
-    <a class="game-card" href="hippo/index.html">
+    <a class="game-card hint" href="hippo/index.html">
       <div class="game-icon">🦛</div>
       <div class="game-title">Pflueger & the Hippo</div>
+      <div class="game-pictos" aria-hidden="true">🦛 🌙 🥪</div>
       <div class="game-desc">A JRPG adventure based on the book. Help the Hippo escape from the zoo!</div>
     </a>
     <a class="game-card" href="traintrail/index.html">
       <div class="game-icon">🚂</div>
       <div class="game-title">Train Trail</div>
+      <div class="game-pictos" aria-hidden="true">🚂 🌉 💨</div>
       <div class="game-desc">Drive a steam locomotive across the Trans-Atlantic Bridge from Boston to Leipzig!</div>
     </a>
     <a class="game-card" href="cartrail/index.html">
       <div class="game-icon">🚗</div>
       <div class="game-title">Car Trail</div>
+      <div class="game-pictos" aria-hidden="true">🚗 ⛰️ 🥨</div>
       <div class="game-desc">Drive a Ford Escape from Basel to Leipzig on a family road trip through the Alps, Italy, and the Danube!</div>
     </a>
     <a class="game-card" href="duckdieb/index.html">
       <div class="game-icon">🦆</div>
       <div class="game-title">Duck Dieb</div>
+      <div class="game-pictos" aria-hidden="true">🦆 🏠 💰</div>
       <div class="game-desc">Play as Duck Dieb, a masked mallard thief! Find the right house, crack the codes, and steal the Contraband!</div>
     </a>
     <a class="game-card" href="duckdieb2/index.html">
-      <div class="game-icon">🦹</div>
+      <div class="game-icon">🦆</div>
       <div class="game-title">Duck Dieb 2</div>
-      <div class="game-desc">The heist reimagined. Sneak past patrol cones, pick the right house, duck into wardrobes, and spend your loot at the corner store.</div>
+      <div class="game-pictos" aria-hidden="true">🦆 🔦 🏆</div>
+      <div class="game-desc">The bigger heist. Sneak through guarded rooms, crack safes, dodge cops, and get the loot out before the whole street wakes up.</div>
     </a>
     <a class="game-card" href="samster/index.html">
       <div class="game-icon">🐹</div>
       <div class="game-title">Samster</div>
+      <div class="game-pictos" aria-hidden="true">🐹 🧀 🪤</div>
       <div class="game-desc">Help Samster the hamster escape his cage, sneak past Pflueger, and burgle the burglers!</div>
     </a>
     <a class="game-card" href="rockettrail/index.html">
       <div class="game-icon">🚀</div>
       <div class="game-title">Rocket Trail</div>
+      <div class="game-pictos" aria-hidden="true">🚀 🌙 ☄️</div>
       <div class="game-desc">Launch a Saturn V to the Moon! Land the LEM, dodge rockets on re-entry, and deploy your parachute at just the right moment!</div>
     </a>
     <a class="game-card" href="tictactoe/index.html">
       <div class="game-icon">🎯</div>
       <div class="game-title">Mucko Tac Toe</div>
+      <div class="game-pictos" aria-hidden="true">❌ ⭕ 🏆</div>
       <div class="game-desc">Classic Tic Tac Toe with Mucko twists! Play as Samster, Hippo, Saturn V and more. Try torus mode, gravity mode, and a tricky CPU!</div>
     </a>
     <a class="game-card" href="contraband/index.html">
       <div class="game-icon">⛵</div>
       <div class="game-title">Contraband Trail</div>
+      <div class="game-pictos" aria-hidden="true">⛵ 📚 👮</div>
       <div class="game-desc">Rhine River, 1922. Smuggle banned books, jazz records, and stolen art from Basel to Rotterdam through checkpoints, fog, and the river police.</div>
     </a>
     <a class="game-card" href="lakehousemath/index.html">
       <div class="game-icon">🔢</div>
       <div class="game-title">Lake House Math Mystery</div>
+      <div class="game-pictos" aria-hidden="true">🔢 🧩 🧺</div>
       <div class="game-desc">Talk to Samster, Hippo, Duck Dieb, and more around the lake house. Gather clue cards, solve addition facts up to 20, and unlock the picnic!</div>
     </a>
     <a class="game-card" href="dj/index.html">
       <div class="game-icon">🎧</div>
       <div class="game-title">DJ Mixer</div>
+      <div class="game-pictos" aria-hidden="true">🎧 🎚️ 🎛️</div>
       <div class="game-desc">Two decks, one crossfader. Mix a house beat and a techno track like a real Pioneer DJ — jog wheels, EQ, pitch, and channel faders.</div>
+    </a>
+    <a class="game-card" href="flametrail/index.html">
+      <div class="game-icon">🔥</div>
+      <div class="game-title">Flamethrower Trail</div>
+      <div class="game-desc">Play as Lekan the panda, striking back! Sneak past Dieb raccoon guards, light four ignition points in each hideout, and escape before they catch you.</div>
+    </a>
+    <a class="game-card" href="smash/index.html">
+      <div class="game-icon">💥</div>
+      <div class="game-title">Mucko Smash</div>
+      <div class="game-pictos" aria-hidden="true">💥 🕹️ 🏆</div>
+      <div class="game-desc">Pick a character and brawl on a platform stage! Run, jump, dash, and bounce off heads. Add up to 3 CPU friends or watch them mix it up.</div>
+    </a>
+    <a class="game-card" href="orbit/index.html">
+      <div class="game-icon">🚀</div>
+      <div class="game-title">Orbital Mechanics</div>
+      <div class="game-pictos" aria-hidden="true">🌍 🌙 🛸</div>
+      <div class="game-desc">Three-body physics simulator. Watch a spacecraft orbit Earth, fly a free-return trajectory past the Moon, or trace a Hohmann ellipse — real Newtonian gravity.</div>
     </a>
   </div>
 <!-- ── PIN gate overlay ──────────────────────────────────────────────────── -->
@@ -366,6 +413,41 @@ h1 {
   });
 
   setMode(mode);
+})();
+
+// ── Card tap SFX + hint cancellation ────────────────────────────────────────
+(function(){
+  var actx = null;
+  function getCtx(){
+    if (!actx) {
+      var C = window.AudioContext || window.webkitAudioContext;
+      if (C) actx = new C();
+    }
+    return actx;
+  }
+  function blip(){
+    var c = getCtx(); if (!c) return;
+    if (c.state !== 'running') { try { c.resume(); } catch(e){} }
+    var o = c.createOscillator(), g = c.createGain();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(660, c.currentTime);
+    o.frequency.exponentialRampToValueAtTime(990, c.currentTime + 0.09);
+    g.gain.setValueAtTime(0.0001, c.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.18, c.currentTime + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + 0.14);
+    o.connect(g); g.connect(c.destination);
+    o.start(); o.stop(c.currentTime + 0.16);
+  }
+  var cards = document.querySelectorAll('.game-card');
+  for (var i = 0; i < cards.length; i++) {
+    (function(card){
+      card.addEventListener('click', function(e){
+        var hints = document.querySelectorAll('.game-card.hint');
+        for (var j = 0; j < hints.length; j++) hints[j].classList.remove('hint');
+        try { blip(); } catch(err){}
+      });
+    })(cards[i]);
+  }
 })();
 </script>
 </body>

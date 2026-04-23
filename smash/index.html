@@ -1,0 +1,2442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Mucko Smash</title>
+<style>
+  html, body {
+    margin: 0; padding: 0;
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: #0b1622;
+    font-family: Georgia, serif;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: none;
+  }
+  #stage {
+    position: fixed;
+    transform-origin: top left;
+  }
+  #game {
+    display: block;
+    background: #7cc3e6;
+    touch-action: none;
+  }
+</style>
+</head>
+<body>
+  <div id="stage">
+    <canvas id="game"></canvas>
+  </div>
+  <script src="../mucko-engine.js"></script>
+  <script>
+'use strict';
+
+/* ── Constants ─────────────────────────────────────────────── */
+var W = 800;
+var H = 560;
+var TAU = Math.PI * 2;
+
+var GRAVITY     = 1400;
+var MOVE_ACCEL_GROUND = 2000;
+var MOVE_ACCEL_AIR    = 1100;
+var MOVE_MAX    = 260;
+var GROUND_FRIC = 1700;
+// Peak jump height ≈ JUMP_VEL^2 / (2*GRAVITY).
+// 760^2 / 2800 ≈ 206 px — enough to clear the tallest generated platform
+// (see makeArena: y range [280, 420]) from the floor (y=470).
+var JUMP_VEL    = 760;
+var JUMP_CUT    = 340;
+var TERM_VEL    = 1000;
+
+// Entity vertical pivot sits this many px above the feet.
+// drawCharacter() draws a shadow at +18 in local space.
+var FEET_OFFSET = 18;
+var HEAD_OFFSET = 28;   // pivot → top of head
+var ENTITY_W    = 30;
+
+// Stage 2b: elastic head-bounce tuning
+var STOMP_BOUNCE_MULT = 0.85;   // jumper bounces back at 85% of a normal jump
+var SIDE_RESTITUTION  = 1.0;    // 1.0 = fully elastic x-collision; equal masses swap vx
+var SQUASH_DURATION   = 0.24;   // seconds the landee stays squished
+
+// Stage 3: dash tuning
+var DASH_VEL              = 540;
+var DASH_DURATION         = 0.18;   // seconds locked at dash velocity
+var DASH_COOLDOWN         = 0.35;   // seconds before another dash is allowed
+var DASH_DOUBLE_TAP_WINDOW = 0.22;  // 2nd tap must land within this many seconds
+var TURN_PORTRAIT_TIME    = 0.12;   // brief front-view flash while changing facing
+
+// Stage 4: damage / knockback / stocks
+var START_STOCKS          = 3;
+var DAMAGE_PER_STOMP      = 9;
+var KB_BASE_X             = 220;    // bounceVx = KB_BASE_X + damage * KB_SCALE_X
+var KB_BASE_Y             = 360;    // bounceVy = -(KB_BASE_Y + damage * KB_SCALE_Y)
+var KB_SCALE_X            = 6;
+var KB_SCALE_Y            = 4;
+var KB_POST_INVULN        = 30;     // frames of mercy-invuln after being launched
+var KB_RATIO_MIN          = 0.6;    // clamp on sqrt(mass) stomp-ratio multiplier
+var KB_RATIO_MAX          = 1.9;
+var SIDE_DAMAGE_SPEED_MIN   = 120;  // no side-hit damage below this post-hit exit speed
+var SIDE_DAMAGE_SPEED_SCALE = 85;   // higher = gentler side-hit damage growth
+var SIDE_DAMAGE_MAX         = 12;
+var SIDE_LAUNCH_SPEED_MIN   = 320;  // strong side hits should actually send the target away
+var SIDE_LAUNCH_POP         = 135;  // slight upward pop so ledge hits don't degrade into shoves
+var SIDE_RECOIL_SPEED       = 55;   // attacker bounces back a touch instead of sticking
+var STAGE_LEFT_EDGE         = 120;
+var STAGE_RIGHT_EDGE        = 680;
+
+// Damage softens you up: mass drops logistically with damage % so heavily
+// banged-up characters get launched way farther. At 0% damage mass ≈ 0.98;
+// at 100% damage mass ≈ 0.32 (roughly 30% of original, per spec).
+function damageMass(d) {
+  return 0.3 + 0.7 / (1 + Math.exp((d - 50) / 15));
+}
+
+function currentMass(e) {
+  var mass = damageMass(e.damage);
+  var special = CHARACTERS[e.charId].special;
+  if (e.specialActive && special && special.type === 'bulldogBounce') mass *= special.massMul;
+  if (e.specialActive && special && special.type === 'margaritaville') mass *= 1000;
+  return mass;
+}
+
+function sideExitDamage(vx) {
+  return Math.min(SIDE_DAMAGE_MAX,
+    Math.max(0, (Math.abs(vx) - SIDE_DAMAGE_SPEED_MIN) / SIDE_DAMAGE_SPEED_SCALE));
+}
+
+function applySideLaunch(attacker, defender, launchDir, elasticVAttacker, elasticVDefender) {
+  var defenderSpeed = Math.max(Math.abs(elasticVDefender), SIDE_LAUNCH_SPEED_MIN);
+  defender.vx = launchDir * defenderSpeed;
+  defender.vy = Math.min(defender.vy, -SIDE_LAUNCH_POP);
+  defender.onGround = false;
+  attacker.vx = -launchDir * Math.min(Math.abs(elasticVAttacker), SIDE_RECOIL_SPEED);
+}
+
+/* ── Canvas + engine bootstrap ─────────────────────────────── */
+var canvas = document.getElementById('game');
+var ctx = MuckoEngine.initCanvas(canvas, W, H);
+ctx.lineJoin = 'round';
+ctx.lineCap  = 'round';
+
+var input = MuckoEngine.makeInput();
+var K = input.K;
+var JP = input.JP;
+var eat = input.eat;
+
+var audio = MuckoEngine.makeAudio();
+var beep = audio.beep;
+
+/* ═══════════════════════════════════════════════════════════════════
+   MARGARITAVILLE MELODY
+   Plays on loop while Hippo holds his pool-shield special.
+
+   Each note: [freq_hz, vol_0_to_1, dur_sec, start_delay_ms]
+   Tuned to the chorus opening ("Wastin' away again in Margaritaville")
+   using the public Hooktheory chorus transcription: D major, 124 BPM.
+
+   Useful frequencies:
+     D3=146.83  F#3=185.00  G3=196.00  A3=220.00  B3=246.94
+     D4=293.66
+
+   MARGARITA_LOOP_GAP_MS — silence between end of phrase and loop restart.
+═══════════════════════════════════════════════════════════════════ */
+var MARGARITA_TEMPO_BPM = 124;
+function margaritaBeatSec(beats) { return beats * 60 / MARGARITA_TEMPO_BPM; }
+function margaritaBeatMs(beats) { return Math.round(margaritaBeatSec(beats) * 1000); }
+
+var MARGARITA_LOOP_GAP_MS = margaritaBeatMs(0.75);
+var MARGARITA_NOTES = [
+  // freq    vol   dur_beats  delay_beats  syllable
+  [246.94, 0.26,      0.5,         0.0],  // B3 "Wast-"
+  [246.94, 0.24,      1.0,         0.5],  // B3 "-in'"
+  [220.00, 0.23,      0.5,         1.5],  // A3 "a-"
+  [220.00, 0.24,      1.0,         2.0],  // A3 "-way"
+  [196.00, 0.22,      0.5,         3.0],  // G3 "a-"
+  [196.00, 0.23,      1.0,         3.5],  // G3 "-gain"
+  [185.00, 0.21,      0.5,         4.5],  // F#3 "in"
+  [196.00, 0.21,      0.5,         5.0],  // G3 "Mar-"
+  [185.00, 0.20,      0.5,         5.5],  // F#3 "-ga-"
+  [196.00, 0.20,      0.5,         6.0],  // G3 "-ri-"
+  [185.00, 0.20,      0.5,         6.5],  // F#3 "-ta-"
+  [146.83, 0.24,      1.0,         7.0]   // D3 "-ville"
+].map(function(n) {
+  return [n[0], n[1], margaritaBeatSec(n[2]), margaritaBeatMs(n[3])];
+});
+
+var margaritaMelodyLooping = false;
+// Session counter — each press of Hippo's special bumps this. Every
+// scheduled note callback captures the session it belongs to; if the session
+// has moved on (release + re-press during the gap before the loop restart)
+// the old callback drops its beep. Without this, a rapid release/re-press
+// would overlay the old round's in-flight notes on top of the new round's.
+var margaritaMelodySession = 0;
+function playMargaritavilleMelody(session) {
+  if (!margaritaMelodyLooping || session !== margaritaMelodySession) return;
+  for (var i = 0; i < MARGARITA_NOTES.length; i++) {
+    (function(n) {
+      setTimeout(function() {
+        if (margaritaMelodyLooping && session === margaritaMelodySession) {
+          beep(n[0], n[1], n[2], 'sine');
+        }
+      }, n[3]);
+    })(MARGARITA_NOTES[i]);
+  }
+  var last = MARGARITA_NOTES[MARGARITA_NOTES.length - 1];
+  var loopAt = last[3] + Math.ceil(last[2] * 1000) + MARGARITA_LOOP_GAP_MS;
+  setTimeout(function() { playMargaritavilleMelody(session); }, loopAt);
+}
+
+var TOUCH_UI = MuckoEngine.TOUCH_UI();
+
+/* ── Pointer state ─────────────────────────────────────────── */
+var mx = W / 2;
+var my = H / 2;
+var mclk = false;
+var touchSuppressUntil = 0;
+var touchState = { leftBtn: false, rightBtn: false, jumpBtn: false, jumpJustPressed: false,
+                   dashBtn: false, dashJustPressed: false,
+                   specialBtn: false, specialJustPressed: false };
+
+function setPointerFromEvent(e) {
+  var r = canvas.getBoundingClientRect();
+  mx = (e.clientX - r.left) * (W / r.width);
+  my = (e.clientY - r.top)  * (H / r.height);
+}
+canvas.addEventListener('mousemove', function(e) { setPointerFromEvent(e); });
+canvas.addEventListener('click', function(e) {
+  if (performance.now() < touchSuppressUntil) return;
+  setPointerFromEvent(e);
+  mclk = true;
+});
+
+/* ── Characters (copied from lakehousemath) ────────────────── */
+// Per-character physics multipliers (omit for default 1.0).
+//   moveMul scales walk accel + max speed
+//   jumpMul scales jump velocity (and the jump-cut clamp)
+//   dashMul scales dash velocity
+// Pras the Koala is intentionally, comically slow — he's "in hour 19 of a
+// 22-hour nap" and barely moves. Picking him is a joke.
+var CHARACTERS = {
+  samster: { name: 'Samster',        color: '#dfc18e', accent: '#8d5f35', outline: '#4f311d', sprite: 'hamster' },
+  duck:    { name: 'Duck Dieb',      color: '#8b6030', accent: '#2a7a38', outline: '#3c2814', sprite: 'duck',
+             special: { type: 'airFlap', lift: 2100, maxRise: 280, flapRate: 7.5 } },
+  hippo:   { name: 'Hippo',          color: '#8f7ea8', accent: '#63557b', outline: '#40324c', sprite: 'hippo',
+             special: { type: 'margaritaville', damage: 11, launchX: 380, launchY: 220 } },
+  nik:     { name: 'Nik',            color: '#6b4a2e', accent: '#c9a47a', outline: '#3a2612', sprite: 'monkey' },
+  lekan:   { name: 'Lekan',          color: '#f4f4f4', accent: '#242424', outline: '#202020', sprite: 'panda' },
+  basil:   { name: 'Basil',          color: '#6b4527', accent: '#d8b985', outline: '#3b2614', sprite: 'otter' },
+  mandy:   { name: 'Mandy Mouse',    color: '#d9a0a3', accent: '#b87e80', outline: '#5b3d40', sprite: 'mouse' },
+  // Kept defined so he can return to the roster later without rebuilding the art/spec.
+  mucko:   { name: 'Captain Mucko',  color: '#d8a95a', accent: '#8f2f2f', outline: '#5f3914', sprite: 'captain' },
+  rocket:  { name: 'Saturn V',       color: '#ededed', accent: '#d76039', outline: '#373737', sprite: 'rocket',
+             special: { type: 'abortShot', cooldown: 1.0, speed: 430, radius: 10, damage: 8, launchX: 260, launchY: 135, maxAge: 1.1 } },
+  digory:  { name: 'Digory',         color: '#f7f5f0', accent: '#18181c', outline: '#3a2c20', sprite: 'digory',
+             special: { type: 'bulldogBounce', bounceRate: 8.5, massMul: 2 } },
+  jlong:   { name: 'J. Long',        color: '#f0c84d', accent: '#bf8834', outline: '#5a3a14', sprite: 'giraffe',
+             special: { type: 'neckHammer', cooldown: 0.75, active: 0.16, range: 50, radius: 18, damage: 10, launchX: 310, launchY: 170 } },
+  pras:    { name: 'Pras the Koala', color: '#9aa1a8', accent: '#3a3f48', outline: '#2c2f36', sprite: 'koala',
+             moveMul: 0.06, jumpMul: 0.18, dashMul: 0.10 },
+  natasha: { name: 'Natasha',        color: '#45b95c', accent: '#ef6944', outline: '#245a2d', sprite: 'parrot' }
+};
+var CHAR_IDS = ['samster', 'duck', 'hippo', 'nik', 'lekan', 'basil', 'mandy', 'rocket', 'digory', 'jlong', 'pras', 'natasha'];
+
+var STOCK_OPTIONS = [1, 2, 3, 4, 5, 6, Infinity];
+var EASY_MODE_GENOME = {
+  dwellMin: 0.45,
+  dwellMax: 1.25,
+  idleChance: 0.34,
+  jumpChance: 0.14,
+  dashChance: 0.02,
+  chaseBias: 0.55,
+  edgeBuffer: 195,
+  airborneCenterBias: 0.95,
+  preferredRange: 170,
+  rangeSlack: 120,
+  jumpRange: 105,
+  jumpAboveBias: 42,
+  dashRange: 80,
+  aggression: 0.42,
+  retreatAtDamage: 55,
+  retreatBias: 0.72,
+  facingStickiness: 0.08,
+  pressureBonus: 0.08,
+  jumpCooldown: 0.62
+};
+var MEDIUM_MODE_GENOME = {
+  dwellMin: 0.05,
+  dwellMax: 0.08,
+  idleChance: 0.15983551355078818,
+  jumpChance: 0.7421402223413054,
+  dashChance: 0.13672173357219436,
+  chaseBias: 1.388805744396081,
+  edgeBuffer: 124.77844460663756,
+  airborneCenterBias: 1.3200734693212124,
+  preferredRange: 30.083746102782413,
+  rangeSlack: 23.36706865626981,
+  jumpRange: 95.06286608295237,
+  jumpAboveBias: 12.428326467531939,
+  dashRange: 79.59593540818037,
+  aggression: 0.6457442075411541,
+  retreatAtDamage: 59.80099607449523,
+  retreatBias: 0.09796710119969136,
+  facingStickiness: 0.5479203286616439,
+  pressureBonus: 1.308869465364689,
+  jumpCooldown: 0.27936499439935825
+};
+var HARD_MODE_GENOME = {
+  dwellMin: 0.05,
+  dwellMax: 0.08023069221970217,
+  idleChance: 0.02199617925777858,
+  jumpChance: 0.8063033212223671,
+  dashChance: 0.09778584812302143,
+  chaseBias: 0.8738832561531491,
+  edgeBuffer: 125.87408119417375,
+  airborneCenterBias: 0.8575250803335437,
+  preferredRange: 186.99556485472175,
+  rangeSlack: 134.76814607398813,
+  jumpRange: 154.17748241605273,
+  jumpAboveBias: 62.797452396342806,
+  dashRange: 52.56154417705283,
+  aggression: 1.2595372460641254,
+  retreatAtDamage: 111.5059016952792,
+  retreatBias: 0.10517608210496325,
+  facingStickiness: 0.6523378568186853,
+  pressureBonus: 1.006071435233136,
+  jumpCooldown: 0.4708999652252533
+};
+var CPU_MODE_META = {
+  easy:   { label: 'EASY',   color: '#84b5e0', genome: EASY_MODE_GENOME },
+  medium: { label: 'MEDIUM', color: '#f2c85a', genome: MEDIUM_MODE_GENOME },
+  hard:   { label: 'HARD',   color: '#e14f7a', genome: HARD_MODE_GENOME }
+};
+var CPU_MODES = ['off', 'easy', 'medium', 'hard'];
+var NEXT_ENTITY_ID = 1;
+
+/* ── Drawing helpers (from lakehousemath) ──────────────────── */
+function clamp(v, lo, hi) {
+  return Math.max(lo, Math.min(hi, v));
+}
+function randRange(lo, hi) {
+  return lo + (hi - lo) * Math.random();
+}
+function chance(p) {
+  return Math.random() < p;
+}
+function roundRectPath(cx, x, y, w, h, r) {
+  var rr = Math.min(r || 0, Math.abs(w) / 2, Math.abs(h) / 2);
+  cx.beginPath();
+  cx.moveTo(x + rr, y);
+  cx.lineTo(x + w - rr, y); cx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  cx.lineTo(x + w, y + h - rr); cx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  cx.lineTo(x + rr, y + h); cx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  cx.lineTo(x, y + rr); cx.quadraticCurveTo(x, y, x + rr, y);
+  cx.closePath();
+}
+function fillRoundRect(cx, x, y, w, h, r, fill, stroke, sw) {
+  roundRectPath(cx, x, y, w, h, r);
+  if (fill)   { cx.fillStyle = fill; cx.fill(); }
+  if (stroke) { cx.strokeStyle = stroke; cx.lineWidth = sw || 2; cx.stroke(); }
+}
+function drawLine(cx, x1, y1, x2, y2, color, width) {
+  cx.strokeStyle = color; cx.lineWidth = width || 2;
+  cx.beginPath(); cx.moveTo(x1, y1); cx.lineTo(x2, y2); cx.stroke();
+}
+function drawText(cx, text, x, y, color, size, align, font, baseline) {
+  cx.fillStyle = color;
+  cx.font = (font || 'bold') + ' ' + (size || 16) + 'px Georgia,serif';
+  cx.textAlign = align || 'left';
+  cx.textBaseline = baseline || 'alphabetic';
+  cx.fillText(text, x, y);
+}
+function drawCircle(cx, x, y, r, fill, stroke, sw) {
+  cx.beginPath(); cx.arc(x, y, r, 0, TAU);
+  if (fill)   { cx.fillStyle = fill; cx.fill(); }
+  if (stroke) { cx.strokeStyle = stroke; cx.lineWidth = sw || 2; cx.stroke(); }
+}
+function drawEllipse(cx, x, y, rx, ry, fill, stroke, sw, rot) {
+  cx.beginPath(); cx.ellipse(x, y, rx, ry, rot || 0, 0, TAU);
+  if (fill)   { cx.fillStyle = fill; cx.fill(); }
+  if (stroke) { cx.strokeStyle = stroke; cx.lineWidth = sw || 2; cx.stroke(); }
+}
+function shadeColor(hex, amount) {
+  if (!hex || hex.charAt(0) !== '#' || (hex.length !== 7 && hex.length !== 4)) return hex;
+  var full = hex.length === 4
+    ? '#' + hex.charAt(1) + hex.charAt(1) + hex.charAt(2) + hex.charAt(2) + hex.charAt(3) + hex.charAt(3)
+    : hex;
+  var r = parseInt(full.substr(1, 2), 16);
+  var g = parseInt(full.substr(3, 2), 16);
+  var b = parseInt(full.substr(5, 2), 16);
+  r = Math.max(0, Math.min(255, Math.round(r + 255 * amount)));
+  g = Math.max(0, Math.min(255, Math.round(g + 255 * amount)));
+  b = Math.max(0, Math.min(255, Math.round(b + 255 * amount)));
+  var rr = (r < 16 ? '0' : '') + r.toString(16);
+  var gg = (g < 16 ? '0' : '') + g.toString(16);
+  var bb = (b < 16 ? '0' : '') + b.toString(16);
+  return '#' + rr + gg + bb;
+}
+function shadedEllipseFill(cx, x, y, rx, ry, base, lightAmt, darkAmt) {
+  var g = cx.createRadialGradient(
+    x - rx * 0.45, y - ry * 0.55, Math.max(1, Math.min(rx, ry) * 0.2),
+    x, y, Math.max(rx, ry) * 1.25
+  );
+  g.addColorStop(0, shadeColor(base, lightAmt));
+  g.addColorStop(1, shadeColor(base, darkAmt));
+  return g;
+}
+
+/* ── Character sprites ────────────────────────────────────── */
+function drawCharacterPortraitSprite(cx, ch, bob) {
+  if (ch.sprite === 'duck' || ch.sprite === 'monkey' || ch.sprite === 'otter' ||
+      ch.sprite === 'rocket' || ch.sprite === 'digory') {
+    drawCharacterSidescrollSprite(cx, ch, 'right', bob);
+    return;
+  }
+  if (ch.sprite === 'hamster') {
+    drawEllipse(cx, 0, 2, 16, 14, shadedEllipseFill(cx, 0, 2, 16, 14, ch.color, 0.16, -0.08), ch.outline, 2);
+    drawCircle(cx, -8, -10, 6, shadeColor(ch.color, 0.05), ch.outline, 2);
+    drawCircle(cx, 8, -10, 6, shadeColor(ch.color, 0.05), ch.outline, 2);
+    drawCircle(cx, 0, -2, 11, '#f5ddbc');
+    drawCircle(cx, -4, -4, 2, '#35231b');
+    drawCircle(cx, 4, -4, 2, '#35231b');
+    drawCircle(cx, 0, 1, 2.2, '#c56f62');
+    drawEllipse(cx, -2, -5, 5.5, 3.2, 'rgba(255,255,255,0.22)');
+  } else if (ch.sprite === 'hippo') {
+    drawEllipse(cx, 0, 5, 20, 15, shadedEllipseFill(cx, 0, 5, 20, 15, ch.color, 0.18, -0.12), ch.outline, 2);
+    drawCircle(cx, -9, -7, 5, shadeColor(ch.color, 0.06), ch.outline, 2);
+    drawCircle(cx, 9, -7, 5, shadeColor(ch.color, 0.06), ch.outline, 2);
+    drawEllipse(cx, 0, 0, 12, 9, shadedEllipseFill(cx, 0, 0, 12, 9, '#b8a7d4', 0.1, -0.08));
+    drawCircle(cx, -4, -2, 1.8, '#2e2338');
+    drawCircle(cx, 4, -2, 1.8, '#2e2338');
+    drawCircle(cx, -3, 4, 1.6, '#6f5b88');
+    drawCircle(cx, 3, 4, 1.6, '#6f5b88');
+    drawEllipse(cx, -4, -5, 7, 3.5, 'rgba(255,255,255,0.2)');
+  } else if (ch.sprite === 'panda') {
+    drawEllipse(cx, 0, 5, 17, 13, '#f4f4f4', ch.outline, 2);
+    drawCircle(cx, -8, -9, 5, '#1c1c1c');
+    drawCircle(cx, 8, -9, 5, '#1c1c1c');
+    drawCircle(cx, 0, -2, 10, '#f4f4f4', ch.outline, 2);
+    drawEllipse(cx, 0, 1, 5.5, 4.2, '#f4f4f4');
+    drawEllipse(cx, -4, -3, 3, 4, '#1c1c1c');
+    drawEllipse(cx, 4, -3, 3, 4, '#1c1c1c');
+    drawCircle(cx, -4, -3, 1.4, '#fff');
+    drawCircle(cx, 4, -3, 1.4, '#fff');
+    drawCircle(cx, 0, 2, 2, '#1c1c1c');
+    drawLine(cx, -1.5, 3.5, -4, 5.5, '#1c1c1c', 1.2);
+    drawLine(cx, 1.5, 3.5, 4, 5.5, '#1c1c1c', 1.2);
+  } else if (ch.sprite === 'captain') {
+    drawCircle(cx, 0, -4, 10, '#f3d7ae', '#744b23', 2);
+    fillRoundRect(cx, -10, -18, 22, 8, 4, '#ffffff', '#8f2f2f', 1.6);
+    fillRoundRect(cx, -14, 6, 28, 24, 8, '#d8a95a', '#744b23', 2);
+    drawLine(cx, -10, 12, -16, 28, '#744b23', 3);
+    drawLine(cx, 10, 12, 16, 28, '#744b23', 3);
+  } else if (ch.sprite === 'giraffe') {
+    drawLine(cx, -5, 9, -5, 20, '#8a5a24', 2.4);
+    drawLine(cx, 5, 9, 5, 20, '#8a5a24', 2.4);
+    drawLine(cx, -1, 9, -1, 21, '#8a5a24', 1.8);
+    drawLine(cx, 9, 9, 9, 21, '#8a5a24', 1.8);
+    drawEllipse(cx, 1.5, 4, 9.5, 7.5, '#f0c84d', ch.outline, 2);
+    drawCircle(cx, -3, 3, 1.8, '#bf8834');
+    drawCircle(cx, 3, 6, 1.6, '#bf8834');
+    drawCircle(cx, 7, 2, 1.4, '#bf8834');
+    fillRoundRect(cx, -2.5, -20, 5, 22, 2, '#f0c84d', ch.outline, 1.5);
+    drawCircle(cx, 0.8, -12, 1.2, '#bf8834');
+    drawCircle(cx, -1, -18, 1.1, '#bf8834');
+    drawEllipse(cx, 0, -27, 7.5, 6, '#f0c84d', ch.outline, 1.5);
+    drawEllipse(cx, 0, -23.5, 4.2, 2.6, '#f7ddb0');
+    drawCircle(cx, -2.5, -28.5, 1.1, '#1c1c1c');
+    drawCircle(cx, 2.5, -28.5, 1.1, '#1c1c1c');
+    drawLine(cx, -2, -32, -3, -36, '#8a5a24', 2);
+    drawLine(cx, 2, -32, 3, -36, '#8a5a24', 2);
+    drawCircle(cx, -3, -36, 1.2, '#d5a634');
+    drawCircle(cx, 3, -36, 1.2, '#d5a634');
+  } else if (ch.sprite === 'mouse') {
+    drawEllipse(cx, 0, 8, 11, 7.5, ch.color, ch.outline, 2);
+    drawCircle(cx, 0, -1, 7, ch.color, ch.outline, 2);
+    drawCircle(cx, -6, -6, 3.8, ch.color, ch.outline, 1.5);
+    drawCircle(cx, 6, -6, 3.8, ch.color, ch.outline, 1.5);
+    drawCircle(cx, -1.8, -2, 1.1, '#201417');
+    drawCircle(cx, 1.8, -2, 1.1, '#201417');
+    drawEllipse(cx, 0, 1.5, 2.4, 1.8, '#f1b7bc');
+    drawLine(cx, -0.8, 2.8, -3.5, 4.4, '#201417', 1);
+    drawLine(cx, 0.8, 2.8, 3.5, 4.4, '#201417', 1);
+    drawLine(cx, 9, 9, 16, 6, '#b87e80', 2.2);
+  } else if (ch.sprite === 'parrot') {
+    drawEllipse(cx, 0, 8, 10, 8, '#45b95c', ch.outline, 2);
+    drawEllipse(cx, -6, 7, 4, 6, '#2e7f40');
+    drawEllipse(cx, 6, 7, 4, 6, '#2e7f40');
+    drawCircle(cx, 0, -2, 7, '#45b95c', ch.outline, 2);
+    drawEllipse(cx, 0, 0, 3.8, 2.4, '#d9f3d8');
+    drawCircle(cx, -2, -3.5, 1.1, '#17361c');
+    drawCircle(cx, 2, -3.5, 1.1, '#17361c');
+    cx.fillStyle = '#ef6944';
+    cx.beginPath(); cx.moveTo(0, -1); cx.lineTo(-5, 1); cx.lineTo(0, 3); cx.closePath(); cx.fill();
+    cx.beginPath(); cx.moveTo(0, -1); cx.lineTo(5, 1); cx.lineTo(0, 3); cx.closePath(); cx.fill();
+    drawLine(cx, -2, 15, -2, 22, '#245a2d', 2);
+    drawLine(cx, 2, 15, 2, 22, '#245a2d', 2);
+  } else if (ch.sprite === 'koala') {
+    drawEllipse(cx, 0, 6, 17, 13, '#9aa1a8', ch.outline, 2);
+    drawEllipse(cx, 0, 8, 11, 8, '#c2c8cc');
+    drawCircle(cx, -8, -8, 6, '#9aa1a8', ch.outline, 2);
+    drawCircle(cx, 8, -8, 6, '#9aa1a8', ch.outline, 2);
+    drawCircle(cx, -8, -8, 3.5, '#e6dfd2');
+    drawCircle(cx, 8, -8, 3.5, '#e6dfd2');
+    drawCircle(cx, 0, -2, 9, '#9aa1a8', ch.outline, 2);
+    drawEllipse(cx, 0, -1, 4.5, 3.5, '#1c1c1c');
+    drawLine(cx, -5, -5, -2, -5, '#1c1c1c', 1.6);
+    drawLine(cx, 2, -5, 5, -5, '#1c1c1c', 1.6);
+    cx.fillStyle = '#3a3f48';
+    cx.font = 'bold 11px Georgia,serif';
+    cx.textAlign = 'left';
+    cx.fillText('Z', 11, -14);
+    cx.font = 'bold 9px Georgia,serif';
+    cx.fillText('z', 17, -20);
+    cx.font = 'bold 7px Georgia,serif';
+    cx.fillText('z', 22, -25);
+  }
+}
+
+function randomLookDelay() {
+  return 1.2 + Math.random() * 2.4;
+}
+
+function randomPreviewFacing() {
+  var r = Math.random();
+  if (r < 0.1) return 'left';
+  if (r < 0.2) return 'right';
+  return 'front';
+}
+
+function drawCharacterSidescrollSprite(cx, ch, facing, bob, pose) {
+  var dir = facing === 'left' ? -1 : 1;
+  var sway = Math.sin((bob || 0) * 0.5) * 0.08;
+  pose = pose || null;
+  if (ch.sprite === 'hamster') {
+    cx.strokeStyle = ch.accent;
+    cx.lineWidth = 3;
+    cx.beginPath();
+    cx.moveTo(-12 * dir, 6);
+    cx.quadraticCurveTo(-18 * dir, 1, -14 * dir, -6);
+    cx.stroke();
+    drawEllipse(cx, -1 * dir, 5, 17, 12, shadedEllipseFill(cx, -1 * dir, 5, 17, 12, ch.color, 0.15, -0.1), ch.outline, 2);
+    drawEllipse(cx, 2 * dir, 8, 8, 5.5, '#f5ddbc');
+    drawCircle(cx, 10 * dir, -3, 8.5, shadeColor(ch.color, 0.08), ch.outline, 2);
+    drawCircle(cx, 4 * dir, -9, 4.2, shadeColor(ch.color, 0.08), ch.outline, 2);
+    drawCircle(cx, 11 * dir, -11, 3.4, shadeColor(ch.color, 0.08), ch.outline, 2);
+    drawEllipse(cx, 12 * dir, -1, 5.4, 4.4, '#f5ddbc');
+    drawCircle(cx, 13 * dir, -4, 1.5, '#35231b');
+    drawCircle(cx, 17 * dir, -1, 2.1, '#c56f62');
+    drawLine(cx, 14 * dir, 1, 17 * dir, 2.5, '#8d5f35', 1.2);
+    drawEllipse(cx, 5 * dir, 0, 5.2, 2.6, 'rgba(255,255,255,0.2)');
+  } else if (ch.sprite === 'duck') {
+    cx.save();
+    if (dir < 0) cx.scale(-1, 1);
+    var flap = pose && pose.flap != null ? pose.flap : 0;
+    drawEllipse(cx, -2, 4, 16, 12, '#8b6030', ch.outline, 2);
+    drawEllipse(cx, -2, 5, 12, 7, '#7a5020');
+    cx.save();
+    cx.translate(-3, 2);
+    cx.rotate(-0.55 - flap * 0.45);
+    drawEllipse(cx, 0, 0, 7, 3.8, '#6f481d', '#3c2814', 1.2);
+    cx.restore();
+    cx.save();
+    cx.translate(1, 2);
+    cx.rotate(0.25 + flap * 0.55);
+    drawEllipse(cx, 0, 0, 7.5, 3.4, '#986531', '#3c2814', 1.2);
+    cx.restore();
+    cx.fillStyle = '#3c2814';
+    cx.beginPath(); cx.moveTo(-12, 2); cx.lineTo(-22, 14); cx.lineTo(-6, 10); cx.closePath(); cx.fill();
+    drawCircle(cx, 10, -7, 8, '#2a7a38', ch.outline, 2);
+    drawCircle(cx, 8, -9, 3.4, 'rgba(0,200,160,0.32)');
+    cx.fillStyle = '#111';
+    cx.fillRect(4, -9, 13, 4);
+    drawCircle(cx, 11, -7, 1.4, '#fff');
+    drawEllipse(cx, 20, -3, 7, 3.5, '#e8b800', '#9c7900', 1.4);
+    cx.restore();
+  } else if (ch.sprite === 'hippo') {
+    if (pose && pose.margarita) {
+      fillRoundRect(cx, -18, 8, 36, 11, 5, '#6ec7d5', '#356c78', 2);
+      drawEllipse(cx, 0, 15, 18, 5.2, 'rgba(255,255,255,0.18)');
+      drawEllipse(cx, -1, 6, 17, 11, '#b79ace', ch.outline, 2);
+      drawCircle(cx, 9 * dir, -1, 8.2, ch.color, ch.outline, 2);
+      drawCircle(cx, 4 * dir, -7, 4, ch.color, ch.outline, 2);
+      drawCircle(cx, 12 * dir, -8, 3.4, ch.color, ch.outline, 2);
+      fillRoundRect(cx, 6 * dir - 5, -5, 10, 3.2, 1.6, '#1e1e22', '#111', 1);
+      drawLine(cx, 12 * dir, -2, 14 * dir, 6, '#6f5b88', 1.2);
+      cx.fillStyle = '#5f4b75';
+      cx.font = 'bold 12px Georgia,serif';
+      cx.textAlign = 'center';
+      cx.fillText('♪', 0, -16 - Math.sin((pose.margarita || 0) * 7) * 2);
+      cx.fillText('♪', 8, -24 - Math.sin((pose.margarita || 0) * 6 + 1) * 2);
+      return;
+    }
+    cx.fillStyle = ch.accent;
+    cx.beginPath();
+    cx.moveTo(-16 * dir, 6);
+    cx.lineTo(-22 * dir, 10);
+    cx.lineTo(-16 * dir, 11);
+    cx.closePath();
+    cx.fill();
+    drawEllipse(cx, -2 * dir, 6, 20, 14, shadedEllipseFill(cx, -2 * dir, 6, 20, 14, ch.color, 0.15, -0.12), ch.outline, 2);
+    drawCircle(cx, 9 * dir, -2, 9, shadeColor(ch.color, 0.06), ch.outline, 2);
+    drawCircle(cx, 4 * dir, -9, 4.2, shadeColor(ch.color, 0.06), ch.outline, 2);
+    drawCircle(cx, 12 * dir, -10, 3.8, shadeColor(ch.color, 0.06), ch.outline, 2);
+    drawEllipse(cx, 14 * dir, 1, 6.5, 4.8, '#b8a7d4', ch.outline, 1.2);
+    drawCircle(cx, 11 * dir, -2, 1.5, '#2e2338');
+    drawCircle(cx, 16 * dir, 0, 1.2, '#6f5b88');
+    drawCircle(cx, 19 * dir, 0, 1.2, '#6f5b88');
+  } else if (ch.sprite === 'monkey') {
+    cx.save();
+    if (dir < 0) cx.scale(-1, 1);
+    cx.strokeStyle = ch.color; cx.lineWidth = 4; cx.lineCap = 'round';
+    cx.beginPath(); cx.moveTo(-12, 4); cx.quadraticCurveTo(-22, 0, -20, -10); cx.stroke();
+    drawEllipse(cx, 0, 5, 15, 12, ch.color, ch.outline, 2);
+    drawEllipse(cx, 0, 7, 9, 7, ch.accent);
+    drawCircle(cx, 6, -7, 9, ch.color, ch.outline, 2);
+    drawCircle(cx, -2, -9, 3.4, ch.color, ch.outline, 1.5);
+    drawCircle(cx, 14, -9, 3.4, ch.color, ch.outline, 1.5);
+    drawCircle(cx, -2, -9, 1.8, ch.accent);
+    drawCircle(cx, 14, -9, 1.8, ch.accent);
+    drawEllipse(cx, 7, -5, 5.5, 5, ch.accent);
+    drawCircle(cx, 7, -7, 1.4, '#1c1209');
+    drawLine(cx, 8, -2, 11, -2, '#3a2612', 1.2);
+    cx.restore();
+  } else if (ch.sprite === 'panda') {
+    cx.strokeStyle = '#1c1c1c';
+    cx.lineWidth = 3.2;
+    cx.beginPath();
+    cx.moveTo(-14 * dir, 7);
+    cx.quadraticCurveTo(-20 * dir, 6, -18 * dir, -1);
+    cx.stroke();
+    drawEllipse(cx, -2 * dir, 6, 16, 11.5, '#f4f4f4', ch.outline, 2);
+    drawEllipse(cx, 1 * dir, 8, 7.8, 5.2, '#ececec');
+    drawCircle(cx, 8 * dir, -2, 8.5, '#f4f4f4', ch.outline, 2);
+    drawCircle(cx, 3 * dir, -9, 3.9, '#1c1c1c');
+    drawEllipse(cx, 8 * dir, -4, 4.8, 4.2, '#1c1c1c');
+    drawEllipse(cx, 11.5 * dir, 0, 5.8, 4.2, '#f4f4f4', ch.outline, 1.2);
+    drawEllipse(cx, 14.5 * dir, 0.5, 2.8, 2.1, '#1c1c1c');
+    drawCircle(cx, 9.2 * dir, -4, 1.2, '#fff');
+    drawLine(cx, 11.2 * dir, 2.8, 14.6 * dir, 4.4, '#1c1c1c', 1.2);
+    drawLine(cx, 11.6 * dir, 1.4, 15.4 * dir, 1.2, '#1c1c1c', 1);
+  } else if (ch.sprite === 'otter') {
+    cx.save();
+    if (dir < 0) cx.scale(-1, 1);
+    cx.strokeStyle = ch.color; cx.lineWidth = 6; cx.lineCap = 'round';
+    cx.beginPath(); cx.moveTo(-12, 4); cx.quadraticCurveTo(-24, 6, -22, -2); cx.stroke();
+    drawEllipse(cx, 0, 5, 17, 12, ch.color, ch.outline, 2);
+    drawEllipse(cx, 0, 7, 10, 7, ch.accent);
+    drawCircle(cx, 9, -6, 9, ch.color, ch.outline, 2);
+    drawCircle(cx, 3, -13, 2.2, ch.color, ch.outline, 1.2);
+    drawCircle(cx, 13, -13, 2.2, ch.color, ch.outline, 1.2);
+    drawEllipse(cx, 13, -4, 5, 3.2, ch.accent);
+    drawCircle(cx, 16, -4, 1.5, '#1c1209');
+    drawCircle(cx, 8, -8, 1.4, '#1c1209');
+    drawLine(cx, 14, -3, 20, -4, '#d8b985', 1);
+    drawLine(cx, 14, -2, 20, -1, '#d8b985', 1);
+    drawEllipse(cx, -6, 15, 3, 2, ch.outline);
+    drawEllipse(cx, 6, 15, 3, 2, ch.outline);
+    cx.restore();
+  } else if (ch.sprite === 'captain') {
+    drawLine(cx, -4 * dir, 14, -8 * dir, 28, '#744b23', 3);
+    drawLine(cx, 7 * dir, 14, 11 * dir, 28, '#744b23', 3);
+    fillRoundRect(cx, -10, 7, 24, 24, 7, '#d8a95a', '#744b23', 2);
+    drawCircle(cx, 5 * dir, -4, 9, '#f3d7ae', '#744b23', 2);
+    fillRoundRect(cx, 5 * dir - 11, -17, 22, 8, 4, '#ffffff', '#8f2f2f', 1.6);
+    drawLine(cx, 8 * dir, -2, 12 * dir, -1, '#744b23', 1.6);
+    drawLine(cx, 9 * dir, 2, 12 * dir, 3, '#744b23', 1.4);
+    drawLine(cx, 13 * dir, -3, 16 * dir, -1, '#744b23', 1.8);
+  } else if (ch.sprite === 'rocket') {
+    cx.save();
+    if (dir < 0) cx.scale(-1, 1);
+    fillRoundRect(cx, -9, -16, 18, 40, 9, '#f0f0f0', '#464646', 2);
+    cx.fillStyle = '#d76039';
+    cx.beginPath(); cx.moveTo(-9, 14); cx.lineTo(-18, 24); cx.lineTo(-6, 20); cx.closePath(); cx.fill();
+    cx.beginPath(); cx.moveTo(9, 14); cx.lineTo(18, 24); cx.lineTo(6, 20); cx.closePath(); cx.fill();
+    cx.fillStyle = '#d76039';
+    cx.beginPath(); cx.moveTo(0, -28); cx.lineTo(-10, -12); cx.lineTo(10, -12); cx.closePath(); cx.fill();
+    drawCircle(cx, 0, -2, 4, '#84cbe8', '#3f7e9a', 1.4);
+    drawLine(cx, -4, 24, -8, 32, '#444', 3);
+    drawLine(cx, 4, 24, 8, 32, '#444', 3);
+    cx.restore();
+  } else if (ch.sprite === 'digory') {
+    cx.save();
+    if (dir < 0) cx.scale(-1, 1);
+    cx.lineCap = 'round';
+    cx.strokeStyle = '#18181c'; cx.lineWidth = 4;
+    cx.beginPath(); cx.moveTo(-12, -2); cx.lineTo(-15, -10); cx.stroke();
+    cx.strokeStyle = '#f7f5f0'; cx.lineWidth = 4;
+    cx.beginPath(); cx.moveTo(-15, -10); cx.lineTo(-16, -14); cx.stroke();
+    drawEllipse(cx, 0, 5, 17, 12, '#f7f5f0', ch.outline, 2);
+    drawEllipse(cx, -3, 2, 7, 5.5, '#18181c');
+    drawCircle(cx, 6, 7, 2, '#18181c');
+    drawEllipse(cx, -11, 0, 5, 5, '#18181c');
+    drawCircle(cx, 9, -8, 8.5, '#f7f5f0', ch.outline, 2);
+    drawEllipse(cx, 10, -9, 7.5, 7, '#18181c');
+    cx.fillStyle = '#18181c';
+    cx.beginPath(); cx.moveTo(4, -14); cx.lineTo(7, -18); cx.lineTo(8, -11); cx.closePath(); cx.fill();
+    cx.beginPath(); cx.moveTo(14, -14); cx.lineTo(13, -18); cx.lineTo(11, -11); cx.closePath(); cx.fill();
+    drawEllipse(cx, 14, -5, 6, 4, '#8a5a35');
+    drawEllipse(cx, 15, -4, 4.5, 2.8, '#b8845f');
+    drawCircle(cx, 18, -5, 1.6, '#18181c');
+    drawCircle(cx, 10, -10, 1.4, '#f7f5f0');
+    drawCircle(cx, 10, -10, 0.7, '#18181c');
+    cx.fillStyle = '#7a8088';
+    cx.fillRect(0, -2, 14, 2.5);
+    drawCircle(cx, 12, -0.5, 1.7, '#d0d4d8', '#444', 1);
+    cx.restore();
+  } else if (ch.sprite === 'giraffe') {
+    cx.save();
+    if (dir < 0) cx.scale(-1, 1);
+    var hammer = pose && pose.hammer != null ? pose.hammer : 0;
+    drawLine(cx, -3, 10, -4, 22, '#8a5a24', 2.3);
+    drawLine(cx, 4, 9, 4.5, 22, '#8a5a24', 2.3);
+    drawLine(cx, 0, 10, 0, 22, '#8a5a24', 1.8);
+    drawEllipse(cx, -1, 4, 10.5, 6.5, '#f0c84d', ch.outline, 2);
+    drawCircle(cx, -5, 3, 1.9, '#bf8834');
+    drawCircle(cx, 1, 6, 1.7, '#bf8834');
+    drawCircle(cx, 5, 2, 1.5, '#bf8834');
+    drawLine(cx, -10, 2, -14, -4, '#8a5a24', 2);
+    cx.translate(4, -3);
+    cx.rotate(sway + hammer * 1.25);
+    fillRoundRect(cx, -2, -24, 4, 23, 2, '#f0c84d', ch.outline, 1.5);
+    drawCircle(cx, 0.8, -14, 1.2, '#bf8834');
+    drawCircle(cx, -0.7, -20, 1.1, '#bf8834');
+    drawEllipse(cx, 1.5, -29, 7, 5.4, '#f0c84d', ch.outline, 1.5);
+    drawEllipse(cx, 5.8, -27.4, 3.6, 1.8, '#8a5a24');
+    drawEllipse(cx, 5.2, -25.4, 4, 2.6, '#f7ddb0');
+    drawCircle(cx, 2.2, -30.5, 1.1, '#1c1c1c');
+    drawLine(cx, -0.5, -34, -1.7, -38, '#8a5a24', 2);
+    drawLine(cx, 3.5, -34, 4.7, -38, '#8a5a24', 2);
+    drawCircle(cx, -1.7, -38, 1.2, '#d5a634');
+    drawCircle(cx, 4.7, -38, 1.2, '#d5a634');
+    cx.restore();
+  } else if (ch.sprite === 'koala') {
+    drawLine(cx, -12 * dir, 12, -18 * dir, 12, '#7d848c', 3);
+    drawEllipse(cx, -3 * dir, 10, 15, 8.5, '#9aa1a8', ch.outline, 2);
+    drawEllipse(cx, 1 * dir, 11.5, 8.5, 4.8, '#c2c8cc');
+    drawCircle(cx, 10 * dir, 4, 7.2, '#9aa1a8', ch.outline, 2);
+    drawCircle(cx, 7 * dir, -2.5, 4.4, '#9aa1a8', ch.outline, 2);
+    drawCircle(cx, 15 * dir, -1, 3.8, '#9aa1a8', ch.outline, 2);
+    drawCircle(cx, 7 * dir, -2.5, 2.4, '#e6dfd2');
+    drawCircle(cx, 15 * dir, -1, 2.1, '#e6dfd2');
+    drawEllipse(cx, 14 * dir, 5.2, 4.4, 3.2, '#1c1c1c');
+    drawLine(cx, 8.5 * dir, 2.5, 11.5 * dir, 2.7, '#1c1c1c', 1.6);
+    drawLine(cx, 17 * dir, 11.5, 21 * dir, 12.7, '#3a3f48', 1.2);
+    cx.fillStyle = '#3a3f48';
+    cx.font = 'bold 10px Georgia,serif';
+    cx.textAlign = dir > 0 ? 'left' : 'right';
+    cx.fillText('Z', 18 * dir, -8);
+    cx.font = 'bold 8px Georgia,serif';
+    cx.fillText('z', 23 * dir, -14);
+  } else if (ch.sprite === 'mouse') {
+    drawLine(cx, -12 * dir, 7, -20 * dir, 3, '#b87e80', 2.2);
+    drawEllipse(cx, -1 * dir, 8, 11, 7, ch.color, ch.outline, 2);
+    drawCircle(cx, 8 * dir, 2, 6.2, ch.color, ch.outline, 2);
+    drawCircle(cx, 5 * dir, -4, 3.2, ch.color, ch.outline, 1.5);
+    drawCircle(cx, 10 * dir, -3, 3, ch.color, ch.outline, 1.5);
+    drawCircle(cx, 10 * dir, 0.5, 1.1, '#201417');
+    drawEllipse(cx, 13.2 * dir, 3.5, 2.1, 1.6, '#f1b7bc');
+    drawLine(cx, 12.2 * dir, 4.4, 15.5 * dir, 5.3, '#5b3d40', 1);
+    drawLine(cx, 11.5 * dir, 2.5, 15.5 * dir, 1.8, '#5b3d40', 1);
+  } else if (ch.sprite === 'parrot') {
+    cx.save();
+    if (dir < 0) cx.scale(-1, 1);
+    drawLine(cx, -2, 14, -3, 23, '#245a2d', 2);
+    drawLine(cx, 2, 14, 2, 23, '#245a2d', 2);
+    drawEllipse(cx, -1, 7, 8, 10, '#45b95c', ch.outline, 2);
+    drawEllipse(cx, -5, 6, 4.5, 6, '#2e7f40', '#245a2d', 1.2);
+    drawEllipse(cx, 2, 7, 3.8, 6.5, '#7dd06a');
+    drawCircle(cx, 8, -2, 6.2, '#45b95c', ch.outline, 2);
+    drawEllipse(cx, 10, 1, 2.6, 5.4, '#d8f2d0');
+    cx.fillStyle = '#ef6944';
+    cx.beginPath(); cx.moveTo(12, -2); cx.lineTo(20, 1); cx.lineTo(12, 4); cx.closePath(); cx.fill();
+    drawCircle(cx, 7.5, -3.5, 1.1, '#17361c');
+    drawLine(cx, -8, 7, -14, 2, '#2e7f40', 3);
+    cx.restore();
+  }
+}
+
+function drawCharacter(cx, id, x, y, facing, bob, shadowScale, variant, turnT, pose) {
+  var ch = CHARACTERS[id];
+  var bounce = Math.sin(bob || 0) * 1.5;
+  var mode = variant || 'portrait';
+  cx.save();
+  cx.translate(x, y + bounce);
+  drawEllipse(cx, 0, 18, 16 * (shadowScale || 1), 6 * (shadowScale || 1), 'rgba(0,0,0,.16)');
+  if (mode === 'sidescroll' && turnT > 0) drawCharacterPortraitSprite(cx, ch, bob);
+  else if (mode === 'sidescroll') drawCharacterSidescrollSprite(cx, ch, facing, bob, pose);
+  else drawCharacterPortraitSprite(cx, ch, bob);
+  cx.restore();
+}
+
+/* ── RNG + arena generation ───────────────────────────────── */
+function seededRng(seed) {
+  var s = seed >>> 0;
+  if (s === 0) s = 1;
+  return function() {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 0x100000000;
+  };
+}
+
+function makeArena(seed) {
+  var rng = seededRng(seed);
+  var platforms = [];
+  // Main floor: centered with open gaps on both sides so you can fall off.
+  platforms.push({ x: 120, y: 470, w: 560, h: 18, isFloor: true });
+  // 3..5 floating platforms above.
+  var n = 3 + Math.floor(rng() * 3);
+  var attempts = 0;
+  while (platforms.length - 1 < n && attempts < 40) {
+    attempts++;
+    var w = 100 + Math.floor(rng() * 80);
+    var x = 60 + Math.floor(rng() * (W - 120 - w));
+    // y range keeps every platform within one jump of the floor (y=470).
+    // Reachable from floor: y >= 470 - peakJumpHeight ≈ 264.
+    var y = 280 + Math.floor(rng() * 140);
+    // Reject platforms that stack too close to another.
+    var ok = true;
+    for (var i = 0; i < platforms.length; i++) {
+      var p = platforms[i];
+      if (Math.abs(y - p.y) < 60 && x < p.x + p.w + 30 && x + w > p.x - 30) { ok = false; break; }
+    }
+    if (ok) platforms.push({ x: x, y: y, w: w, h: 12, isFloor: false });
+  }
+  return platforms;
+}
+
+/* ── Entity factory ────────────────────────────────────────── */
+function makeEntity(charId, x, y, isCPU, mode) {
+  var cpuMode = mode || 'medium';
+  var cpuMeta = CPU_MODE_META[cpuMode];
+  return {
+    eid: NEXT_ENTITY_ID++,
+    charId: charId,
+    x: x, y: y,
+    vx: 0, vy: 0,
+    w: ENTITY_W,
+    onGround: false,
+    facing: 'right',
+    turnT: 0,
+    invulnFrames: 0,
+    damage: 0,
+    initialStocks: START_STOCKS,
+    stockSetting: START_STOCKS,
+    stocks: START_STOCKS,
+    ko: false,
+    isCPU: !!isCPU,
+    bob: 0,
+    squashT: 0,      // >0 while squashed; disables horizontal input
+    prevFootY: y + FEET_OFFSET,
+    // Stage 3 dash
+    dashT: 0,           // >0 while dashing (velocity locked to dashDir * DASH_VEL)
+    dashDir: 1,
+    dashCooldown: 0,
+    specialUsed: false,
+    specialCooldown: 0,
+    specialT: 0,
+    specialActive: false,
+    specialAnimT: 0,
+    specialVictims: Object.create(null),
+    trail: [],          // recent {x,y,facing,bob} for afterimages (kept short)
+    ai: isCPU ? {
+      mode: cpuMode,
+      genome: cpuMeta ? cpuMeta.genome : MEDIUM_MODE_GENOME,
+      state: 'idle',        // 'idle' | 'walk_left' | 'walk_right' | 'jump' | 'dash'
+      timer: 0.3,
+      inputLeft: false,
+      inputRight: false,
+      inputJumpPressed: false,
+      inputJumpHeld: false,
+      inputDashPressed: false,
+      inputSpecialPressed: false,
+      inputSpecialHeld: false,
+      jumpCooldown: 0,
+      targetId: null
+    } : null
+  };
+}
+
+function setEntityFacing(e, facing) {
+  if (e.facing !== facing) {
+    e.facing = facing;
+    e.turnT = TURN_PORTRAIT_TIME;
+  }
+}
+
+function ensureSlotPreviewState(slot) {
+  if (!slot.previewFacing) slot.previewFacing = 'front';
+  if (slot.previewTurnT == null) slot.previewTurnT = 0;
+  if (slot.previewLookTimer == null) slot.previewLookTimer = randomLookDelay();
+}
+
+/* ── Top-level state ───────────────────────────────────────── */
+// Slots drive the lobby. Slot 0 is the human player; 1..3 are CPUs.
+// player mode: 'play' | 'spectator'
+// cpu mode:    'off'  | 'easy' | 'medium' | 'hard'
+var state = {
+  phase: 'title',          // 'title' | 'select' | 'play'
+  phaseTime: 0,
+  slots: [
+    { kind: 'player', charIdx: 0, mode: 'play', stocks: START_STOCKS },
+    { kind: 'cpu',    charIdx: 1, mode: 'medium', stocks: START_STOCKS },
+    { kind: 'cpu',    charIdx: 2, mode: 'off', stocks: START_STOCKS },
+    { kind: 'cpu',    charIdx: 3, mode: 'off', stocks: START_STOCKS }
+  ],
+  entities: [],
+  projectiles: [],
+  platforms: [],
+  seed: 0,
+  respawnFlash: 0,         // global "you just respawned" tint timer
+  tapDir: 0,               // -1 / +1, last direction the player tapped (for double-tap dash)
+  tapTimer: 0,             // counts down DASH_DOUBLE_TAP_WINDOW
+  winner: null,            // entity or null (null = game over / no winner)
+  confetti: [],
+  sideHitCooldowns: Object.create(null)
+};
+
+function slotActive(s) {
+  if (s.kind === 'player') return s.mode === 'play';
+  return s.mode !== 'off';
+}
+function activeSlotCount() {
+  var n = 0;
+  for (var i = 0; i < state.slots.length; i++) if (slotActive(state.slots[i])) n++;
+  return n;
+}
+
+function stockLabel(v) {
+  return v === Infinity ? '∞' : String(v);
+}
+
+function startPlay(seedOverride) {
+  NEXT_ENTITY_ID = 1;
+  state.seed = seedOverride != null ? (seedOverride >>> 0)
+    : (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
+  state.platforms = makeArena(state.seed);
+  state.entities = [];
+  state.projectiles = [];
+  // Spawn active characters spaced across the stage.
+  var activeSlots = [];
+  for (var i = 0; i < state.slots.length; i++) if (slotActive(state.slots[i])) activeSlots.push(state.slots[i]);
+  var n = activeSlots.length;
+  for (var j = 0; j < n; j++) {
+    var s = activeSlots[j];
+    var sx = (W * (j + 1)) / (n + 1);
+    var sy = 80 + (j % 2) * 40;
+    var isCPU = s.kind === 'cpu';
+    var entity = makeEntity(CHAR_IDS[s.charIdx], sx, sy, isCPU, s.mode);
+    entity.initialStocks = s.stocks;
+    entity.stockSetting = s.stocks;
+    entity.stocks = s.stocks;
+    state.entities.push(entity);
+  }
+  state.respawnFlash = 0;
+  state.winner = null;
+  state.confetti = [];
+  state.sideHitCooldowns = Object.create(null);
+  state.phase = 'play';
+  state.phaseTime = 0;
+}
+
+function restartMatch() {
+  startPlay();
+}
+
+function respawn(e) {
+  e.x = W / 2;
+  e.y = 60;
+  e.vx = 0;
+  e.vy = 0;
+  e.damage = 0;
+  e.dashT = 0;
+  e.dashCooldown = 0;
+  e.specialUsed = false;
+  e.specialCooldown = 0;
+  e.specialT = 0;
+  e.specialActive = false;
+  e.specialAnimT = 0;
+  e.specialVictims = Object.create(null);
+  e.squashT = 0;
+  e.trail.length = 0;
+  e.invulnFrames = 60;
+  e.facing = 'right';
+  e.turnT = 0;
+  state.respawnFlash = 0.4;
+  beep(180, 0.18, 0.28, 'sawtooth');
+}
+
+function activeHumanEntity() {
+  for (var i = 0; i < state.entities.length; i++) {
+    if (!state.entities[i].isCPU && !state.entities[i].ko) return state.entities[i];
+  }
+  return null;
+}
+
+function humanWasPlaying() {
+  return state.slots[0] && state.slots[0].mode === 'play';
+}
+
+function humanIsOut() {
+  return humanWasPlaying() && !activeHumanEntity();
+}
+
+// Edge-of-stage call: decrements a stock; if the character has stocks left
+// they respawn, otherwise they sit out the rest of the round.
+function loseStockOrRespawn(e) {
+  if (e.ko) return;
+  if (e.stocks !== Infinity) e.stocks--;
+  // Out-of-bounds tumble sound
+  beep(220, 0.25, 0.18, 'sawtooth');
+  setTimeout(function() { beep(140, 0.22, 0.22, 'sawtooth'); }, 110);
+  if (e.stocks !== Infinity && e.stocks <= 0) {
+    e.ko = true;
+    // Park the eliminated character off-screen so it's never re-touched.
+    e.x = -9999; e.y = -9999;
+    e.vx = 0; e.vy = 0;
+    e.trail.length = 0;
+    checkMatchEnd();
+    return;
+  }
+  respawn(e);
+}
+
+function aliveEntities() {
+  var out = [];
+  for (var i = 0; i < state.entities.length; i++) if (!state.entities[i].ko) out.push(state.entities[i]);
+  return out;
+}
+function checkMatchEnd() {
+  var alive = aliveEntities();
+  var total = state.entities.length;
+  // >1 character: last one standing wins. Solo practice: all out → all done.
+  if (total > 1 && alive.length <= 1) {
+    state.winner = alive.length === 1 ? alive[0] : null;
+    state.phase = 'results';
+    state.phaseTime = 0;
+    spawnConfetti(state.winner);
+    audio.chime();
+  } else if (total === 1 && alive.length === 0) {
+    state.winner = null;
+    state.phase = 'results';
+    state.phaseTime = 0;
+    spawnConfetti(null);
+  }
+}
+
+/* ── Player input resolution ───────────────────────────────── */
+function playerLeft()  { return K.ArrowLeft  || K.KeyA || touchState.leftBtn; }
+function playerRight() { return K.ArrowRight || K.KeyD || touchState.rightBtn; }
+function jumpHeld()    { return K.Space || K.ArrowUp || K.KeyW || touchState.jumpBtn; }
+function specialHeld() { return K.KeyF || K.KeyJ || touchState.specialBtn; }
+function specialPressed() {
+  var kp = eat('KeyF') || eat('KeyJ');
+  if (touchState.specialJustPressed) { touchState.specialJustPressed = false; return true; }
+  return kp;
+}
+function jumpPressed() {
+  var kp = eat('Space') || eat('ArrowUp') || eat('KeyW');
+  if (touchState.jumpJustPressed) { touchState.jumpJustPressed = false; return true; }
+  return kp;
+}
+
+/* ── Dash helper ───────────────────────────────────────────── */
+function startDash(e, dir) {
+  if (e.dashT > 0 || e.dashCooldown > 0 || e.squashT > 0) return;
+  e.dashDir = dir < 0 ? -1 : 1;
+  setEntityFacing(e, e.dashDir < 0 ? 'left' : 'right');
+  e.dashT = DASH_DURATION;
+  e.dashCooldown = DASH_DURATION + DASH_COOLDOWN;
+  var dashMul = (CHARACTERS[e.charId].dashMul != null) ? CHARACTERS[e.charId].dashMul : 1;
+  e.vx = e.dashDir * DASH_VEL * dashMul;
+  e.trail = [];
+  if (!e.isCPU) beep(640, 0.14, 0.12, 'sawtooth');
+  else          beep(520, 0.08, 0.10, 'sawtooth');
+}
+
+function applySpecialHit(attacker, defender, spec, dir) {
+  if (defender.specialActive && CHARACTERS[defender.charId].special &&
+      CHARACTERS[defender.charId].special.type === 'margaritaville') return;
+  defender.damage += spec.damage;
+  defender.vx = dir * (spec.launchX + defender.damage * 2.2);
+  defender.vy = Math.min(defender.vy, -spec.launchY);
+  defender.onGround = false;
+  defender.invulnFrames = KB_POST_INVULN;
+}
+
+function tryUseCharacterAbility(e) {
+  var special = CHARACTERS[e.charId].special;
+  if (!special) return false;
+  if (special.type === 'neckHammer') {
+    if (e.specialCooldown > 0 || e.specialT > 0) return false;
+    e.specialCooldown = special.cooldown;
+    e.specialT = special.active;
+    e.specialVictims = Object.create(null);
+    if (!e.isCPU) beep(330, 0.08, 0.1, 'square');
+    return true;
+  }
+  if (special.type === 'abortShot') {
+    if (e.specialCooldown > 0) return false;
+    e.specialCooldown = special.cooldown;
+    state.projectiles.push({
+      ownerId: e.eid,
+      ownerCharId: e.charId,
+      x: e.x + (e.facing === 'left' ? -24 : 24),
+      y: e.y - 8,
+      vx: (e.facing === 'left' ? -1 : 1) * special.speed,
+      radius: special.radius,
+      damage: special.damage,
+      launchX: special.launchX,
+      launchY: special.launchY,
+      maxAge: special.maxAge,
+      age: 0
+    });
+    if (!e.isCPU) beep(660, 0.07, 0.08, 'triangle');
+    return true;
+  }
+  return false;
+}
+
+function updateHeldSpecial(e, specialHeldBtn, specialPressedBtn, dt) {
+  var special = CHARACTERS[e.charId].special;
+  if (!special) return;
+
+  if (special.type === 'airFlap') {
+    if (specialHeldBtn && !e.onGround) {
+      e.specialActive = true;
+      e.specialAnimT += dt;
+      e.vy = Math.max(e.vy - special.lift * dt, -special.maxRise);
+      if (!e.isCPU && specialPressedBtn) beep(690, 0.06, 0.05, 'triangle');
+    } else {
+      e.specialActive = false;
+      if (e.onGround) e.specialAnimT = 0;
+    }
+    return;
+  }
+
+  if (special.type === 'margaritaville') {
+    var wasMargaritaActive = e.specialActive;
+    e.specialActive = specialHeldBtn && e.onGround && e.dashT <= 0 && e.squashT <= 0;
+    if (e.specialActive) {
+      e.specialAnimT += dt;
+      e.vx = 0;
+      e.vy = 0;
+      if (!e.isCPU && !wasMargaritaActive) {
+        margaritaMelodySession++;
+        margaritaMelodyLooping = true;
+        playMargaritavilleMelody(margaritaMelodySession);
+      }
+    } else {
+      if (!e.isCPU && wasMargaritaActive) {
+        margaritaMelodyLooping = false;
+        margaritaMelodySession++;
+      }
+      e.specialAnimT = 0;
+    }
+    return;
+  }
+
+  if (special.type === 'bulldogBounce') {
+    e.specialActive = specialHeldBtn && e.onGround;
+    if (e.specialActive) {
+      e.specialAnimT += dt;
+      e.vx *= Math.max(0, 1 - dt * 12);
+    } else {
+      e.specialAnimT = 0;
+    }
+    return;
+  }
+}
+
+function getOpponentTarget(e) {
+  var best = null;
+  var bestDist = Infinity;
+  for (var i = 0; i < state.entities.length; i++) {
+    var other = state.entities[i];
+    if (other.ko || other.eid === e.eid) continue;
+    var dx = other.x - e.x;
+    var dy = other.y - e.y;
+    var dist = Math.abs(dx) + Math.abs(dy) * 0.6;
+    if (dist < bestDist) {
+      best = other;
+      bestDist = dist;
+    }
+  }
+  return best;
+}
+
+function cpuThinkHeuristic(e, dt, g) {
+  var s = e.ai;
+  g = g || s.genome || MEDIUM_MODE_GENOME;
+  s.jumpCooldown = Math.max(0, s.jumpCooldown - dt);
+  s.timer -= dt;
+
+  var target = getOpponentTarget(e);
+  s.targetId = target ? target.eid : null;
+  var input = { left: false, right: false, jumpPressed: false, jumpHeld: false, dashPressed: false, specialPressed: false, specialHeld: false };
+  var special = CHARACTERS[e.charId].special;
+  var specialReady = special && ((special.type === 'airFlap' || special.type === 'margaritaville' || special.type === 'bulldogBounce')
+    ? true : e.specialCooldown <= 0 && e.specialT <= 0);
+
+  var edgeBuffer = Math.max(70, g.edgeBuffer * 0.55);
+  var panicBuffer = Math.max(42, edgeBuffer * 0.55);
+  var nearLeft = e.x < STAGE_LEFT_EDGE + edgeBuffer;
+  var nearRight = e.x > STAGE_RIGHT_EDGE - edgeBuffer;
+  var panicNearLeft = e.x < STAGE_LEFT_EDGE + panicBuffer;
+  var panicNearRight = e.x > STAGE_RIGHT_EDGE - panicBuffer;
+
+  if (!target) {
+    s.state = 'idle';
+    s.timer = 0.2;
+  } else if (e.onGround && nearLeft) {
+    s.state = 'walk_right';
+    s.timer = Math.max(s.timer, panicNearLeft ? 0.9 : 0.55);
+  } else if (e.onGround && nearRight) {
+    s.state = 'walk_left';
+    s.timer = Math.max(s.timer, panicNearRight ? 0.9 : 0.55);
+  } else if (s.timer <= 0) {
+    var dx = target.x - e.x;
+    var adx = Math.abs(dx);
+    var dy = target.y - e.y;
+    var desiredDir = dx < 0 ? -1 : 1;
+    var comfortLow = Math.max(0, g.preferredRange - g.rangeSlack);
+    var comfortHigh = g.preferredRange + g.rangeSlack;
+    var highDamage = e.damage >= g.retreatAtDamage;
+    var wantingRetreat = highDamage && adx < comfortHigh && chance(g.retreatBias);
+    var dashOpen = e.onGround && e.dashCooldown <= 0 && adx < g.dashRange;
+    var jumpOpen = e.onGround && s.jumpCooldown <= 0;
+    var jumpValue = (dy < -g.jumpAboveBias ? 0.35 : 0) + (adx < g.jumpRange ? 0.25 : 0) + g.jumpChance;
+    var dashValue = dashOpen ? (g.dashChance + g.aggression * 0.2 + (adx < comfortHigh ? g.pressureBonus : 0)) : 0;
+
+    if (chance(g.idleChance)) {
+      s.state = 'idle';
+    } else if (target && specialReady && special.type === 'abortShot' && adx < 240 && Math.abs(dy) < 90) {
+      input.specialPressed = true;
+      s.state = desiredDir < 0 ? 'walk_left' : 'walk_right';
+      s.timer = randRange(g.dwellMin, g.dwellMax);
+    } else if (target && specialReady && special.type === 'neckHammer' && adx < special.range + 8 && Math.abs(dy) < 70) {
+      input.specialPressed = true;
+      s.state = 'idle';
+      s.timer = randRange(g.dwellMin, g.dwellMax);
+    } else if (target && specialReady && special.type === 'margaritaville' && adx < 80 && Math.abs(dy) < 70) {
+      input.specialHeld = true;
+      s.state = 'idle';
+      s.timer = randRange(g.dwellMin, g.dwellMax);
+    } else if (target && specialReady && special.type === 'bulldogBounce' && adx < 70 && Math.abs(dy) < 70) {
+      input.specialHeld = true;
+      s.state = 'idle';
+      s.timer = randRange(g.dwellMin, g.dwellMax);
+    } else if (dashOpen && chance(clamp(dashValue, 0, 0.95))) {
+      s.state = desiredDir < 0 ? 'dash_left' : 'dash_right';
+    } else if (jumpOpen && chance(clamp(jumpValue, 0, 0.95))) {
+      s.state = 'jump';
+    } else if (wantingRetreat) {
+      s.state = desiredDir < 0 ? 'walk_right' : 'walk_left';
+    } else if (adx < comfortLow && chance(clamp(g.facingStickiness, 0, 0.95))) {
+      s.state = e.facing === 'left' ? 'walk_left' : 'walk_right';
+    } else {
+      s.state = desiredDir < 0 ? 'walk_left' : 'walk_right';
+    }
+    s.timer = randRange(g.dwellMin, g.dwellMax);
+  }
+
+  if (e.onGround) {
+    if (s.state === 'walk_left') input.left = true;
+    else if (s.state === 'walk_right') input.right = true;
+    else if (s.state === 'dash_left') {
+      input.left = true;
+      input.dashPressed = true;
+      s.state = 'walk_left';
+      s.timer = randRange(g.dwellMin, g.dwellMax);
+    } else if (s.state === 'dash_right') {
+      input.right = true;
+      input.dashPressed = true;
+      s.state = 'walk_right';
+      s.timer = randRange(g.dwellMin, g.dwellMax);
+    } else if (s.state === 'jump') {
+      if (target) {
+        if (target.x < e.x) input.left = true;
+        else input.right = true;
+      }
+      input.jumpPressed = true;
+      input.jumpHeld = true;
+      s.jumpCooldown = g.jumpCooldown;
+      s.state = 'idle';
+    }
+    if (nearLeft) {
+      input.left = false;
+      input.right = true;
+      input.dashPressed = false;
+    } else if (nearRight) {
+      input.right = false;
+      input.left = true;
+      input.dashPressed = false;
+    }
+  } else {
+    var centerBias = (W * 0.5 - e.x) / (W * 0.5);
+    if (target) {
+      if (target.x < e.x - 10) input.left = true;
+      if (target.x > e.x + 10) input.right = true;
+    }
+    if (nearLeft) {
+      input.left = false;
+      input.right = true;
+    } else if (nearRight) {
+      input.right = false;
+      input.left = true;
+    }
+    if (centerBias < -0.08 * g.airborneCenterBias) {
+      input.left = true;
+      input.right = false;
+    } else if (centerBias > 0.08 * g.airborneCenterBias) {
+      input.right = true;
+      input.left = false;
+    }
+    if (special && special.type === 'airFlap') {
+      var needsLift = e.vy > 80 || e.y > 390;
+      var wantsChaseLift = target && target.y < e.y - 18 && Math.abs(target.x - e.x) < g.jumpRange;
+      if (needsLift || wantsChaseLift) input.specialHeld = true;
+    }
+    input.jumpHeld = true;
+  }
+
+  s.inputLeft = input.left;
+  s.inputRight = input.right;
+  s.inputJumpPressed = input.jumpPressed;
+  s.inputJumpHeld = input.jumpHeld;
+  s.inputDashPressed = input.dashPressed;
+  s.inputSpecialPressed = input.specialPressed;
+  s.inputSpecialHeld = input.specialHeld;
+}
+
+/* ── CPU AI: picks new behaviour once per frame, latches inputs ─ */
+function cpuThink(e, dt) {
+  var s = e.ai;
+  cpuThinkHeuristic(e, dt, s.genome || MEDIUM_MODE_GENOME);
+}
+
+/* ── Physics step ──────────────────────────────────────────── */
+function stepEntity(e, dt) {
+  var pressingLeft, pressingRight, jp, jh, dashPressed, specialPress, specialHold;
+  if (e.isCPU) {
+    pressingLeft  = e.ai.inputLeft;
+    pressingRight = e.ai.inputRight;
+    jp = e.ai.inputJumpPressed;
+    jh = e.ai.inputJumpHeld;
+    dashPressed = e.ai.inputDashPressed;
+    specialPress = e.ai.inputSpecialPressed;
+    specialHold = e.ai.inputSpecialHeld;
+    e.ai.inputJumpPressed = false; // consume so multi-substep doesn't re-jump
+    e.ai.inputDashPressed = false;
+    e.ai.inputSpecialPressed = false;
+  } else {
+    pressingLeft  = playerLeft();
+    pressingRight = playerRight();
+    jp = jumpPressed();
+    jh = jumpHeld();
+    dashPressed = false; // player dash is started from updatePlay() before stepping
+    specialPress = specialPressed();
+    specialHold = specialHeld();
+  }
+  if (e.turnT > 0) e.turnT = Math.max(0, e.turnT - dt);
+  // Squash disables all horizontal input and kills walking momentum.
+  if (e.squashT > 0) {
+    e.squashT = Math.max(0, e.squashT - dt);
+    pressingLeft = false;
+    pressingRight = false;
+    jp = false;
+    dashPressed = false;
+    specialPress = false;
+    specialHold = false;
+    if (e.onGround) e.vx *= Math.pow(0.1, dt * 8); // decay to zero over the squash
+  }
+
+  // CPU dash kickoff (player's is handled in updatePlay)
+  if (dashPressed) {
+    var dir = pressingLeft && !pressingRight ? -1
+            : pressingRight && !pressingLeft ? 1
+            : (e.facing === 'left' ? -1 : 1);
+    startDash(e, dir);
+  }
+
+  // Per-character speed/jump multipliers (e.g. Pras the Koala is comically slow).
+  var ch = CHARACTERS[e.charId];
+  var moveMul = (ch.moveMul != null) ? ch.moveMul : 1;
+  var jumpMul = (ch.jumpMul != null) ? ch.jumpMul : 1;
+  var dashMul = (ch.dashMul != null) ? ch.dashMul : 1;
+  updateHeldSpecial(e, specialHold, specialPress, dt);
+  if (e.specialActive && ch.special && ch.special.type === 'margaritaville') {
+    pressingLeft = false;
+    pressingRight = false;
+    jp = false;
+    dashPressed = false;
+  }
+  if (e.specialActive && ch.special && ch.special.type === 'bulldogBounce') {
+    pressingLeft = false;
+    pressingRight = false;
+    jp = false;
+    dashPressed = false;
+  }
+
+  // Dash state machine: while dashT > 0 we pin vx and skip accel/friction.
+  var dashing = e.dashT > 0;
+  if (dashing) {
+    e.dashT = Math.max(0, e.dashT - dt);
+    e.vx = e.dashDir * DASH_VEL * dashMul;
+    // Record afterimage sample (kept short; reused in drawPlay)
+    e.trail.push({ x: e.x, y: e.y, facing: e.facing, bob: e.bob });
+    if (e.trail.length > 6) e.trail.shift();
+  } else {
+    if (e.trail.length > 0) e.trail.length = 0;
+    var accel = (e.onGround ? MOVE_ACCEL_GROUND : MOVE_ACCEL_AIR) * moveMul;
+    if (pressingLeft && !pressingRight)  { e.vx -= accel * dt; setEntityFacing(e, 'left'); }
+    if (pressingRight && !pressingLeft)  { e.vx += accel * dt; setEntityFacing(e, 'right'); }
+    if (!pressingLeft && !pressingRight && e.onGround && e.squashT <= 0) {
+      var dec = GROUND_FRIC * dt;
+      if (e.vx > 0)      e.vx = Math.max(0, e.vx - dec);
+      else if (e.vx < 0) e.vx = Math.min(0, e.vx + dec);
+    }
+    var maxV = MOVE_MAX * moveMul;
+    // Preserve externally applied launch momentum until friction/opposite input
+    // bleeds it off; only cap deliberate self-propelled movement.
+    if (e.vx > maxV && pressingRight && !pressingLeft) e.vx = maxV;
+    if (e.vx < -maxV && pressingLeft && !pressingRight) e.vx = -maxV;
+  }
+  if (e.dashCooldown > 0) e.dashCooldown = Math.max(0, e.dashCooldown - dt);
+  if (e.specialCooldown > 0) e.specialCooldown = Math.max(0, e.specialCooldown - dt);
+  if (e.specialT > 0) e.specialT = Math.max(0, e.specialT - dt);
+
+  if (specialPress) tryUseCharacterAbility(e);
+
+  if (jp && e.onGround) {
+    e.vy = -JUMP_VEL * jumpMul;
+    e.onGround = false;
+    if (!e.isCPU) beep(380, 0.14, 0.09, 'triangle');
+  }
+  if (!jh && e.vy < -JUMP_CUT * jumpMul) e.vy = -JUMP_CUT * jumpMul;
+
+  // Gravity + terminal velocity. Digory's bulldogBounce is purely a render
+  // effect (applied in drawPlay); mutating e.y here poked prevFootY past the
+  // platform and dropped him through the floor.
+  e.vy += GRAVITY * dt;
+  if (e.vy >  TERM_VEL) e.vy =  TERM_VEL;
+
+  // Integrate
+  var prevFootY = e.y + FEET_OFFSET;
+  e.x += e.vx * dt;
+  e.y += e.vy * dt;
+  var newFootY = e.y + FEET_OFFSET;
+
+  e.onGround = false;
+
+  // One-way platform collision: only from above, only when falling.
+  if (e.vy >= 0) {
+    for (var i = 0; i < state.platforms.length; i++) {
+      var p = state.platforms[i];
+      var ex0 = e.x - e.w / 2, ex1 = e.x + e.w / 2;
+      if (ex1 < p.x || ex0 > p.x + p.w) continue;
+      if (prevFootY <= p.y + 1 && newFootY >= p.y) {
+        e.y = p.y - FEET_OFFSET;
+        e.vy = 0;
+        e.onGround = true;
+        e.specialUsed = false;
+        if (ch.special && ch.special.type === 'airFlap') e.specialActive = false;
+        break;
+      }
+    }
+  }
+
+  // Edge of stage: fall off any open side / bottom → respawn or sit out the round.
+  if (e.x < -60 || e.x > W + 60 || e.y > H + 120) loseStockOrRespawn(e);
+
+  // Bob: step while walking, decay otherwise
+  if (e.onGround && Math.abs(e.vx) > 20) e.bob += dt * 10;
+  else if (!e.onGround)                   e.bob += dt * 2;
+  else                                    e.bob *= 0.88;
+
+  if (e.invulnFrames > 0) e.invulnFrames--;
+  e.prevFootY = newFootY;
+}
+
+/* ── Entity-vs-entity: head-bounces + side-push ───────────── */
+function stomp(jumper, landee) {
+  if (landee.specialActive && CHARACTERS[landee.charId].special &&
+      CHARACTERS[landee.charId].special.type === 'margaritaville') {
+    var poolSpec = CHARACTERS[landee.charId].special;
+    var awayDir = jumper.x >= landee.x ? 1 : -1;
+    jumper.damage += poolSpec.damage;
+    jumper.vx = awayDir * (poolSpec.launchX + jumper.damage * 2.2);
+    jumper.vy = -(poolSpec.launchY + jumper.damage * 1.4);
+    jumper.onGround = false;
+    jumper.invulnFrames = KB_POST_INVULN;
+    return;
+  }
+  // Place jumper's feet just above landee's head, then bounce off.
+  jumper.y  = landee.y - HEAD_OFFSET - FEET_OFFSET - 2;
+  jumper.vy = -JUMP_VEL * STOMP_BOUNCE_MULT;
+  jumper.onGround = false;
+  landee.squashT = SQUASH_DURATION;
+  // Damage first, then the launch uses the *new* damage so each hit hurts more.
+  landee.damage += DAMAGE_PER_STOMP;
+  // Fly away from the jumper's center (sign follows horizontal offset).
+  var dir = landee.x >= jumper.x ? 1 : -1;
+  // Mass ratio — heavier (less damaged) jumper launching a lighter (more
+  // damaged) landee gets extra oomph. Sqrt keeps it from blowing up.
+  var massRatio = Math.sqrt(currentMass(jumper) / currentMass(landee));
+  var ratioMul = Math.min(KB_RATIO_MAX, Math.max(KB_RATIO_MIN, massRatio));
+  landee.vx = dir * (KB_BASE_X + landee.damage * KB_SCALE_X) * ratioMul;
+  landee.vy = -(KB_BASE_Y + landee.damage * KB_SCALE_Y) * ratioMul;
+  landee.onGround = false;
+  landee.invulnFrames = KB_POST_INVULN;
+  beep(520, 0.22, 0.11, 'sine');
+  setTimeout(function() { beep(780, 0.14, 0.09, 'sine'); }, 70);
+}
+
+function repelFromHippoPool(hippo, other) {
+  var key = hippo.eid < other.eid ? (hippo.eid + ':' + other.eid) : (other.eid + ':' + hippo.eid);
+  if (state.sideHitCooldowns[key]) return;
+  var poolSpec = CHARACTERS[hippo.charId].special;
+  var awayDir = other.x >= hippo.x ? 1 : -1;
+  other.damage += poolSpec.damage;
+  other.vx = awayDir * (poolSpec.launchX + other.damage * 2.3);
+  other.vy = -(poolSpec.launchY + other.damage * 1.2);
+  other.onGround = false;
+  other.invulnFrames = KB_POST_INVULN;
+  state.sideHitCooldowns[key] = 0.12;
+}
+
+function resolveEntityPairs() {
+  var es = state.entities;
+  for (var i = 0; i < es.length; i++) {
+    if (es[i].ko) continue;
+    for (var j = i + 1; j < es.length; j++) {
+      var A = es[i], B = es[j];
+      if (B.ko) continue;
+      // AABB overlap
+      var ax0 = A.x - A.w / 2, ax1 = A.x + A.w / 2;
+      var bx0 = B.x - B.w / 2, bx1 = B.x + B.w / 2;
+      if (ax1 < bx0 || bx1 < ax0) continue;
+      var ay0 = A.y - HEAD_OFFSET, ay1 = A.y + FEET_OFFSET;
+      var by0 = B.y - HEAD_OFFSET, by1 = B.y + FEET_OFFSET;
+      if (ay1 < by0 || by1 < ay0) continue;
+
+      // Who is higher + falling onto the other?
+      var aOnTop = (A.y < B.y) && (A.vy > 0) && (A.vy - B.vy > 40);
+      var bOnTop = (B.y < A.y) && (B.vy > 0) && (B.vy - A.vy > 40);
+      var aPool = A.specialActive && CHARACTERS[A.charId].special &&
+        CHARACTERS[A.charId].special.type === 'margaritaville';
+      var bPool = B.specialActive && CHARACTERS[B.charId].special &&
+        CHARACTERS[B.charId].special.type === 'margaritaville';
+
+      if (aPool && !bPool) {
+        repelFromHippoPool(A, B);
+        continue;
+      }
+      if (bPool && !aPool) {
+        repelFromHippoPool(B, A);
+        continue;
+      }
+
+      if (aOnTop) {
+        stomp(A, B);
+      } else if (bOnTop) {
+        stomp(B, A);
+      } else {
+        // Side bump: push apart by mass-weighted share of the x-overlap, then
+        // solve a 1D x-axis collision. Equal masses now swap velocity, so a
+        // dash into a stationary opponent transfers momentum cleanly.
+        var overlap = Math.min(ax1, bx1) - Math.max(ax0, bx0);
+        if (overlap > 0) {
+          var dir = A.x < B.x ? -1 : 1;
+          var mA = currentMass(A), mB = currentMass(B);
+          var totalMass = mA + mB;
+          var aWasDashing = A.dashT > 0;
+          var bWasDashing = B.dashT > 0;
+          // Heavier entity moves less during push-apart.
+          A.x += dir * overlap * (mB / totalMass);
+          B.x -= dir * overlap * (mA / totalMass);
+          var uA = A.vx, uB = B.vx;
+          var relApproach = uA - uB;
+          var vA = ((mA - SIDE_RESTITUTION * mB) * uA + (1 + SIDE_RESTITUTION) * mB * uB) / totalMass;
+          var vB = ((mB - SIDE_RESTITUTION * mA) * uB + (1 + SIDE_RESTITUTION) * mA * uA) / totalMass;
+          A.vx = vA;
+          B.vx = vB;
+
+          // Impact stops the dash lock so transferred momentum persists.
+          if (A.dashT > 0) A.dashT = 0;
+          if (B.dashT > 0) B.dashT = 0;
+
+          // Strong committed hits should create an actual launch, not just
+          // degrade into ground shoving on the next frame.
+          if (Math.abs(relApproach) > SIDE_DAMAGE_SPEED_MIN) {
+            var launchDir = relApproach > 0 ? 1 : -1;
+            var launchB = aWasDashing && !bWasDashing;
+            var launchA = bWasDashing && !aWasDashing;
+            if (!launchA && !launchB) {
+              launchB = Math.abs(vB) >= Math.abs(vA);
+              launchA = !launchB;
+            }
+            if (launchB) applySideLaunch(A, B, launchDir, vA, vB);
+            else applySideLaunch(B, A, -launchDir, vB, vA);
+          }
+
+          // Damage follows exit speed, so the character launched away faster
+          // takes more punishment than the one that got stopped.
+          var pairKey = A.eid < B.eid ? (A.eid + ':' + B.eid) : (B.eid + ':' + A.eid);
+          if (Math.abs(relApproach) > SIDE_DAMAGE_SPEED_MIN && !state.sideHitCooldowns[pairKey]) {
+            A.damage += sideExitDamage(vA);
+            B.damage += sideExitDamage(vB);
+            state.sideHitCooldowns[pairKey] = 0.12;
+          }
+        }
+      }
+    }
+  }
+}
+
+function decaySideHitCooldowns(dt) {
+  var keys = Object.keys(state.sideHitCooldowns);
+  for (var i = 0; i < keys.length; i++) {
+    var key = keys[i];
+    var next = state.sideHitCooldowns[key] - dt;
+    if (next <= 0) delete state.sideHitCooldowns[key];
+    else state.sideHitCooldowns[key] = next;
+  }
+}
+
+/* ── Touch controls (mobile D-pad + jump button) ───────────── */
+function mobileControlsOn() {
+  return TOUCH_UI && state.phase === 'play' && !!activeHumanEntity();
+}
+
+function mobileLayout() {
+  var edge = 18;
+  var baseR = Math.round(H * 0.072);
+  var actionR = Math.round(H * 0.078);
+  var clusterY = H - Math.round(H * 0.14);
+  var rightBase = W - edge;
+  return {
+    left:  { cx: edge + baseR, cy: clusterY, r: baseR, label: '◀' },
+    right: { cx: edge + baseR * 2 + 18, cy: clusterY, r: baseR, label: '▶' },
+    dash:  { cx: rightBase - actionR * 2.9 - 24, cy: clusterY, r: Math.round(actionR * 0.72), label: 'DASH' },
+    special:{ cx: rightBase - actionR - 6, cy: clusterY - actionR - 22, r: Math.round(actionR * 0.66), label: 'SPEC' },
+    jump:  { cx: rightBase - actionR, cy: clusterY, r: actionR, label: 'JUMP' }
+  };
+}
+function restartLayout(expanded) {
+  if (expanded) {
+    return { x: W / 2 - 170, y: H / 2 + 90, w: 340, h: 86 };
+  }
+  return { x: 14, y: 36, w: 106, h: 30 };
+}
+function resultsRestartLayout(expanded) {
+  if (expanded) return restartLayout(true);
+  return { x: W / 2 - 120, y: H - 130, w: 240, h: 48 };
+}
+function hitMobileControl(px, py) {
+  if (!mobileControlsOn()) return null;
+  var L = mobileLayout();
+  if (Math.hypot(px - L.jump.cx,  py - L.jump.cy)  <= L.jump.r)  return 'jump';
+  if (Math.hypot(px - L.dash.cx,  py - L.dash.cy)  <= L.dash.r)  return 'dash';
+  if (Math.hypot(px - L.special.cx, py - L.special.cy) <= L.special.r) return 'special';
+  if (Math.hypot(px - L.left.cx,  py - L.left.cy)  <= L.left.r)  return 'left';
+  if (Math.hypot(px - L.right.cx, py - L.right.cy) <= L.right.r) return 'right';
+  return null;
+}
+function syncTouches(e) {
+  var rect = canvas.getBoundingClientRect();
+  var sx = W / rect.width, sy = H / rect.height;
+  var leftHit = false, rightHit = false, jumpHit = false, dashHit = false, specialHit = false, paperTap = null;
+  var touches = e.touches;
+  for (var i = 0; i < touches.length; i++) {
+    var t = touches[i];
+    var px = (t.clientX - rect.left) * sx;
+    var py = (t.clientY - rect.top) * sy;
+    var hit = hitMobileControl(px, py);
+    if      (hit === 'left')  leftHit  = true;
+    else if (hit === 'right') rightHit = true;
+    else if (hit === 'jump')  jumpHit  = true;
+    else if (hit === 'dash')  dashHit  = true;
+    else if (hit === 'special') specialHit = true;
+    else                      paperTap = { x: px, y: py };
+  }
+  if (jumpHit && !touchState.jumpBtn) touchState.jumpJustPressed = true;
+  if (dashHit && !touchState.dashBtn) touchState.dashJustPressed = true;
+  if (specialHit && !touchState.specialBtn) touchState.specialJustPressed = true;
+  touchState.leftBtn  = leftHit;
+  touchState.rightBtn = rightHit;
+  touchState.jumpBtn  = jumpHit;
+  touchState.dashBtn  = dashHit;
+  touchState.specialBtn = specialHit;
+  // Non-control taps (title / select screens) register as clicks.
+  if (paperTap && !mclk) { mx = paperTap.x; my = paperTap.y; mclk = true; }
+}
+canvas.addEventListener('touchstart', function(e) {
+  touchSuppressUntil = performance.now() + 500;
+  syncTouches(e);
+  e.preventDefault();
+}, { passive: false });
+canvas.addEventListener('touchmove',   function(e) { syncTouches(e); e.preventDefault(); }, { passive: false });
+canvas.addEventListener('touchend',    function(e) { syncTouches(e); e.preventDefault(); }, { passive: false });
+canvas.addEventListener('touchcancel', function(e) { syncTouches(e); e.preventDefault(); }, { passive: false });
+window.addEventListener('blur', function() {
+  touchState.leftBtn = touchState.rightBtn = touchState.jumpBtn = touchState.dashBtn = touchState.specialBtn = false;
+});
+
+/* ── Background ────────────────────────────────────────────── */
+function drawBackground() {
+  var g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#7cc3e6');
+  g.addColorStop(0.7, '#c5e8f2');
+  g.addColorStop(1, '#e6f1e2');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  // distant hills (parallax-ready; static in Stage 1)
+  ctx.fillStyle = '#a9cf96';
+  ctx.beginPath();
+  ctx.moveTo(0, 380);
+  ctx.bezierCurveTo(160, 310, 320, 420, 520, 360);
+  ctx.bezierCurveTo(660, 320, 740, 400, W, 360);
+  ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = '#7fb076';
+  ctx.beginPath();
+  ctx.moveTo(0, 450);
+  ctx.bezierCurveTo(220, 410, 420, 480, 640, 440);
+  ctx.bezierCurveTo(720, 425, 780, 455, W, 440);
+  ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath();
+  ctx.fill();
+
+  // a couple of clouds
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  drawCloud(96, 126, 0.95);
+  drawCloud(540, 116, 1.1);
+  drawCloud(698, 164, 0.85);
+}
+function drawCloud(cx, cy, s) {
+  ctx.beginPath();
+  ctx.arc(cx,       cy,     22 * s, 0, TAU);
+  ctx.arc(cx + 20*s, cy - 6*s, 18 * s, 0, TAU);
+  ctx.arc(cx + 44*s, cy,     20 * s, 0, TAU);
+  ctx.arc(cx + 20*s, cy + 8*s, 18 * s, 0, TAU);
+  ctx.fill();
+}
+
+/* ── Title screen ──────────────────────────────────────────── */
+function drawTitle() {
+  drawBackground();
+
+  // Decorative characters on the ground
+  var t = state.phaseTime;
+  drawCharacter(ctx, 'samster', 150, 450, 'right', t * 6,       1, 'sidescroll');
+  drawCharacter(ctx, 'duck',    240, 446, 'right', t * 6 + 0.9, 1, 'sidescroll');
+  drawCharacter(ctx, 'hippo',   340, 454, 'right', t * 6 + 1.7, 1, 'sidescroll');
+  drawCharacter(ctx, 'rocket',  660, 448, 'left',  t * 6 + 2.3, 1, 'sidescroll');
+
+  fillRoundRect(ctx, 90, 70, 620, 230, 26, 'rgba(16,30,46,0.82)', 'rgba(255,239,190,0.55)', 2);
+  drawText(ctx, 'MUCKO',  400, 145, '#ffd86f', 56, 'center', 'bold');
+  drawText(ctx, 'SMASH',  400, 200, '#fff4cf', 56, 'center', 'bold');
+  drawText(ctx, 'Pick a character. Run. Jump. Have a romp!', 400, 240, '#d9e6ef', 15, 'center', 'bold');
+  var pulse = 0.5 + 0.5 * Math.sin(t * 4);
+  drawText(ctx, TOUCH_UI ? 'TAP TO START' : 'PRESS SPACE / CLICK',
+    400, 284, '#ffd86f', 18 + pulse * 2, 'center', 'bold');
+}
+function updateTitle(dt) {
+  state.phaseTime += dt;
+  if (eat('Space') || eat('Enter') || mclk) {
+    mclk = false;
+    state.phase = 'select';
+    state.phaseTime = 0;
+  }
+}
+
+/* ── Character select (4-slot lobby) ───────────────────────── */
+// Layout: four vertical cards across the screen. Each card has:
+//   - slot label at top (P1 / CPU 1 / CPU 2 / CPU 3)
+//   - left ◀ / right ▶ arrow pills that cycle the character
+//   - portrait in the middle
+//   - lives pill + mode pill near the bottom
+// Start button at the bottom. Needs at least one active character.
+function selectLayout() {
+  var cardW = 180, cardH = 380, gap = 10;
+  var total = cardW * 4 + gap * 3;
+  var x0 = (W - total) / 2;
+  var y0 = 92;
+  var cards = [];
+  var thumbCols = 4;
+  var thumbGap = 4;
+  var thumbW = 33;
+  var thumbH = 22;
+  for (var i = 0; i < 4; i++) {
+    var cx = x0 + i * (cardW + gap);
+    var thumbs = [];
+    var thumbX0 = cx + 18;
+    var thumbY0 = y0 + 60;
+    for (var j = 0; j < CHAR_IDS.length; j++) {
+      var col = j % thumbCols;
+      var row = Math.floor(j / thumbCols);
+      thumbs.push({
+        charIdx: j,
+        x: thumbX0 + col * (thumbW + thumbGap),
+        y: thumbY0 + row * (thumbH + thumbGap),
+        w: thumbW,
+        h: thumbH
+      });
+    }
+    cards.push({
+      slotIndex: i,
+      x: cx, y: y0, w: cardW, h: cardH,
+      portrait:  { x: cx + 20, y: y0 + 136, w: cardW - 40, h: 110 },
+      thumbs: thumbs,
+      leftArrow: { x: cx + 8,  y: y0 + 198, w: 28, h: 36 },
+      rightArrow:{ x: cx + cardW - 36, y: y0 + 198, w: 28, h: 36 },
+      randomBtn: { x: cx + 42, y: y0 + 264, w: cardW - 84, h: 26 },
+      stockPill: { x: cx + 16, y: y0 + cardH - 102, w: cardW - 32, h: 34 },
+      modePill:  { x: cx + 16, y: y0 + cardH - 58,  w: cardW - 32, h: 38 }
+    });
+  }
+  return {
+    cards: cards,
+    startBtn: { x: W / 2 - 120, y: y0 + cardH + 18, w: 240, h: 50 }
+  };
+}
+function hit(r) { return mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h; }
+
+function slotModeLabel(s) {
+  if (s.kind === 'player') return s.mode === 'play' ? 'PLAY' : 'SPECTATE';
+  return CPU_MODE_META[s.mode] ? CPU_MODE_META[s.mode].label : 'OFF';
+}
+function slotModeColor(s) {
+  if (s.kind === 'player') return s.mode === 'play' ? '#5ec867' : '#9aa5ad';
+  if (s.mode === 'off')    return '#9aa5ad';
+  if (CPU_MODE_META[s.mode]) return CPU_MODE_META[s.mode].color;
+  return '#9aa5ad';
+}
+function cycleStocks(slot) {
+  var i = STOCK_OPTIONS.indexOf(slot.stocks);
+  slot.stocks = STOCK_OPTIONS[(i + 1) % STOCK_OPTIONS.length];
+}
+function cycleCharacter(slot, dir) {
+  slot.charIdx = (slot.charIdx + CHAR_IDS.length + dir) % CHAR_IDS.length;
+}
+function randomizeCharacter(slot) {
+  if (CHAR_IDS.length <= 1) return;
+  var next = slot.charIdx;
+  while (next === slot.charIdx) next = Math.floor(Math.random() * CHAR_IDS.length);
+  slot.charIdx = next;
+}
+function cycleMode(slot) {
+  if (slot.kind === 'player') {
+    slot.mode = slot.mode === 'play' ? 'spectator' : 'play';
+  } else {
+    var i = CPU_MODES.indexOf(slot.mode);
+    slot.mode = CPU_MODES[(i + 1) % CPU_MODES.length];
+  }
+}
+
+function drawSelect() {
+  drawBackground();
+  fillRoundRect(ctx, 20, 12, W - 40, 70, 18, 'rgba(16,30,46,0.82)', 'rgba(255,239,190,0.5)', 2);
+  drawText(ctx, 'PICK YOUR CHARACTERS', W / 2, 46, '#ffd86f', 26, 'center', 'bold');
+  drawText(ctx, 'Tap thumbnails or ◀ / ▶ to switch character \u2022 tap lives or difficulty to change them',
+    W / 2, 68, '#d9e6ef', 12, 'center', 'bold');
+
+  var L = selectLayout();
+  for (var i = 0; i < L.cards.length; i++) {
+    var c = L.cards[i];
+    var slot = state.slots[i];
+    ensureSlotPreviewState(slot);
+    var active = slotActive(slot);
+
+    var cardFill = active ? 'rgba(255,246,214,0.96)' : 'rgba(217,210,193,0.65)';
+    var cardStroke = active ? '#d8982a' : 'rgba(90,70,34,0.4)';
+    fillRoundRect(ctx, c.x, c.y, c.w, c.h, 18, cardFill, cardStroke, active ? 3 : 2);
+
+    // Slot label header
+    var labelColor = slot.kind === 'player' ? '#2c5ea8' : '#7b4f1a';
+    fillRoundRect(ctx, c.x + 14, c.y + 14, c.w - 28, 36, 12, labelColor, null);
+    var slotName = slot.kind === 'player' ? 'PLAYER 1' : ('CPU ' + i);
+    drawText(ctx, slotName, c.x + c.w / 2, c.y + 38, '#fff4cf', 17, 'center', 'bold');
+
+    for (var j = 0; j < c.thumbs.length; j++) {
+      var thumb = c.thumbs[j];
+      var selected = thumb.charIdx === slot.charIdx;
+      var thumbFill = selected ? '#fff4cf' : (active ? 'rgba(255,240,205,0.76)' : 'rgba(215,208,192,0.6)');
+      var thumbStroke = selected ? '#d8982a' : 'rgba(90,70,34,0.42)';
+      fillRoundRect(ctx, thumb.x, thumb.y, thumb.w, thumb.h, 7, thumbFill, thumbStroke, selected ? 2.5 : 1.2);
+      ctx.save();
+      ctx.translate(thumb.x + thumb.w / 2, thumb.y + thumb.h - 1);
+      ctx.scale(0.40, 0.40);
+      drawCharacter(ctx, CHAR_IDS[thumb.charIdx], 0, 0, 'right', state.phaseTime * 3 + j, 0.55, 'portrait');
+      ctx.restore();
+    }
+
+    // Portrait + cycle arrows
+    if (active) {
+      var previewVariant = slot.previewFacing === 'front' ? 'portrait' : 'sidescroll';
+      var previewFacing = slot.previewFacing === 'front' ? 'right' : slot.previewFacing;
+      drawCharacter(ctx, CHAR_IDS[slot.charIdx],
+        c.x + c.w / 2, c.y + 200, previewFacing, state.phaseTime * 4 + i, 1.15, previewVariant, slot.previewTurnT);
+      drawText(ctx, CHARACTERS[CHAR_IDS[slot.charIdx]].name,
+        c.x + c.w / 2, c.y + 250, '#5a3d16', 14, 'center', 'bold');
+    } else {
+      drawText(ctx, slot.kind === 'player' ? '(spectating)' : '(off)',
+        c.x + c.w / 2, c.y + 200, '#6a5d44', 16, 'center', 'bold');
+    }
+
+    var arrowFill = active ? 'rgba(255,228,170,0.9)' : 'rgba(200,200,200,0.6)';
+    fillRoundRect(ctx, c.leftArrow.x,  c.leftArrow.y,  c.leftArrow.w,  c.leftArrow.h, 10, arrowFill, '#7b4f1a', 2);
+    fillRoundRect(ctx, c.rightArrow.x, c.rightArrow.y, c.rightArrow.w, c.rightArrow.h, 10, arrowFill, '#7b4f1a', 2);
+    drawText(ctx, '◀', c.leftArrow.x  + c.leftArrow.w  / 2, c.leftArrow.y  + 24, '#5a3d16', 18, 'center', 'bold');
+    drawText(ctx, '▶', c.rightArrow.x + c.rightArrow.w / 2, c.rightArrow.y + 24, '#5a3d16', 18, 'center', 'bold');
+    fillRoundRect(ctx, c.randomBtn.x, c.randomBtn.y, c.randomBtn.w, c.randomBtn.h, 10,
+      active ? 'rgba(255,228,170,0.92)' : 'rgba(200,200,200,0.62)', '#7b4f1a', 2);
+    drawText(ctx, 'RANDOM', c.randomBtn.x + c.randomBtn.w / 2, c.randomBtn.y + 18, '#5a3d16', 13, 'center', 'bold');
+
+    fillRoundRect(ctx, c.stockPill.x, c.stockPill.y, c.stockPill.w, c.stockPill.h, 12,
+      'rgba(56,74,90,0.88)', '#322010', 2);
+    drawText(ctx, 'LIVES ' + stockLabel(slot.stocks), c.x + c.w / 2, c.stockPill.y + 23,
+      '#fff4cf', 15, 'center', 'bold');
+
+    // Mode pill
+    fillRoundRect(ctx, c.modePill.x, c.modePill.y, c.modePill.w, c.modePill.h, 14,
+      slotModeColor(slot), '#322010', 2);
+    drawText(ctx, slotModeLabel(slot), c.x + c.w / 2, c.modePill.y + 28,
+      '#20160a', 17, 'center', 'bold');
+  }
+
+  // Start button — disabled if no active characters
+  var B = L.startBtn;
+  var canStart = activeSlotCount() >= 1;
+  var startHover = hit(B);
+  var sfill = !canStart ? 'rgba(150,140,120,0.8)'
+    : (startHover ? '#ffd86f' : '#f2c85a');
+  fillRoundRect(ctx, B.x, B.y, B.w, B.h, 18, sfill, '#7b4f1a', 3);
+  drawText(ctx, canStart ? 'START' : 'NEED A CHARACTER', B.x + B.w / 2, B.y + 34,
+    '#3a2608', canStart ? 24 : 18, 'center', 'bold');
+}
+
+function updateSelect(dt) {
+  state.phaseTime += dt;
+  for (var si = 0; si < state.slots.length; si++) {
+    var previewSlot = state.slots[si];
+    ensureSlotPreviewState(previewSlot);
+    if (previewSlot.previewTurnT > 0) previewSlot.previewTurnT = Math.max(0, previewSlot.previewTurnT - dt);
+    previewSlot.previewLookTimer -= dt;
+    if (previewSlot.previewLookTimer <= 0) {
+      var nextFacing = randomPreviewFacing();
+      if (nextFacing !== previewSlot.previewFacing &&
+          previewSlot.previewFacing !== 'front' &&
+          nextFacing !== 'front') {
+        previewSlot.previewTurnT = TURN_PORTRAIT_TIME;
+      } else {
+        previewSlot.previewTurnT = 0;
+      }
+      previewSlot.previewFacing = nextFacing;
+      previewSlot.previewLookTimer = randomLookDelay();
+    }
+  }
+
+  if (eat('Space') || eat('Enter')) {
+    if (activeSlotCount() >= 1) { startPlay(); return; }
+  }
+  if (eat('Escape')) { state.phase = 'title'; state.phaseTime = 0; return; }
+
+  if (!mclk) return;
+  mclk = false;
+  var L = selectLayout();
+
+  for (var i = 0; i < L.cards.length; i++) {
+    var c = L.cards[i];
+    var slot = state.slots[i];
+    for (var j = 0; j < c.thumbs.length; j++) {
+      var thumb = c.thumbs[j];
+      if (hit(thumb)) {
+        if (!slotActive(slot) && slot.kind === 'cpu') slot.mode = 'medium';
+        slot.charIdx = thumb.charIdx;
+        return;
+      }
+    }
+    if (hit(c.leftArrow))  {
+      if (!slotActive(slot) && slot.kind === 'cpu') slot.mode = 'medium';
+      cycleCharacter(slot, -1); return;
+    }
+    if (hit(c.rightArrow)) {
+      if (!slotActive(slot) && slot.kind === 'cpu') slot.mode = 'medium';
+      cycleCharacter(slot, +1); return;
+    }
+    if (hit(c.randomBtn)) {
+      if (!slotActive(slot) && slot.kind === 'cpu') slot.mode = 'medium';
+      randomizeCharacter(slot); return;
+    }
+    if (hit(c.stockPill))  {
+      if (!slotActive(slot) && slot.kind === 'cpu') slot.mode = 'medium';
+      cycleStocks(slot); return;
+    }
+    if (hit(c.modePill))   { cycleMode(slot); return; }
+    if (hit(c.portrait))   {
+      // Tap portrait as convenience: cycle character forward.
+      if (!slotActive(slot) && slot.kind === 'cpu') slot.mode = 'medium';
+      else cycleCharacter(slot, +1);
+      return;
+    }
+  }
+
+  var B = L.startBtn;
+  if (hit(B) && activeSlotCount() >= 1) { startPlay(); return; }
+}
+
+/* ── Play screen ───────────────────────────────────────────── */
+function tryPlayerDash() {
+  // Finds the first non-CPU entity; in spectator mode there is none.
+  var p = activeHumanEntity();
+  if (!p) return;
+
+  // Mobile DASH button: single tap triggers in facing direction (or current hold)
+  if (touchState.dashJustPressed) {
+    touchState.dashJustPressed = false;
+    var tdir = touchState.leftBtn ? -1 : touchState.rightBtn ? 1 : (p.facing === 'left' ? -1 : 1);
+    startDash(p, tdir);
+    return;
+  }
+
+  // Shift = dash in currently-held / facing direction
+  if (eat('ShiftLeft') || eat('ShiftRight')) {
+    var sdir = playerLeft() && !playerRight() ? -1
+             : playerRight() && !playerLeft() ? 1
+             : (p.facing === 'left' ? -1 : 1);
+    startDash(p, sdir);
+    return;
+  }
+
+  // Double-tap ArrowLeft/KeyA or ArrowRight/KeyD within DASH_DOUBLE_TAP_WINDOW
+  var tappedLeft  = eat('ArrowLeft')  || eat('KeyA');
+  var tappedRight = eat('ArrowRight') || eat('KeyD');
+  if (tappedLeft) {
+    if (state.tapDir === -1 && state.tapTimer > 0) {
+      startDash(p, -1); state.tapDir = 0; state.tapTimer = 0;
+    } else {
+      state.tapDir = -1; state.tapTimer = DASH_DOUBLE_TAP_WINDOW;
+    }
+  } else if (tappedRight) {
+    if (state.tapDir === 1 && state.tapTimer > 0) {
+      startDash(p, 1); state.tapDir = 0; state.tapTimer = 0;
+    } else {
+      state.tapDir = 1; state.tapTimer = DASH_DOUBLE_TAP_WINDOW;
+    }
+  }
+}
+
+function updatePlay(dt) {
+  state.phaseTime += dt;
+  if (state.respawnFlash > 0) state.respawnFlash = Math.max(0, state.respawnFlash - dt);
+  if (state.tapTimer > 0) state.tapTimer = Math.max(0, state.tapTimer - dt);
+  if (eat('KeyR')) { restartMatch(); return; }
+  if (mclk) {
+    var restartRect = restartLayout(humanIsOut());
+    if (hit(restartRect)) {
+      mclk = false;
+      restartMatch();
+      return;
+    }
+  }
+
+  tryPlayerDash();
+
+  // CPU AI ticks once per render frame; inputs are latched into entity.ai.*
+  for (var a = 0; a < state.entities.length; a++) {
+    var e = state.entities[a];
+    if (e.ko) continue;
+    if (e.isCPU) cpuThink(e, dt);
+  }
+
+  // Fixed-step simulation with accumulator
+  var step = 1 / 60;
+  var remaining = dt;
+  if (remaining > 0.08) remaining = 0.08;
+  while (remaining > 0) {
+    var dts = Math.min(step, remaining);
+    decaySideHitCooldowns(dts);
+    for (var i = 0; i < state.entities.length; i++) {
+      if (!state.entities[i].ko) stepEntity(state.entities[i], dts);
+    }
+    updateProjectiles(dts);
+    resolveEntityPairs();
+    resolveSpecials();
+    remaining -= dts;
+  }
+
+  if (eat('Escape')) { state.phase = 'select'; state.phaseTime = 0; }
+}
+
+function characterPose(e) {
+  var special = CHARACTERS[e.charId].special;
+  if (!special) return null;
+  if (special.type === 'airFlap' && e.specialActive) {
+    return { flap: 0.5 + 0.5 * Math.sin(e.specialAnimT * special.flapRate * TAU) };
+  }
+  if (special.type === 'neckHammer' && e.specialT > 0) {
+    return { hammer: 1 - e.specialT / special.active };
+  }
+  if (special.type === 'margaritaville' && e.specialActive) {
+    return { margarita: e.specialAnimT };
+  }
+  return null;
+}
+
+function drawPlay() {
+  drawBackground();
+
+  // Platforms
+  for (var i = 0; i < state.platforms.length; i++) {
+    var p = state.platforms[i];
+    // Sides + dirt underside
+    var dirt = ctx.createLinearGradient(p.x, p.y, p.x, p.y + p.h + 16);
+    dirt.addColorStop(0, '#8a643f');
+    dirt.addColorStop(1, '#5a3d22');
+    fillRoundRect(ctx, p.x, p.y, p.w, p.h + 16, 6, dirt, '#432c15', 2);
+    // Grass top
+    var grass = ctx.createLinearGradient(p.x, p.y - 4, p.x, p.y + 4);
+    grass.addColorStop(0, '#96d96a');
+    grass.addColorStop(1, '#4f8b31');
+    fillRoundRect(ctx, p.x, p.y - 4, p.w, 8, 4, grass, '#4a7a2d', 1.5);
+  }
+
+  // Entities (blink during invuln, squash animation if recently stomped)
+  for (var j = 0; j < state.entities.length; j++) {
+    var e = state.entities[j];
+    if (e.ko) continue;
+    var blink = e.invulnFrames > 0 && (Math.floor(e.invulnFrames / 5) % 2 === 0);
+    if (blink) continue;
+    // Dash afterimages — trail samples are oldest-first, fading in/out.
+    if (e.dashT > 0 && e.trail.length > 0) {
+      ctx.save();
+      var n = e.trail.length;
+      for (var k = 0; k < n; k++) {
+        var s = e.trail[k];
+        var alpha = 0.12 + 0.32 * (k / Math.max(1, n - 1));
+        ctx.globalAlpha = alpha;
+        drawCharacter(ctx, e.charId, s.x, s.y, s.facing, s.bob, 0, 'sidescroll', 0, null);
+      }
+      ctx.restore();
+    }
+    var pose = characterPose(e);
+    // Digory's bulldogBounce is a pure render offset — he stays pinned to the
+    // floor in the sim so platform collision stays correct.
+    var drawY = e.y;
+    var eSpecial = CHARACTERS[e.charId].special;
+    if (e.specialActive && eSpecial && eSpecial.type === 'bulldogBounce') {
+      drawY += -Math.abs(Math.sin(e.specialAnimT * eSpecial.bounceRate * Math.PI)) * 14;
+    }
+    if (e.squashT > 0) {
+      // Ease: peaks squished at mid-animation.
+      var p = e.squashT / SQUASH_DURATION;        // 1 → 0
+      var curve = Math.sin(p * Math.PI);          // 0 → 1 → 0
+      var sy = 1 - 0.45 * curve;                  // scaleY down
+      var sx = 1 + 0.35 * curve;                  // scaleX out a touch
+      ctx.save();
+      // Anchor around the feet so the sprite stays on the ground.
+      ctx.translate(e.x, drawY + FEET_OFFSET);
+      ctx.scale(sx, sy);
+      ctx.translate(-e.x, -(drawY + FEET_OFFSET));
+      drawCharacter(ctx, e.charId, e.x, drawY, e.facing, e.bob, 1, 'sidescroll', e.turnT, pose);
+      ctx.restore();
+    } else {
+      drawCharacter(ctx, e.charId, e.x, drawY, e.facing, e.bob, 1, 'sidescroll', e.turnT, pose);
+    }
+  }
+
+  for (var pidx = 0; pidx < state.projectiles.length; pidx++) {
+    var p = state.projectiles[pidx];
+    drawCircle(ctx, p.x, p.y, p.radius, '#ededed', '#373737', 2);
+    drawCircle(ctx, p.x - (p.vx < 0 ? -4 : 4), p.y, 4, '#d76039');
+  }
+
+  // Respawn tint flash
+  if (state.respawnFlash > 0) {
+    ctx.fillStyle = 'rgba(255,245,190,' + (state.respawnFlash * 0.5) + ')';
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // HUD strip: one card per character with name, stocks, damage %.
+  drawCharacterHud();
+
+  // HUD: back hint (top-right so it doesn't collide with character cards)
+  fillRoundRect(ctx, W / 2 - 160, H - 30, 320, 18, 9, 'rgba(16,30,46,0.42)', null, 0);
+  drawText(ctx, 'Esc: select • R: restart • F/J: special', W / 2, H - 17, '#e8f1e2', 11, 'center', 'bold');
+  var rr = restartLayout(false);
+  fillRoundRect(ctx, rr.x, rr.y, rr.w, rr.h, 12, 'rgba(16,30,46,0.76)', 'rgba(255,239,190,0.4)', 1.5);
+  drawText(ctx, 'RESTART (R)', rr.x + rr.w / 2, rr.y + 20, '#fff4cf', 13, 'center', 'bold');
+
+  if (humanIsOut()) {
+    ctx.fillStyle = 'rgba(0,0,0,0.34)';
+    ctx.fillRect(0, 0, W, H);
+    drawText(ctx, 'YOU ARE OUT', W / 2, H / 2 + 48, '#ffd86f', 28, 'center', 'bold');
+    drawText(ctx, 'Restart this match with the same setup', W / 2, H / 2 + 74, '#fff4cf', 14, 'center', 'bold');
+    rr = restartLayout(true);
+    fillRoundRect(ctx, rr.x, rr.y, rr.w, rr.h, 20, '#ffd86f', '#7b4f1a', 4);
+    drawText(ctx, 'RESTART MATCH', W / 2, rr.y + 38, '#3a2608', 28, 'center', 'bold');
+    drawText(ctx, 'same characters, lives, and CPU levels', W / 2, rr.y + 63, '#5a3d16', 14, 'center', 'bold');
+  }
+
+  if (mobileControlsOn()) drawMobileControls();
+}
+
+function damageColor(d) {
+  if (d < 30)  return '#1e5e2f';
+  if (d < 60)  return '#c49820';
+  if (d < 100) return '#c26a1b';
+  if (d < 150) return '#b02727';
+  return '#821010';
+}
+function drawCharacterHud() {
+  var es = state.entities;
+  var n = es.length;
+  if (n === 0) return;
+  var cardW = 160, cardH = 42, gap = 9;
+  var total = n * cardW + (n - 1) * gap;
+  var x0 = Math.round((W - total) / 2);
+  var y = 8;
+  for (var i = 0; i < n; i++) {
+    var e = es[i];
+    var cx = x0 + i * (cardW + gap);
+    // Darker when sitting out the round.
+    var fill = e.ko ? 'rgba(24,24,32,0.70)' : 'rgba(16,30,46,0.80)';
+    var stroke = e.ko ? 'rgba(140,140,140,0.5)' : 'rgba(255,239,190,0.55)';
+    fillRoundRect(ctx, cx, y, cardW, cardH, 10, fill, stroke, 1.5);
+
+    var ch = CHARACTERS[e.charId];
+    var nameCol = e.ko ? '#9aa5ad' : '#fff4cf';
+    drawText(ctx, ch.name, cx + 10, y + 16, nameCol, 12, 'left', 'bold');
+
+    // Stock dots — solid squares so each life is legible at a glance.
+    var dotX = cx + 10, dotY = y + 28;
+    if (e.stockSetting === Infinity) {
+      drawText(ctx, '∞', dotX + 8, dotY + 8, e.ko ? '#9aa5ad' : '#f2c85a', 18, 'left', 'bold');
+    } else {
+      for (var k = 0; k < e.initialStocks; k++) {
+        var alive = k < e.stocks && !e.ko;
+        fillRoundRect(ctx, dotX + k * 10, dotY, 7, 7, 2,
+          alive ? '#f2c85a' : 'rgba(80,80,80,0.45)',
+          alive ? '#7b4f1a' : 'rgba(40,40,40,0.7)', 1);
+      }
+    }
+
+    // Damage %
+    if (e.ko) {
+      fillRoundRect(ctx, cx + cardW - 54, y + 14, 42, 20, 8, 'rgba(0,0,0,0.26)', null, 0);
+      drawText(ctx, 'OUT', cx + cardW - 14, y + 29, '#9aa5ad', 17, 'right', 'bold');
+    } else {
+      fillRoundRect(ctx, cx + cardW - 64, y + 12, 54, 22, 9, 'rgba(0,0,0,0.28)', null, 0);
+      drawText(ctx, Math.floor(e.damage) + '%', cx + cardW - 14, y + 29,
+        damageColor(e.damage), 19, 'right', 'bold');
+    }
+  }
+}
+
+function drawMobileControls() {
+  var L = mobileLayout();
+  // Dim the DASH button while on cooldown, so players can see it's not ready.
+  var p = activeHumanEntity();
+  var dashReady = p && p.dashCooldown <= 0 && p.dashT <= 0 && p.squashT <= 0;
+  ctx.save();
+  ctx.globalAlpha = 0.9;
+  drawCircle(ctx, L.left.cx,  L.left.cy,  L.left.r,  touchState.leftBtn  ? 'rgba(255,216,111,0.6)' : 'rgba(32,46,60,0.55)', 'rgba(255,244,207,0.42)', 2);
+  drawCircle(ctx, L.right.cx, L.right.cy, L.right.r, touchState.rightBtn ? 'rgba(255,216,111,0.6)' : 'rgba(32,46,60,0.55)', 'rgba(255,244,207,0.42)', 2);
+  var dashFill = !dashReady ? 'rgba(60,60,72,0.45)'
+    : (touchState.dashBtn ? 'rgba(226,116,75,0.8)' : 'rgba(32,46,60,0.65)');
+  drawCircle(ctx, L.dash.cx,  L.dash.cy,  L.dash.r,  dashFill, 'rgba(255,244,207,0.48)', 2);
+  drawCircle(ctx, L.special.cx, L.special.cy, L.special.r,
+    touchState.specialBtn ? 'rgba(240,200,77,0.8)' : 'rgba(32,46,60,0.62)', 'rgba(255,244,207,0.48)', 2);
+  drawCircle(ctx, L.jump.cx,  L.jump.cy,  L.jump.r,  touchState.jumpBtn  ? 'rgba(255,216,111,0.75)' : 'rgba(32,46,60,0.65)', 'rgba(255,244,207,0.48)', 2);
+  drawText(ctx, L.left.label,  L.left.cx,  L.left.cy  + 10, '#fff4cf', 26, 'center', 'bold');
+  drawText(ctx, L.right.label, L.right.cx, L.right.cy + 10, '#fff4cf', 26, 'center', 'bold');
+  drawText(ctx, L.dash.label,  L.dash.cx,  L.dash.cy  + 6,  '#fff4cf', 14, 'center', 'bold');
+  drawText(ctx, L.special.label, L.special.cx, L.special.cy + 5, '#fff4cf', 12, 'center', 'bold');
+  drawText(ctx, L.jump.label,  L.jump.cx,  L.jump.cy  + 8,  '#fff4cf', 18, 'center', 'bold');
+  ctx.restore();
+}
+
+function updateProjectiles(dt) {
+  for (var i = state.projectiles.length - 1; i >= 0; i--) {
+    var p = state.projectiles[i];
+    p.x += p.vx * dt;
+    p.age += dt;
+    if (p.age >= p.maxAge || p.x < -40 || p.x > W + 40 || p.y < -40 || p.y > H + 40) {
+      state.projectiles.splice(i, 1);
+    }
+  }
+}
+
+function resolveSpecials() {
+  for (var i = 0; i < state.entities.length; i++) {
+    var attacker = state.entities[i];
+    if (attacker.ko) continue;
+    var special = CHARACTERS[attacker.charId].special;
+      if (special && special.type === 'neckHammer' && attacker.specialT > 0) {
+        var dir = attacker.facing === 'left' ? -1 : 1;
+        var hx = attacker.x + dir * (special.range - 6);
+        var hy = attacker.y + 2;
+        for (var j = 0; j < state.entities.length; j++) {
+          var defender = state.entities[j];
+          if (defender.ko || defender.eid === attacker.eid || attacker.specialVictims[defender.eid]) continue;
+        if (Math.abs(defender.x - hx) <= special.radius + defender.w * 0.5 &&
+            Math.abs((defender.y - 8) - hy) <= special.radius + HEAD_OFFSET) {
+          attacker.specialVictims[defender.eid] = true;
+          applySpecialHit(attacker, defender, special, dir);
+        }
+      }
+    }
+  }
+
+  for (var k = state.projectiles.length - 1; k >= 0; k--) {
+    var proj = state.projectiles[k];
+    var hitSomething = false;
+    for (var m = 0; m < state.entities.length; m++) {
+      var target = state.entities[m];
+      if (target.ko || target.eid === proj.ownerId) continue;
+      if (Math.abs(target.x - proj.x) <= proj.radius + target.w * 0.5 &&
+          Math.abs((target.y - 8) - proj.y) <= proj.radius + HEAD_OFFSET) {
+        if (target.specialActive && CHARACTERS[target.charId].special &&
+            CHARACTERS[target.charId].special.type === 'margaritaville') {
+          hitSomething = true;
+          break;
+        }
+        applySpecialHit(null, target, proj, proj.vx < 0 ? -1 : 1);
+        hitSomething = true;
+        break;
+      }
+    }
+    if (hitSomething) state.projectiles.splice(k, 1);
+  }
+}
+
+/* ── Results screen ────────────────────────────────────────── */
+function spawnConfetti(winner) {
+  state.confetti = [];
+  var palette = ['#ffd86f', '#f2c85a', '#e8f1e2', '#aaddff', '#ff9eb5'];
+  if (winner) {
+    var ch = CHARACTERS[winner.charId];
+    palette = [ch.color, ch.accent, '#ffd86f', '#fff4cf'];
+  }
+  for (var i = 0; i < 90; i++) {
+    state.confetti.push({
+      x: Math.random() * W,
+      y: -20 - Math.random() * 80,
+      vx: (Math.random() - 0.5) * 120,
+      vy: 80 + Math.random() * 160,
+      rot: Math.random() * TAU,
+      vrot: (Math.random() - 0.5) * 8,
+      color: palette[Math.floor(Math.random() * palette.length)],
+      size: 5 + Math.random() * 6
+    });
+  }
+}
+function updateConfetti(dt) {
+  for (var i = 0; i < state.confetti.length; i++) {
+    var c = state.confetti[i];
+    c.vy += 320 * dt;
+    c.x += c.vx * dt;
+    c.y += c.vy * dt;
+    c.rot += c.vrot * dt;
+  }
+}
+function drawConfetti() {
+  for (var i = 0; i < state.confetti.length; i++) {
+    var c = state.confetti[i];
+    if (c.y > H + 30) continue;
+    ctx.save();
+    ctx.translate(c.x, c.y);
+    ctx.rotate(c.rot);
+    ctx.fillStyle = c.color;
+    ctx.fillRect(-c.size / 2, -c.size / 2, c.size, c.size * 0.6);
+    ctx.restore();
+  }
+}
+
+function updateResults(dt) {
+  state.phaseTime += dt;
+  updateConfetti(dt);
+  // Require a short delay before accepting input so a final-frame tap doesn't skip it.
+  if (state.phaseTime < 0.4) { mclk = false; return; }
+  if (eat('KeyR')) {
+    restartMatch();
+    return;
+  }
+  if (mclk && hit(resultsRestartLayout(humanWasPlaying() && (!state.winner || state.winner.isCPU)))) {
+    mclk = false;
+    restartMatch();
+    return;
+  }
+  if (eat('Space') || eat('Enter') || eat('Escape') || mclk) {
+    mclk = false;
+    state.phase = 'select';
+    state.phaseTime = 0;
+  }
+}
+
+function drawResults() {
+  // Freeze-frame the final play state behind a dark veil.
+  drawPlay();
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(0, 0, W, H);
+  drawConfetti();
+
+  var winner = state.winner;
+  var playerLost = humanWasPlaying() && (!winner || winner.isCPU);
+  if (winner) {
+    // Big winner portrait (uses drawCharacter with scale via ctx.scale)
+    ctx.save();
+    ctx.translate(W / 2, H / 2 - 20);
+    ctx.scale(3.2, 3.2);
+    drawCharacter(ctx, winner.charId, 0, 0, 'right', state.phaseTime * 4, 1, 'portrait');
+    ctx.restore();
+
+    drawText(ctx, 'WINNER!', W / 2, 128, '#ffd86f', 56, 'center', 'bold');
+    drawText(ctx, CHARACTERS[winner.charId].name.toUpperCase(),
+      W / 2, 168, '#fff4cf', 24, 'center', 'bold');
+  } else {
+    drawText(ctx, 'ALL DONE!', W / 2, 180, '#ffb070', 56, 'center', 'bold');
+    drawText(ctx, 'Everyone took a tumble!', W / 2, 220, '#fff4cf', 20, 'center', 'bold');
+  }
+
+  var rr = resultsRestartLayout(playerLost);
+  var fill = playerLost ? '#ffd86f' : 'rgba(16,30,46,0.82)';
+  var text = playerLost ? '#3a2608' : '#fff4cf';
+  fillRoundRect(ctx, rr.x, rr.y, rr.w, rr.h, playerLost ? 20 : 14, fill, '#7b4f1a', playerLost ? 4 : 2);
+  drawText(ctx, 'RESTART MATCH', rr.x + rr.w / 2, rr.y + (playerLost ? 38 : 24), text, playerLost ? 28 : 18, 'center', 'bold');
+  if (playerLost) {
+    drawText(ctx, 'same characters, lives, and CPU levels', rr.x + rr.w / 2, rr.y + 63, '#5a3d16', 14, 'center', 'bold');
+  }
+
+  var pulse = 0.5 + 0.5 * Math.sin(state.phaseTime * 5);
+  drawText(ctx, TOUCH_UI ? 'TAP OUTSIDE TO SELECT' : 'SPACE / ESC TO SELECT • R TO RESTART',
+    W / 2, H - 60, '#ffd86f', 18 + pulse * 2, 'center', 'bold');
+}
+
+/* ── Main loop ─────────────────────────────────────────────── */
+function update(dt) {
+  if (state.phase === 'title')  updateTitle(dt);
+  else if (state.phase === 'select')  updateSelect(dt);
+  else if (state.phase === 'play')    updatePlay(dt);
+  else if (state.phase === 'results') updateResults(dt);
+  mclk = false;
+}
+function draw() {
+  if (state.phase === 'title')  drawTitle();
+  else if (state.phase === 'select')  drawSelect();
+  else if (state.phase === 'play')    drawPlay();
+  else if (state.phase === 'results') drawResults();
+}
+
+MuckoEngine.makeLoop(update, draw, 60);
+  </script>
+</body>
+</html>
