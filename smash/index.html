@@ -364,6 +364,31 @@ function drawEllipse(cx, x, y, rx, ry, fill, stroke, sw, rot) {
   if (fill)   { cx.fillStyle = fill; cx.fill(); }
   if (stroke) { cx.strokeStyle = stroke; cx.lineWidth = sw || 2; cx.stroke(); }
 }
+function shadeColor(hex, amount) {
+  if (!hex || hex.charAt(0) !== '#' || (hex.length !== 7 && hex.length !== 4)) return hex;
+  var full = hex.length === 4
+    ? '#' + hex.charAt(1) + hex.charAt(1) + hex.charAt(2) + hex.charAt(2) + hex.charAt(3) + hex.charAt(3)
+    : hex;
+  var r = parseInt(full.substr(1, 2), 16);
+  var g = parseInt(full.substr(3, 2), 16);
+  var b = parseInt(full.substr(5, 2), 16);
+  r = Math.max(0, Math.min(255, Math.round(r + 255 * amount)));
+  g = Math.max(0, Math.min(255, Math.round(g + 255 * amount)));
+  b = Math.max(0, Math.min(255, Math.round(b + 255 * amount)));
+  var rr = (r < 16 ? '0' : '') + r.toString(16);
+  var gg = (g < 16 ? '0' : '') + g.toString(16);
+  var bb = (b < 16 ? '0' : '') + b.toString(16);
+  return '#' + rr + gg + bb;
+}
+function shadedEllipseFill(cx, x, y, rx, ry, base, lightAmt, darkAmt) {
+  var g = cx.createRadialGradient(
+    x - rx * 0.45, y - ry * 0.55, Math.max(1, Math.min(rx, ry) * 0.2),
+    x, y, Math.max(rx, ry) * 1.25
+  );
+  g.addColorStop(0, shadeColor(base, lightAmt));
+  g.addColorStop(1, shadeColor(base, darkAmt));
+  return g;
+}
 
 /* ── Character sprites ────────────────────────────────────── */
 function drawCharacterPortraitSprite(cx, ch, bob) {
@@ -373,22 +398,24 @@ function drawCharacterPortraitSprite(cx, ch, bob) {
     return;
   }
   if (ch.sprite === 'hamster') {
-    drawEllipse(cx, 0, 2, 16, 14, ch.color, ch.outline, 2);
-    drawCircle(cx, -8, -10, 6, ch.color, ch.outline, 2);
-    drawCircle(cx, 8, -10, 6, ch.color, ch.outline, 2);
+    drawEllipse(cx, 0, 2, 16, 14, shadedEllipseFill(cx, 0, 2, 16, 14, ch.color, 0.16, -0.08), ch.outline, 2);
+    drawCircle(cx, -8, -10, 6, shadeColor(ch.color, 0.05), ch.outline, 2);
+    drawCircle(cx, 8, -10, 6, shadeColor(ch.color, 0.05), ch.outline, 2);
     drawCircle(cx, 0, -2, 11, '#f5ddbc');
     drawCircle(cx, -4, -4, 2, '#35231b');
     drawCircle(cx, 4, -4, 2, '#35231b');
     drawCircle(cx, 0, 1, 2.2, '#c56f62');
+    drawEllipse(cx, -2, -5, 5.5, 3.2, 'rgba(255,255,255,0.22)');
   } else if (ch.sprite === 'hippo') {
-    drawEllipse(cx, 0, 5, 20, 15, ch.color, ch.outline, 2);
-    drawCircle(cx, -9, -7, 5, ch.color, ch.outline, 2);
-    drawCircle(cx, 9, -7, 5, ch.color, ch.outline, 2);
-    drawEllipse(cx, 0, 0, 12, 9, '#b8a7d4');
+    drawEllipse(cx, 0, 5, 20, 15, shadedEllipseFill(cx, 0, 5, 20, 15, ch.color, 0.18, -0.12), ch.outline, 2);
+    drawCircle(cx, -9, -7, 5, shadeColor(ch.color, 0.06), ch.outline, 2);
+    drawCircle(cx, 9, -7, 5, shadeColor(ch.color, 0.06), ch.outline, 2);
+    drawEllipse(cx, 0, 0, 12, 9, shadedEllipseFill(cx, 0, 0, 12, 9, '#b8a7d4', 0.1, -0.08));
     drawCircle(cx, -4, -2, 1.8, '#2e2338');
     drawCircle(cx, 4, -2, 1.8, '#2e2338');
     drawCircle(cx, -3, 4, 1.6, '#6f5b88');
     drawCircle(cx, 3, 4, 1.6, '#6f5b88');
+    drawEllipse(cx, -4, -5, 7, 3.5, 'rgba(255,255,255,0.2)');
   } else if (ch.sprite === 'panda') {
     drawEllipse(cx, 0, 5, 17, 13, '#f4f4f4', ch.outline, 2);
     drawCircle(cx, -8, -9, 5, '#1c1c1c');
@@ -496,15 +523,16 @@ function drawCharacterSidescrollSprite(cx, ch, facing, bob, pose) {
     cx.moveTo(-12 * dir, 6);
     cx.quadraticCurveTo(-18 * dir, 1, -14 * dir, -6);
     cx.stroke();
-    drawEllipse(cx, -1 * dir, 5, 17, 12, ch.color, ch.outline, 2);
+    drawEllipse(cx, -1 * dir, 5, 17, 12, shadedEllipseFill(cx, -1 * dir, 5, 17, 12, ch.color, 0.15, -0.1), ch.outline, 2);
     drawEllipse(cx, 2 * dir, 8, 8, 5.5, '#f5ddbc');
-    drawCircle(cx, 10 * dir, -3, 8.5, ch.color, ch.outline, 2);
-    drawCircle(cx, 4 * dir, -9, 4.2, ch.color, ch.outline, 2);
-    drawCircle(cx, 11 * dir, -11, 3.4, ch.color, ch.outline, 2);
+    drawCircle(cx, 10 * dir, -3, 8.5, shadeColor(ch.color, 0.08), ch.outline, 2);
+    drawCircle(cx, 4 * dir, -9, 4.2, shadeColor(ch.color, 0.08), ch.outline, 2);
+    drawCircle(cx, 11 * dir, -11, 3.4, shadeColor(ch.color, 0.08), ch.outline, 2);
     drawEllipse(cx, 12 * dir, -1, 5.4, 4.4, '#f5ddbc');
     drawCircle(cx, 13 * dir, -4, 1.5, '#35231b');
     drawCircle(cx, 17 * dir, -1, 2.1, '#c56f62');
     drawLine(cx, 14 * dir, 1, 17 * dir, 2.5, '#8d5f35', 1.2);
+    drawEllipse(cx, 5 * dir, 0, 5.2, 2.6, 'rgba(255,255,255,0.2)');
   } else if (ch.sprite === 'duck') {
     cx.save();
     if (dir < 0) cx.scale(-1, 1);
@@ -554,10 +582,10 @@ function drawCharacterSidescrollSprite(cx, ch, facing, bob, pose) {
     cx.lineTo(-16 * dir, 11);
     cx.closePath();
     cx.fill();
-    drawEllipse(cx, -2 * dir, 6, 20, 14, ch.color, ch.outline, 2);
-    drawCircle(cx, 9 * dir, -2, 9, ch.color, ch.outline, 2);
-    drawCircle(cx, 4 * dir, -9, 4.2, ch.color, ch.outline, 2);
-    drawCircle(cx, 12 * dir, -10, 3.8, ch.color, ch.outline, 2);
+    drawEllipse(cx, -2 * dir, 6, 20, 14, shadedEllipseFill(cx, -2 * dir, 6, 20, 14, ch.color, 0.15, -0.12), ch.outline, 2);
+    drawCircle(cx, 9 * dir, -2, 9, shadeColor(ch.color, 0.06), ch.outline, 2);
+    drawCircle(cx, 4 * dir, -9, 4.2, shadeColor(ch.color, 0.06), ch.outline, 2);
+    drawCircle(cx, 12 * dir, -10, 3.8, shadeColor(ch.color, 0.06), ch.outline, 2);
     drawEllipse(cx, 14 * dir, 1, 6.5, 4.8, '#b8a7d4', ch.outline, 1.2);
     drawCircle(cx, 11 * dir, -2, 1.5, '#2e2338');
     drawCircle(cx, 16 * dir, 0, 1.2, '#6f5b88');
@@ -1587,12 +1615,17 @@ function mobileControlsOn() {
 }
 
 function mobileLayout() {
+  var edge = 18;
+  var baseR = Math.round(H * 0.072);
+  var actionR = Math.round(H * 0.078);
+  var clusterY = H - Math.round(H * 0.14);
+  var rightBase = W - edge;
   return {
-    left:  { cx: 68,       cy: H - 80, r: 44, label: '◀' },
-    right: { cx: 170,      cy: H - 80, r: 44, label: '▶' },
-    dash:  { cx: W - 250,  cy: H - 84, r: 34, label: 'DASH' },
-    special:{ cx: W - 170, cy: H - 140, r: 32, label: 'SPEC' },
-    jump:  { cx: W - 90,   cy: H - 84, r: 52, label: 'JUMP' }
+    left:  { cx: edge + baseR, cy: clusterY, r: baseR, label: '◀' },
+    right: { cx: edge + baseR * 2 + 18, cy: clusterY, r: baseR, label: '▶' },
+    dash:  { cx: rightBase - actionR * 2.9 - 24, cy: clusterY, r: Math.round(actionR * 0.72), label: 'DASH' },
+    special:{ cx: rightBase - actionR - 6, cy: clusterY - actionR - 22, r: Math.round(actionR * 0.66), label: 'SPEC' },
+    jump:  { cx: rightBase - actionR, cy: clusterY, r: actionR, label: 'JUMP' }
   };
 }
 function restartLayout(expanded) {
@@ -1683,9 +1716,9 @@ function drawBackground() {
 
   // a couple of clouds
   ctx.fillStyle = 'rgba(255,255,255,0.85)';
-  drawCloud(110, 90, 1.0);
-  drawCloud(540, 70, 1.3);
-  drawCloud(700, 140, 0.9);
+  drawCloud(96, 126, 0.95);
+  drawCloud(540, 116, 1.1);
+  drawCloud(698, 164, 0.85);
 }
 function drawCloud(cx, cy, s) {
   ctx.beginPath();
@@ -2065,9 +2098,15 @@ function drawPlay() {
   for (var i = 0; i < state.platforms.length; i++) {
     var p = state.platforms[i];
     // Sides + dirt underside
-    fillRoundRect(ctx, p.x, p.y, p.w, p.h + 16, 6, '#7a5633', '#432c15', 2);
+    var dirt = ctx.createLinearGradient(p.x, p.y, p.x, p.y + p.h + 16);
+    dirt.addColorStop(0, '#8a643f');
+    dirt.addColorStop(1, '#5a3d22');
+    fillRoundRect(ctx, p.x, p.y, p.w, p.h + 16, 6, dirt, '#432c15', 2);
     // Grass top
-    fillRoundRect(ctx, p.x, p.y - 4, p.w, 8, 4, '#76b552', '#4a7a2d', 1.5);
+    var grass = ctx.createLinearGradient(p.x, p.y - 4, p.x, p.y + 4);
+    grass.addColorStop(0, '#96d96a');
+    grass.addColorStop(1, '#4f8b31');
+    fillRoundRect(ctx, p.x, p.y - 4, p.w, 8, 4, grass, '#4a7a2d', 1.5);
   }
 
   // Entities (blink during invuln, squash animation if recently stomped)
@@ -2130,11 +2169,11 @@ function drawPlay() {
   drawCharacterHud();
 
   // HUD: back hint (top-right so it doesn't collide with character cards)
-  drawText(ctx, 'Esc: select • R: restart • F/J: special', W - 12, 20, '#14314a', 12, 'right', 'bold');
+  fillRoundRect(ctx, W / 2 - 160, H - 30, 320, 18, 9, 'rgba(16,30,46,0.42)', null, 0);
+  drawText(ctx, 'Esc: select • R: restart • F/J: special', W / 2, H - 17, '#e8f1e2', 11, 'center', 'bold');
   var rr = restartLayout(false);
   fillRoundRect(ctx, rr.x, rr.y, rr.w, rr.h, 12, 'rgba(16,30,46,0.76)', 'rgba(255,239,190,0.4)', 1.5);
-  drawText(ctx, 'RESTART', rr.x + rr.w / 2, rr.y + 20, '#fff4cf', 13, 'center', 'bold');
-  drawText(ctx, 'R', rr.x + rr.w - 12, rr.y + 20, '#ffd86f', 12, 'right', 'bold');
+  drawText(ctx, 'RESTART (R)', rr.x + rr.w / 2, rr.y + 20, '#fff4cf', 13, 'center', 'bold');
 
   if (humanIsOut()) {
     ctx.fillStyle = 'rgba(0,0,0,0.34)';
@@ -2161,10 +2200,10 @@ function drawCharacterHud() {
   var es = state.entities;
   var n = es.length;
   if (n === 0) return;
-  var cardW = 150, cardH = 38, gap = 8;
+  var cardW = 160, cardH = 42, gap = 9;
   var total = n * cardW + (n - 1) * gap;
   var x0 = Math.round((W - total) / 2);
-  var y = 6;
+  var y = 8;
   for (var i = 0; i < n; i++) {
     var e = es[i];
     var cx = x0 + i * (cardW + gap);
@@ -2175,10 +2214,10 @@ function drawCharacterHud() {
 
     var ch = CHARACTERS[e.charId];
     var nameCol = e.ko ? '#9aa5ad' : '#fff4cf';
-    drawText(ctx, ch.name, cx + 10, y + 15, nameCol, 12, 'left', 'bold');
+    drawText(ctx, ch.name, cx + 10, y + 16, nameCol, 12, 'left', 'bold');
 
     // Stock dots — solid squares so each life is legible at a glance.
-    var dotX = cx + 10, dotY = y + 26;
+    var dotX = cx + 10, dotY = y + 28;
     if (e.stockSetting === Infinity) {
       drawText(ctx, '∞', dotX + 8, dotY + 8, e.ko ? '#9aa5ad' : '#f2c85a', 18, 'left', 'bold');
     } else {
@@ -2192,10 +2231,12 @@ function drawCharacterHud() {
 
     // Damage %
     if (e.ko) {
-      drawText(ctx, 'OUT', cx + cardW - 10, y + 28, '#9aa5ad', 18, 'right', 'bold');
+      fillRoundRect(ctx, cx + cardW - 54, y + 14, 42, 20, 8, 'rgba(0,0,0,0.26)', null, 0);
+      drawText(ctx, 'OUT', cx + cardW - 14, y + 29, '#9aa5ad', 17, 'right', 'bold');
     } else {
-      drawText(ctx, Math.floor(e.damage) + '%', cx + cardW - 10, y + 28,
-        damageColor(e.damage), 20, 'right', 'bold');
+      fillRoundRect(ctx, cx + cardW - 64, y + 12, 54, 22, 9, 'rgba(0,0,0,0.28)', null, 0);
+      drawText(ctx, Math.floor(e.damage) + '%', cx + cardW - 14, y + 29,
+        damageColor(e.damage), 19, 'right', 'bold');
     }
   }
 }
@@ -2217,9 +2258,9 @@ function drawMobileControls() {
   drawCircle(ctx, L.jump.cx,  L.jump.cy,  L.jump.r,  touchState.jumpBtn  ? 'rgba(255,216,111,0.75)' : 'rgba(32,46,60,0.65)', 'rgba(255,244,207,0.48)', 2);
   drawText(ctx, L.left.label,  L.left.cx,  L.left.cy  + 10, '#fff4cf', 26, 'center', 'bold');
   drawText(ctx, L.right.label, L.right.cx, L.right.cy + 10, '#fff4cf', 26, 'center', 'bold');
-  drawText(ctx, L.dash.label,  L.dash.cx,  L.dash.cy  + 6,  '#fff4cf', 18, 'center', 'bold');
-  drawText(ctx, L.special.label, L.special.cx, L.special.cy + 5, '#fff4cf', 14, 'center', 'bold');
-  drawText(ctx, L.jump.label,  L.jump.cx,  L.jump.cy  + 8,  '#fff4cf', 22, 'center', 'bold');
+  drawText(ctx, L.dash.label,  L.dash.cx,  L.dash.cy  + 6,  '#fff4cf', 14, 'center', 'bold');
+  drawText(ctx, L.special.label, L.special.cx, L.special.cy + 5, '#fff4cf', 12, 'center', 'bold');
+  drawText(ctx, L.jump.label,  L.jump.cx,  L.jump.cy  + 8,  '#fff4cf', 18, 'center', 'bold');
   ctx.restore();
 }
 
