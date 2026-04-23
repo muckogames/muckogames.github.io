@@ -537,7 +537,10 @@ function drawDiff(){
   const sx=W/2-120,sy=H-80,sw=240,sh=50;
   const shov=mx>=sx&&mx<=sx+sw&&my>=sy&&my<=sy+sh;
   rnd(sx,sy,sw,sh,8,shov?'#3a2060':'#2a1040',C.dialogBdr,2);
-  txt('Begin Heist →',W/2,sy+32,C.gold,18,'center','Georgia');
+  const pulseA=0.75+0.25*Math.sin(Date.now()/300);
+  ctx.save();ctx.globalAlpha=pulseA;
+  txt('▶ Begin Heist',W/2,sy+32,C.gold,18,'center','Georgia');
+  ctx.restore();
   if(shov)canvas.style.cursor='pointer';
   if((shov&&mclk)||eat('Space')){mclk=false;resetRun();startPhase('cage');}
 }

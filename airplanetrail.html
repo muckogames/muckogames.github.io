@@ -340,8 +340,8 @@ function showDiff(el){
     </div>`).join('')}
   </div>
   <div class="btns">
-    <button onclick="G.screen='name';render()">Continue →</button>
-    <button onclick="G.screen='menu';render()">← Back</button>
+    <button onclick="G.screen='name';render()">▶ Continue</button>
+    <button onclick="G.screen='menu';render()">◀ Back</button>
   </div>`;
 }
 
@@ -428,7 +428,7 @@ function showStore(el){
         <div class="si-desc">Keep those propellers spinning!</div>
         <div class="si-price">10 gold → +15 fuel (max 100%)</div>
       </div>
-      <button class="small" onclick="buy('fuel',10,15,100)" ${G.gold<10||G.fuel>=100?'disabled':''}>Buy</button>
+      <button class="small" onclick="buy('fuel',10,15,100)" ${G.gold<10||G.fuel>=100?'disabled':''}>💰 Buy</button>
     </div>
     <div class="store-item">
       <div class="si-info">
@@ -436,7 +436,7 @@ function showStore(el){
         <div class="si-desc">Feed your crew for the journey.</div>
         <div class="si-price">8 gold → +12 food (max 80)</div>
       </div>
-      <button onclick="buy('food',8,12,80)" ${G.gold<8||G.food>=80?'disabled':''}>Buy</button>
+      <button onclick="buy('food',8,12,80)" ${G.gold<8||G.food>=80?'disabled':''}>💰 Buy</button>
     </div>
     <div class="store-item">
       <div class="si-info">
@@ -444,7 +444,7 @@ function showStore(el){
         <div class="si-desc">Patch those dings and dents.</div>
         <div class="si-price">15 gold → +25 hull (max 100%)</div>
       </div>
-      <button onclick="buy('hull',15,25,100)" ${G.gold<15||G.hull>=100?'disabled':''}>Buy</button>
+      <button onclick="buy('hull',15,25,100)" ${G.gold<15||G.hull>=100?'disabled':''}>💰 Buy</button>
     </div>
     <div class="store-item">
       <div class="si-info">
@@ -452,7 +452,7 @@ function showStore(el){
         <div class="si-desc">Heal your crew members.</div>
         <div class="si-price">12 gold → +35hp to all crew</div>
       </div>
-      <button onclick="buyMeds()" ${G.gold<12?'disabled':''}>Buy</button>
+      <button onclick="buyMeds()" ${G.gold<12?'disabled':''}>💰 Buy</button>
     </div>
     <div class="store-item">
       <div class="si-info">
@@ -460,7 +460,7 @@ function showStore(el){
         <div class="si-desc">Land on pontoons &amp; catch dinner. ${G.fishingUsed?'(Already fished this voyage)':''}</div>
         <div class="si-price">Free · catch fish → food</div>
       </div>
-      <button onclick="G.screen='fishing';render()" ${G.fishingUsed?'disabled':''}>Fish!</button>
+      <button onclick="G.screen='fishing';render()" ${G.fishingUsed?'disabled':''}>🎣 Fish!</button>
     </div>
     <div class="store-item">
       <div class="si-info">
@@ -468,7 +468,7 @@ function showStore(el){
         <div class="si-desc">Boost fuel efficiency for next leg.</div>
         <div class="si-price">18 gold → +12 fuel</div>
       </div>
-      <button onclick="buy('fuel',18,12,100)" ${G.gold<18||G.fuel>=100?'disabled':''}>Buy</button>
+      <button onclick="buy('fuel',18,12,100)" ${G.gold<18||G.fuel>=100?'disabled':''}>💰 Buy</button>
     </div>
   </div>
   ${G.msg?`<div class="msg">${G.msg}</div>`:''}
@@ -1590,9 +1590,9 @@ function showVictory(el){
       ${hsRows}
       ${hsNewMsg}
     </div>
-    <button class="btn-go" onclick="G={screen:'diff',sel:'first'};render()">Play Again</button>
-    <button onclick="G.screen='scores';render()">Full Scoreboard</button>
-    <button onclick="G={screen:'menu'};render()">Main Menu</button>
+    <button class="btn-go" onclick="G={screen:'diff',sel:'first'};render()">🔄 Play Again</button>
+    <button onclick="G.screen='scores';render()">🏆 Full Scoreboard</button>
+    <button onclick="G={screen:'menu'};render()">🏠 Main Menu</button>
   </div>`;
   startArrivalAnim();
 }
@@ -1609,9 +1609,9 @@ function showGameOver(el){
       <em>Take a deep breath, restock your supplies, and try the journey again!</em>
     </div>
     ${crewRow()}
-    <button class="btn-go" onclick="G={screen:'diff',sel:'first'};render()">Try Again</button>
+    <button class="btn-go" onclick="G={screen:'diff',sel:'first'};render()">🔄 Try Again</button>
     <button onclick="G.screen='scores';render()">🏆 Scoreboard</button>
-    <button onclick="G={screen:'menu'};render()">Main Menu</button>
+    <button onclick="G={screen:'menu'};render()">🏠 Main Menu</button>
   </div>`;
 }
 
@@ -1642,8 +1642,8 @@ function showScores(el){
   </div>`}
   <div class="btns" style="margin-top:16px">
     <button class="btn-go" onclick="G={screen:'diff',sel:'first'};render()">✈️ New Journey</button>
-    <button onclick="G={screen:'menu'};render()">← Main Menu</button>
-    <button class="btn-bad" onclick="if(confirm('Clear all scores?')){localStorage.removeItem('mucko_scores');G.screen='scores';render()}">Clear Scores</button>
+    <button onclick="G={screen:'menu'};render()">🏠 Main Menu</button>
+    <button class="btn-bad" onclick="if(confirm('Clear all scores?')){localStorage.removeItem('mucko_scores');G.screen='scores';render()}">🗑️ Clear Scores</button>
   </div>`;
 }
 

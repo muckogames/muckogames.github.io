@@ -312,6 +312,29 @@ var popup = { open:false, text:'', timer:0 };
 
 // Scoring
 var scoreSaved = false;
+var endStingPlayed = '';
+
+// End-state audio sting (win/lose) — lazy-initialized AudioContext
+var _endActx = null;
+function playEndSting(kind) {
+  try {
+    if (!_endActx) _endActx = new (window.AudioContext || window.webkitAudioContext)();
+    var ac = _endActx;
+    if (ac.state !== 'running' && ac.resume) ac.resume();
+    var freqs = kind === 'win' ? [523.25, 659.25, 783.99, 1046.5] : [392, 329.63, 261.63, 196];
+    var wave  = kind === 'win' ? 'triangle' : 'sine';
+    var t0 = ac.currentTime;
+    for (var i = 0; i < freqs.length; i++) {
+      var o = ac.createOscillator(), g = ac.createGain();
+      o.type = wave; o.frequency.value = freqs[i];
+      g.gain.setValueAtTime(0.0001, t0 + i * 0.14);
+      g.gain.exponentialRampToValueAtTime(0.22, t0 + i * 0.14 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + i * 0.14 + 0.3);
+      o.connect(g); g.connect(ac.destination);
+      o.start(t0 + i * 0.14); o.stop(t0 + i * 0.14 + 0.32);
+    }
+  } catch (e) {}
+}
 
 // Player
 var player = { x:100, y:380, facing:'right' };
@@ -1071,6 +1094,7 @@ function updateChase(dt) {
       energy = Math.max(0, energy - JAIL_PENALTY);
       initJail();
       phase = 'jail';
+      playEndSting('lose');
       return;
     }
   }
@@ -1134,6 +1158,7 @@ function updateEscape(dt) {
       returnPhase = 'escape';
       initJail();
       phase = 'jail';
+      playEndSting('lose');
       return;
     }
   }
@@ -1303,7 +1328,11 @@ function renderJail() {
     txt('WRONG RUG!', W / 2, H / 2, '#fff', 28, 'center', 'bold monospace');
   }
 
-  txt('JAIL — Escape through the correct tunnel!', W / 2, 28, '#555', 12, 'center', 'bold monospace');
+  // Big unambiguous loss banner (for non-readers)
+  ctx.font = '56px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('\uD83D\uDE35 \uD83D\uDD12', W / 2, 36);
+  ctx.textBaseline = 'alphabetic';
+  txt('JAIL — Escape through the correct tunnel!', W / 2, 78, '#884444', 12, 'center', 'bold monospace');
 
   drawMobileControls();
   drawHUD();
@@ -1314,6 +1343,7 @@ function renderVictory() {
   // Save score once
   if (!scoreSaved) {
     scoreSaved = true;
+    playEndSting('win');
     var stars = energy / ENERGY_MAX > 0.72 ? 3 : energy / ENERGY_MAX > 0.38 ? 2 : energy / ENERGY_MAX > 0.1 ? 1 : 0;
     var starStr = (stars >= 1 ? '\u2B50' : '\u2606') + (stars >= 2 ? '\u2B50' : '\u2606') + (stars >= 3 ? '\u2B50' : '\u2606');
     saveHS({ score: Math.max(0, Math.floor(energy)), stars: starStr, jails: jailCount,
@@ -1324,8 +1354,8 @@ function renderVictory() {
   ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 6;
   ctx.strokeRect(3, 3, W - 6, H - 6);
 
-  ctx.font = '60px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText('\uD83C\uDFC6', W / 2, 80);
+  ctx.font = '68px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('\uD83C\uDFC6 \uD83C\uDF89', W / 2, 80);
   ctx.textBaseline = 'alphabetic';
 
   txt('CONTRABAND SECURED!', W / 2, 135, '#ffd700', 28, 'center', 'bold Georgia');
