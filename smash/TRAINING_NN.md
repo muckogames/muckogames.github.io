@@ -14,6 +14,44 @@ Both trainers use `smash/sim.js` as the source of truth — a model is only
 Node.js 12+ (ships with every mainstream OS). No `npm install`, no
 dependencies. The training script only reads `sim.js` and `ai/policy.js`.
 
+## Parallelism (`--workers N`)
+
+`train-nn.js` uses Node.js `worker_threads` to evaluate antithetic ES pairs
+in parallel. By default it spawns `numCPUs - 2` workers (18 on a 20-core
+machine). Override with `--workers N`.
+
+**Architecture note:** each worker receives one *pair task* — base theta plus
+the pair seed — and evaluates both (θ + σε) and (θ − σε) in a single
+message round-trip. This halves message overhead vs sending two separate
+perturbed models. Workers regenerate noise from the seed deterministically,
+so the main thread can also regenerate it for gradient computation without
+a return trip.
+
+**Measured on a 20-core / 33 GB machine (Node 22):**
+
+| setting | workers | wall time/gen (steady state) |
+|---|---|---|
+| serial (`--workers 0`) | 0 | ~10 s |
+| single worker | 1 | ~20–30 s (message overhead > compute) |
+| default | 18 | ~1.4 s |
+
+The ~7–10× speedup saturates around 18 workers for the default pop=40
+settings; adding more beyond that shows diminishing returns.
+
+**Recommended pop for multi-core machines:** `--pop 72` (P=36 pairs).
+With 18 workers, 36 pair-tasks fill exactly 2 parallel rounds with zero
+idle workers, giving ~80% average CPU utilization and 80% more training
+signal per generation at the same wall-clock cost as pop=40.
+
+**Timing as training matures:** early generations (~gen 0–50) run in ~1 s
+because a random-weight NN self-KOs quickly (short matches). As the network
+learns to survive, matches approach the `--seconds` cap and per-gen time
+rises to ~3–5 s. Plan accordingly for long runs.
+
+**Serial fallback:** if `worker_threads` is unavailable (Node < 12) or
+`--workers 0` is passed, the code falls back to fully serial evaluation
+with no code changes required.
+
 ## Train
 
 ```bash

@@ -17,6 +17,13 @@
 
 var fs = require('fs');
 var path = require('path');
+var os = require('os');
+
+// Worker threads (Node 12+; gracefully falls back to serial if unavailable).
+var workerThreads = null;
+try { workerThreads = require('worker_threads'); } catch (e) {}
+var isMainThread = !workerThreads || workerThreads.isMainThread;
+
 var Sim = require('./sim');
 var Policy = require('./ai/policy');
 
@@ -256,12 +263,12 @@ function evaluateFitness(challenger, opts, rng, battery) {
         if (res.won) { wins++; perOpp[opp.tag].w++; }
         else if (res.lost) { losses++; perOpp[opp.tag].l++; }
         else { draws++; perOpp[opp.tag].d++; }
-        var p = res.summary.players[res.challengerId];
-        kos += p.stats.kos;
-        deaths += p.stats.deaths;
-        selfKos += p.stats.selfKos;
-        dmgDealt += p.stats.damageDealt;
-        dmgTaken += p.stats.damageTaken;
+        var pst = res.summary.players[res.challengerId];
+        kos += pst.stats.kos;
+        deaths += pst.stats.deaths;
+        selfKos += pst.stats.selfKos;
+        dmgDealt += pst.stats.damageDealt;
+        dmgTaken += pst.stats.damageTaken;
       }
     }
   }
@@ -361,9 +368,113 @@ function loadSelfPlayPool(opts) {
   return out;
 }
 
+// ─── Worker evaluation ───────────────────────────────────────────────────
+
+// Handles an antithetic pair task: worker regenerates noise from pairSeed
+// and evaluates both (theta + sigma*eps) and (theta - sigma*eps) in one shot,
+// halving message count vs sending two pre-perturbed thetas.
+// task: { id, theta[], pairSeed, sigma, hidden[], baseOpts, battery }
+function workerHandlePairTask(task) {
+  var nParams = task.theta.length;
+  var pRng = seededRng(task.pairSeed);
+  var eps = new Float64Array(nParams);
+  for (var i = 0; i < nParams; i++) eps[i] = gaussFrom(pRng);
+
+  var perturbed = new Float64Array(nParams);
+  var model = buildBlankModel(task.hidden);
+
+  // +eps
+  for (var i2 = 0; i2 < nParams; i2++) perturbed[i2] = task.theta[i2] + task.sigma * eps[i2];
+  unflattenInto(perturbed, model);
+  var scorePos = evaluateFitness(model,
+    Object.assign({}, task.baseOpts, { matchSeedBase: (task.pairSeed ^ 0xa5a5a5a5) >>> 0 }),
+    seededRng((task.pairSeed ^ 0x12345) >>> 0),
+    task.battery).score;
+
+  // -eps
+  for (var i3 = 0; i3 < nParams; i3++) perturbed[i3] = task.theta[i3] - task.sigma * eps[i3];
+  unflattenInto(perturbed, model);
+  var scoreNeg = evaluateFitness(model,
+    Object.assign({}, task.baseOpts, { matchSeedBase: (task.pairSeed ^ 0x5a5a5a5a) >>> 0 }),
+    seededRng((task.pairSeed ^ 0x67890) >>> 0),
+    task.battery).score;
+
+  return { id: task.id, scorePos: scorePos, scoreNeg: scoreNeg };
+}
+
+// Handles a single holdout eval task (current theta, one opponent tier).
+// task: { id, theta[], hidden[], opts, rngSeed, battery }
+function workerHandleHoldoutTask(task) {
+  var model = buildBlankModel(task.hidden);
+  unflattenInto(task.theta, model);
+  var result = evaluateFitness(model, task.opts, seededRng(task.rngSeed), task.battery);
+  return {
+    id: task.id,
+    score: result.score,
+    matches: result.matches,
+    wins: result.wins,
+    losses: result.losses,
+    draws: result.draws,
+    kos: result.kos,
+    deaths: result.deaths,
+    selfKos: result.selfKos,
+    dmgDealt: result.dmgDealt,
+    dmgTaken: result.dmgTaken,
+    perOpp: result.perOpp
+  };
+}
+
+// Worker entry point — runs when this file is loaded as a Worker thread.
+if (workerThreads && !isMainThread) {
+  workerThreads.parentPort.on('message', function (task) {
+    var result = task.type === 'pair' ? workerHandlePairTask(task) : workerHandleHoldoutTask(task);
+    workerThreads.parentPort.postMessage(result);
+  });
+}
+
+// ─── Worker pool ─────────────────────────────────────────────────────────
+
+function makeWorkerPool(n) {
+  if (!workerThreads || n < 1) return [];
+  var pool = [];
+  for (var i = 0; i < n; i++) pool.push(new workerThreads.Worker(__filename));
+  return pool;
+}
+
+function closeWorkerPool(pool) {
+  for (var i = 0; i < pool.length; i++) pool[i].terminate();
+}
+
+// Distribute tasks across pool using work-stealing.
+// Returns a Promise that resolves to an array of result objects.
+function runTasksParallel(tasks, pool) {
+  return new Promise(function (resolve) {
+    var results = [];
+    var taskIndex = 0;
+    var completed = 0;
+    var total = tasks.length;
+    if (total === 0) { resolve([]); return; }
+
+    function assignNext(worker) {
+      if (taskIndex >= total) return;
+      var task = tasks[taskIndex++];
+      worker.once('message', function (res) {
+        results.push(res);
+        completed++;
+        if (completed === total) resolve(results);
+        else assignNext(worker);
+      });
+      worker.postMessage(task);
+    }
+
+    var slots = Math.min(pool.length, total);
+    for (var i = 0; i < slots; i++) assignNext(pool[i]);
+  });
+}
+
 // ─── Train loop ──────────────────────────────────────────────────────────
 
-function train(args) {
+async function train(args) {
   var hidden = (strArg(args, 'hidden', '64,64')).split(',').map(function (n) { return parseInt(n, 10); }).filter(function (n) { return n > 0; });
   if (!hidden.length) hidden = [64, 64];
   var populationPairs = Math.max(2, intArg(args, 'pop', 40) >> 1); // pairs (antithetic); total evals = 2 * pairs
@@ -378,11 +489,20 @@ function train(args) {
   var fresh = !!args.fresh;
   var selfPlayEveryN = intArg(args, 'self-play-every', 20);
   var snapshotEveryN = intArg(args, 'snapshot-every', 20);
+  var numWorkers = Math.min(intArg(args, 'workers', Math.max(1, os.cpus().length - 2)), 64);
 
   var rng = seededRng(seed);
   var scratch = buildBlankModel(hidden);
   var nParams = paramCount(hidden);
   console.log('hidden:', hidden.join('x'), ' params:', nParams, ' pairs:', populationPairs, ' sigma:', sigma, ' lr:', lr);
+
+  // Start worker pool.
+  var workerPool = makeWorkerPool(numWorkers);
+  if (workerPool.length > 0) {
+    console.log('workers:', workerPool.length, '(serial fallback if 0)');
+  } else {
+    console.log('worker_threads unavailable — running serially');
+  }
 
   // Resume if latest.json exists (unless --fresh).
   var theta;
@@ -429,37 +549,66 @@ function train(args) {
   for (var gen = startGen; gen < startGen + generations; gen++) {
     var t0 = Date.now();
 
-    // Self-play pool periodically reloaded
-    var pool = (gen % selfPlayEveryN === 0) ? loadSelfPlayPool({ selfPlay: true, selfPlayKeep: 4 }) : [];
-    var battery = buildBattery(fitnessOpts, pool);
+    // Self-play pool periodically reloaded.
+    var selfPlayPool = (gen % selfPlayEveryN === 0) ? loadSelfPlayPool({ selfPlay: true, selfPlayKeep: 4 }) : [];
+    var battery = buildBattery(fitnessOpts, selfPlayPool);
 
-    // Population: generate P/2 noise vectors, evaluate (+ε, -ε) pairs.
+    // Population: generate P antithetic pairs, evaluate in parallel.
     var P = populationPairs;
     var fitnesses = new Float64Array(P * 2);
     var seeds = [];
     for (var s = 0; s < P; s++) seeds.push(((gen + 1) * 1000003 + s * 911) >>> 0);
 
-    // Build scratch perturbed params (reused).
+    // Generate noise in main thread (needed for gradient regardless).
+    // Workers also regenerate from the same seeds — deterministic, no round-trip needed.
     var noise = new Array(P);
-    var perturbed = new Float64Array(nParams);
-
     for (var p = 0; p < P; p++) {
       var pRng = seededRng(seeds[p]);
       var eps = new Float64Array(nParams);
       for (var i = 0; i < nParams; i++) eps[i] = gaussFrom(pRng);
       noise[p] = eps;
+    }
 
-      // +eps
-      for (var i2 = 0; i2 < nParams; i2++) perturbed[i2] = theta[i2] + sigma * eps[i2];
-      unflattenInto(perturbed, scratch);
-      fitnessOpts.matchSeedBase = (seeds[p] ^ 0xa5a5a5a5) >>> 0;
-      fitnesses[p * 2] = evaluateFitness(scratch, fitnessOpts, seededRng(seeds[p] ^ 0x12345), battery).score;
+    // One pair-task per antithetic pair (P tasks instead of 2P) — worker evaluates
+    // both +eps and -eps per task, halving message count and serialization overhead.
+    var baseEvalOpts = { matchesPerOpp: fitnessOpts.matchesPerOpp, stocks: stocks, maxSteps: fitnessOpts.maxSteps };
+    var esTasks = [];
+    for (var p2 = 0; p2 < P; p2++) {
+      esTasks.push({
+        type: 'pair',
+        id: p2,
+        theta: Array.from(theta),
+        pairSeed: seeds[p2],
+        sigma: sigma,
+        hidden: hidden,
+        baseOpts: baseEvalOpts,
+        battery: battery
+      });
+    }
 
-      // -eps
-      for (var i3 = 0; i3 < nParams; i3++) perturbed[i3] = theta[i3] - sigma * eps[i3];
-      unflattenInto(perturbed, scratch);
-      fitnessOpts.matchSeedBase = (seeds[p] ^ 0x5a5a5a5a) >>> 0;
-      fitnesses[p * 2 + 1] = evaluateFitness(scratch, fitnessOpts, seededRng(seeds[p] ^ 0x67890), battery).score;
+    if (workerPool.length > 0) {
+      var esResults = await runTasksParallel(esTasks, workerPool);
+      for (var ri = 0; ri < esResults.length; ri++) {
+        var esr = esResults[ri];
+        fitnesses[esr.id * 2]     = esr.scorePos;
+        fitnesses[esr.id * 2 + 1] = esr.scoreNeg;
+      }
+    } else {
+      for (var p3 = 0; p3 < P; p3++) {
+        var perturbed = new Float64Array(nParams);
+        var esModel = buildBlankModel(hidden);
+        var esEps = noise[p3];
+        // +eps
+        for (var i2 = 0; i2 < nParams; i2++) perturbed[i2] = theta[i2] + sigma * esEps[i2];
+        unflattenInto(perturbed, esModel);
+        fitnessOpts.matchSeedBase = (seeds[p3] ^ 0xa5a5a5a5) >>> 0;
+        fitnesses[p3 * 2] = evaluateFitness(esModel, fitnessOpts, seededRng(seeds[p3] ^ 0x12345), battery).score;
+        // -eps
+        for (var i3 = 0; i3 < nParams; i3++) perturbed[i3] = theta[i3] - sigma * esEps[i3];
+        unflattenInto(perturbed, esModel);
+        fitnessOpts.matchSeedBase = (seeds[p3] ^ 0x5a5a5a5a) >>> 0;
+        fitnesses[p3 * 2 + 1] = evaluateFitness(esModel, fitnessOpts, seededRng(seeds[p3] ^ 0x67890), battery).score;
+      }
     }
 
     // Centered rank transform, then gradient estimate.
@@ -471,8 +620,8 @@ function train(args) {
       var rPlus = ranks[pp * 2];
       var rMinus = ranks[pp * 2 + 1];
       var w = (rPlus - rMinus);
-      var eps2 = noise[pp];
-      for (var ii = 0; ii < nParams; ii++) grad[ii] += w * eps2[ii];
+      var epsG = noise[pp];
+      for (var ii = 0; ii < nParams; ii++) grad[ii] += w * epsG[ii];
     }
     var denom = 2 * P * sigma;
     for (var jj = 0; jj < nParams; jj++) grad[jj] /= denom;
@@ -481,20 +630,60 @@ function train(args) {
 
     adam(theta, grad);
 
-    // Stats + save.
+    // Stats.
     var meanF = 0, bestF = -Infinity;
     for (var x = 0; x < fitnesses.length; x++) { meanF += fitnesses[x]; if (fitnesses[x] > bestF) bestF = fitnesses[x]; }
     meanF /= fitnesses.length;
 
-    // Holdout: evaluate current theta on a separate battery of seeds.
-    unflattenInto(theta, scratch);
-    fitnessOpts.matchSeedBase = (gen * 777017) >>> 0;
-    var holdout = evaluateFitness(scratch, {
-      useEasy: true, useMedium: true, useHard: true,
-      matchesPerOpp: Math.max(2, matchesPerOpp),
-      stocks: stocks, maxSteps: seconds * 60,
-      matchSeedBase: (gen * 777017) >>> 0
-    }, seededRng((gen + 1) * 31337), buildBattery(fitnessOpts, []));
+    // Holdout: evaluate current theta against each opponent tier in parallel.
+    var holdout;
+    if (workerPool.length > 0) {
+      var holdoutOpps = [
+        { kind: 'heuristic', tag: 'easy',   genome: Sim.EASY_MODE_GENOME },
+        { kind: 'heuristic', tag: 'medium', genome: Sim.MEDIUM_MODE_GENOME },
+        { kind: 'heuristic', tag: 'hard',   genome: Sim.HARD_MODE_GENOME }
+      ];
+      var holdoutMpo = Math.max(2, matchesPerOpp);
+      var holdoutTasks = holdoutOpps.map(function (opp, hi) {
+        return {
+          type: 'holdout',
+          id: hi,
+          theta: Array.from(theta),
+          hidden: hidden,
+          opts: {
+            matchesPerOpp: holdoutMpo,
+            stocks: stocks,
+            maxSteps: seconds * 60,
+            matchSeedBase: ((gen * 777017 + hi * 999983) & 0xffffffff) >>> 0
+          },
+          rngSeed: (((gen + 1) * 31337 + hi * 7777) & 0xffffffff) >>> 0,
+          battery: [opp]
+        };
+      });
+      var holdoutRaw = await runTasksParallel(holdoutTasks, workerPool);
+      holdout = { score: 0, matches: 0, wins: 0, losses: 0, draws: 0, kos: 0, deaths: 0, selfKos: 0, dmgDealt: 0, dmgTaken: 0, perOpp: {} };
+      var scoreMass = 0;
+      for (var hri = 0; hri < holdoutRaw.length; hri++) {
+        var hr = holdoutRaw[hri];
+        scoreMass += hr.score * hr.matches;
+        holdout.matches += hr.matches;
+        holdout.wins += hr.wins; holdout.losses += hr.losses; holdout.draws += hr.draws;
+        holdout.kos += hr.kos; holdout.deaths += hr.deaths; holdout.selfKos += hr.selfKos;
+        holdout.dmgDealt += hr.dmgDealt; holdout.dmgTaken += hr.dmgTaken;
+        for (var htag in hr.perOpp) {
+          if (Object.prototype.hasOwnProperty.call(hr.perOpp, htag)) holdout.perOpp[htag] = hr.perOpp[htag];
+        }
+      }
+      holdout.score = holdout.matches > 0 ? scoreMass / holdout.matches : 0;
+    } else {
+      unflattenInto(theta, scratch);
+      holdout = evaluateFitness(scratch, {
+        useEasy: true, useMedium: true, useHard: true,
+        matchesPerOpp: Math.max(2, matchesPerOpp),
+        stocks: stocks, maxSteps: seconds * 60,
+        matchSeedBase: (gen * 777017) >>> 0
+      }, seededRng((gen + 1) * 31337), buildBattery(fitnessOpts, []));
+    }
 
     var wallMs = Date.now() - t0;
     var meta = {
@@ -525,9 +714,9 @@ function train(args) {
 
     var oppLine = '';
     for (var tag in holdout.perOpp) if (Object.prototype.hasOwnProperty.call(holdout.perOpp, tag)) {
-      var r = holdout.perOpp[tag];
-      var t = r.w + r.l + r.d;
-      oppLine += ' ' + tag + ':' + (t ? (r.w / t).toFixed(2) : '—');
+      var rr = holdout.perOpp[tag];
+      var tot = rr.w + rr.l + rr.d;
+      oppLine += ' ' + tag + ':' + (tot ? (rr.w / tot).toFixed(2) : '—');
     }
     console.log('gen', gen,
       'mean', meanF.toFixed(2),
@@ -539,6 +728,8 @@ function train(args) {
       '(' + wallMs + 'ms)'
     );
   }
+
+  closeWorkerPool(workerPool);
 }
 
 // ─── Eval / Duel commands ────────────────────────────────────────────────
@@ -612,18 +803,19 @@ function duelCmd(args) {
 function main() {
   var args = parseArgs(process.argv.slice(2));
   var cmd = args._[0] || 'train';
-  if (cmd === 'train') train(args);
-  else if (cmd === 'eval') evalCmd(args);
+  if (cmd === 'train') {
+    train(args).catch(function (err) { console.error(err); process.exit(1); });
+  } else if (cmd === 'eval') evalCmd(args);
   else if (cmd === 'duel') duelCmd(args);
   else {
     console.error('usage:');
     console.error('  node smash/train-nn.js train [--pop 40] [--generations 500] [--sigma 0.08] [--lr 0.03]');
     console.error('                              [--hidden 64,64] [--matches-per-opp 2] [--seconds 30]');
-    console.error('                              [--fresh] [--seed 1337]');
+    console.error('                              [--workers N] [--fresh] [--seed 1337]');
     console.error('  node smash/train-nn.js eval  <model.json> [--games 40]');
     console.error('  node smash/train-nn.js duel  <A.json> <B.json> [--games 40]');
     process.exit(1);
   }
 }
 
-main();
+if (isMainThread) main();
