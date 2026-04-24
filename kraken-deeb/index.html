@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Kraken Deeb Run</title>
+<style>
+  body { margin: 0; background:#06111e; color:#e8f1ff; font-family: 'Trebuchet MS', sans-serif; }
+  #game { width: 100vw; height: 100vh; display: grid; place-items: center; }
+  #stage { width: 980px; height: 620px; background: linear-gradient(#0c1f35,#07121f); border: 3px solid #4ea3d8; box-shadow: 0 0 30px #000 inset; position: relative; overflow: hidden; }
+  .hud { position:absolute; left:14px; top:10px; right:14px; display:flex; justify-content:space-between; font-size:18px; text-shadow:1px 1px 0 #000; }
+  .message { position:absolute; left:0; right:0; bottom:0; min-height:84px; background:rgba(0,0,0,.6); border-top:2px solid #4ea3d8; padding:10px 14px; font-size:20px; }
+  .playfield { position:absolute; inset:52px 0 84px; }
+  .obj { position:absolute; width:30px; height:30px; display:grid; place-items:center; font-size:26px; }
+  .player { width:34px; height:34px; font-size:30px; filter: drop-shadow(0 0 6px #9fd4ff); }
+  .panel { position:absolute; inset:100px 120px; background:rgba(6,14,28,.95); border:2px solid #9ad6ff; padding:20px; overflow:auto; }
+  .title { text-align:center; font-size:34px; color:#bde7ff; margin:0 0 6px; }
+  .small { color:#98b8cf; font-size:16px; }
+  .grid { position:absolute; left:20px; top:20px; width:660px; height:420px; background:#0e2338; border:2px solid #6ab6e6; }
+  .cell { position:absolute; width:30px; height:30px; display:grid; place-items:center; font-size:21px; }
+</style>
+</head>
+<body>
+<div id="game"><div id="stage"></div></div>
+<script>
+const stage = document.getElementById('stage');
+const S = {
+  phase: 'intro', score: 0, stars: 0,
+  fuel: 3, distance: 0, targetDistance: 10,
+  stationAt: [2.3, 4.9, 7.2, 9.0], stationIndex: 0,
+  floppy: 0, crates: 0, cigars: 0,
+  doorCodeA: '3174', doorCodeB: '9091', doorCodeC: '4402',
+  unlockedA: false, unlockedB: false, unlockedC: false,
+  homeLocks: 0, donProgress: 0, firelightCalled: false,
+  destroyers: 3, sonarWindow: 0, sonarCooldown: 4, chaseDistance: 0
+};
+const K = {};
+addEventListener('keydown', e=> K[e.key.toLowerCase()] = true);
+addEventListener('keyup', e=> K[e.key.toLowerCase()] = false);
+function once(key, fn){ if (K[key]) { K[key] = false; fn(); }}
+function div(cn, txt){ const e=document.createElement('div'); if(cn)e.className=cn; if(txt)e.textContent=txt; return e; }
+
+let last = performance.now();
+function loop(t){
+  const dt = Math.min(0.05, (t-last)/1000); last=t;
+  update(dt); draw(); requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+function update(dt){
+  if (S.phase === 'intro') once('enter', ()=> S.phase='sub1');
+  if (S.phase === 'sub1') updateSubmarine(dt, false);
+  if (S.phase === 'heist') updateHeist(dt);
+  if (S.phase === 'sub2') updateSubmarine(dt, true);
+  if (S.phase === 'home') updateHome(dt);
+  if (S.phase === 'end') once('enter', ()=> location.reload());
+}
+
+function updateSubmarine(dt, chase){
+  if (K[' '] || K['arrowright']) {
+    S.distance += 2.6 * dt;
+    S.chaseDistance += chase ? 2.4 * dt : 0;
+    S.fuel -= 0.78 * dt;
+    S.score += dt * 6;
+  }
+  if (S.fuel <= 0) fail('Out of gas! Hold SPACE less and refuel at stations with E.');
+  const nearStation = Math.abs(S.distance - S.stationAt[S.stationIndex]) < 0.35;
+  if (nearStation) once('e', ()=> { S.fuel = 3; S.stationIndex = Math.min(S.stationIndex+1,S.stationAt.length-1); S.score += 30; });
+
+  if (!chase) {
+    once('a', ()=> { S.score += 10; });
+    if (S.distance >= S.targetDistance) {
+      S.distance = 0; S.fuel = 3; S.stationIndex = 0; S.phase = 'heist';
+    }
+    return;
+  }
+
+  S.sonarCooldown -= dt * (1 + (3 - S.destroyers) * 0.25);
+  if (S.sonarCooldown <= 0 && S.sonarWindow <= 0) {
+    S.sonarWindow = 1.1;
+    S.sonarCooldown = 4.5 + Math.random() * 1.5;
+  }
+  if (S.sonarWindow > 0) {
+    S.sonarWindow -= dt;
+    once('a', ()=> { S.score += 18; S.sonarWindow = 0; });
+    if (S.sonarWindow <= 0) {
+      S.fuel -= 0.7;
+      S.score -= 15;
+    }
+  }
+  once('c', ()=> {
+    if (S.cigars > 0 && S.destroyers > 0) {
+      S.cigars--; S.destroyers--; S.score += 80;
+    }
+  });
+
+  if (S.distance >= S.targetDistance) {
+    S.phase = 'home';
+    S.distance = 0;
+  }
+}
+
+const heist = { x:1, y:1, maxX:21, maxY:13, items:[], notes:[] };
+(function setupHeist(){
+  const add=(x,y,t)=>heist.items.push({x,y,t,got:false});
+  for(let i=0;i<12;i++) add(2+(i%6)*3,2+Math.floor(i/6)*4,'💾');
+  for(let i=0;i<12;i++) add(3+(i%6)*3,3+Math.floor(i/6)*4,'📦');
+  add(5,10,'🚬'); add(13,2,'🚬'); add(18,11,'🚬');
+  heist.notes = [
+    {x:6,y:1,msg:'Code for Room A: '+S.doorCodeA, got:false},
+    {x:12,y:5,msg:'Code for Room B: '+S.doorCodeB, got:false},
+    {x:20,y:9,msg:'Code for Room C: '+S.doorCodeC, got:false}
+  ];
+})();
+let heistMsg = 'Chip-style heist: collect 12 💾 + 12 📦. Find codes in notes and open keypad doors with O.';
+function updateHeist(dt){
+  let moved = false;
+  if (K['arrowleft']) { heist.x=Math.max(0,heist.x-1); moved=true; K['arrowleft']=false; }
+  if (K['arrowright']) { heist.x=Math.min(heist.maxX,heist.x+1); moved=true; K['arrowright']=false; }
+  if (K['arrowup']) { heist.y=Math.max(0,heist.y-1); moved=true; K['arrowup']=false; }
+  if (K['arrowdown']) { heist.y=Math.min(heist.maxY,heist.y+1); moved=true; K['arrowdown']=false; }
+  if (moved) S.score += 0.4;
+
+  heist.items.forEach(it=>{
+    if(!it.got && it.x===heist.x && it.y===heist.y){
+      it.got=true;
+      if(it.t==='💾') S.floppy++;
+      else if(it.t==='📦') S.crates++;
+      else { S.cigars++; heistMsg='You found an exploding cigar! Press C in chase to blast a destroyer.'; }
+      S.score += 12;
+    }
+  });
+  heist.notes.forEach(n=>{ if(!n.got && n.x===heist.x && n.y===heist.y){ n.got=true; heistMsg=n.msg; S.score+=25; }});
+
+  const onA = heist.x===7 && heist.y===2;
+  const onB = heist.x===14 && heist.y===6;
+  const onC = heist.x===18 && heist.y===10;
+  once('o', ()=>{
+    if(onA && !S.unlockedA){ const i=prompt('Enter Room A keypad code'); if(i===S.doorCodeA){S.unlockedA=true; heistMsg='Room A unlocked!'; S.score+=35;} }
+    if(onB && !S.unlockedB){ const i=prompt('Enter Room B keypad code'); if(i===S.doorCodeB){S.unlockedB=true; heistMsg='Room B unlocked!'; S.score+=35;} }
+    if(onC && !S.unlockedC){ const i=prompt('Enter Room C keypad code'); if(i===S.doorCodeC){S.unlockedC=true; heistMsg='Room C unlocked! Exit is open.'; S.score+=35;} }
+  });
+
+  if (S.floppy >= 12 && S.crates >= 12 && S.unlockedC && heist.x===21 && heist.y===12) {
+    S.phase='sub2';
+    S.distance=0; S.fuel=3; S.stationIndex=0;
+  }
+}
+
+const home = { x:4, y:3, doors:[{x:1,y:1,l:false},{x:10,y:1,l:false},{x:1,y:8,l:false},{x:10,y:8,l:false}] };
+let homeMsg = 'Lock 4 doors (L). Optional: phone (P) calls Firelight Guy. Sims PC + fireplace are Easter eggs.';
+function updateHome(dt){
+  if (K['arrowleft']) { home.x=Math.max(0,home.x-1); K['arrowleft']=false; }
+  if (K['arrowright']) { home.x=Math.min(11,home.x+1); K['arrowright']=false; }
+  if (K['arrowup']) { home.y=Math.max(0,home.y-1); K['arrowup']=false; }
+  if (K['arrowdown']) { home.y=Math.min(9,home.y+1); K['arrowdown']=false; }
+
+  S.donProgress += dt * (S.firelightCalled ? 0.2 : 0.55);
+  if (S.donProgress >= 1) fail('The Don got in before all doors were locked.');
+
+  once('l', ()=>{
+    home.doors.forEach(d=>{
+      if(!d.l && d.x===home.x && d.y===home.y){ d.l=true; S.homeLocks++; S.score+=40; homeMsg='Door locked '+S.homeLocks+'/4'; }
+    });
+  });
+  if (home.x===5 && home.y===0) once('p', ()=>{ S.firelightCalled=true; homeMsg='Firelight Guy called. Don is backing away from flames!'; S.score+=30; });
+  if (home.x===8 && home.y===4) once('s', ()=>{ homeMsg='You played The Sims for 2 pretend minutes. Cozy.'; S.score+=8; });
+  if (home.x===2 && home.y===6) once('f', ()=>{ homeMsg='Fireplace robot lights a tiny fire. Rug catches, then you put it out.'; S.score+=8; });
+
+  if (S.homeLocks >= 4 && home.x===6 && home.y===9) {
+    S.phase='end';
+    S.stars = Math.max(1, Math.min(5, Math.floor(S.score / 180)));
+  }
+}
+
+function fail(msg){
+  alert(msg + '\nRestarting run.');
+  location.reload();
+}
+
+function draw(){
+  stage.innerHTML='';
+  if (S.phase==='intro') return drawIntro();
+  if (S.phase==='sub1' || S.phase==='sub2') return drawSub(S.phase==='sub2');
+  if (S.phase==='heist') return drawHeist();
+  if (S.phase==='home') return drawHome();
+  if (S.phase==='end') return drawEnd();
+}
+
+function addHud(extra=''){
+  const h=div('hud');
+  h.innerHTML = `<span>Score: ${Math.floor(S.score)}</span><span>${extra}</span><span>Fuel: ${S.fuel.toFixed(1)} km</span>`;
+  stage.appendChild(h);
+}
+function drawIntro(){
+  const p=div('panel');
+  p.innerHTML = `<h1 class="title">Kraken Deeb Run</h1>
+  <p class="small">Samster & Diggory mission: submarine in, heist the Don's house, escape destroyers, then lock down home.</p>
+  <ul>
+  <li><b>Submarine:</b> SPACE move, E refuel at gas cities, A grab sillies.</li>
+  <li><b>Heist:</b> Arrows move, O open keypad doors, collect 12 💾 + 12 📦.</li>
+  <li><b>Escape:</b> A counters sonar drop, C throws exploding cigar.</li>
+  <li><b>Home:</b> L lock doors, P call Firelight Guy, finish at yellow blanket.</li>
+  </ul>
+  <p><b>Press ENTER to begin.</b></p>`;
+  stage.appendChild(p);
+}
+function drawSub(chase){
+  addHud(`Distance: ${S.distance.toFixed(1)}/${S.targetDistance} km ${chase ? `| Destroyers: ${S.destroyers}`:''}`);
+  const f=div('playfield');
+  for(let i=0;i<40;i++) {
+    const b=div('obj', i%7===0?'🪸':'·'); b.style.left=(i*49%960)+'px'; b.style.top=(i*71%470)+'px'; b.style.opacity=.25; f.appendChild(b);
+  }
+  const me=div('obj player','🛟'); me.style.left='170px'; me.style.top='200px'; f.appendChild(me);
+  const station = S.stationAt[S.stationIndex];
+  if (Math.abs(S.distance-station) < 1.2) { const st=div('obj','⛽'); st.style.left='620px'; st.style.top='170px'; f.appendChild(st); }
+  if (chase) {
+    const d=div('obj','🚢'); d.style.left='760px'; d.style.top='90px'; f.appendChild(d);
+    if (S.sonarWindow>0) { const a=div('obj','📡'); a.style.left='540px'; a.style.top='220px'; f.appendChild(a); }
+  }
+  stage.appendChild(f);
+  const m=div('message', chase
+    ? 'Escape chase! Hit A when sonar drops appear. Press C to throw exploding cigar. Refuel at ⛽ with E.'
+    : 'Drive forward with SPACE. Refuel at ⛽ gas-city stations by pressing E nearby. Optional: press A to grab sillies.'
+  );
+  stage.appendChild(m);
+}
+function drawHeist(){
+  addHud(`Floppies ${S.floppy}/12 | Containers ${S.crates}/12 | Cigars ${S.cigars}`);
+  const f=div('playfield');
+  const g=div('grid');
+  for(let y=0;y<=13;y++) for(let x=0;x<=21;x++) {
+    const c=div('cell'); c.style.left=(x*30)+'px'; c.style.top=(y*30)+'px';
+    if ((x===7&&y===2&&!S.unlockedA)||(x===14&&y===6&&!S.unlockedB)||(x===18&&y===10&&!S.unlockedC)) c.textContent='🔐';
+    if (x===21&&y===12) c.textContent='🚪';
+    g.appendChild(c);
+  }
+  heist.items.filter(i=>!i.got).forEach(i=>{ const o=div('cell',i.t); o.style.left=(i.x*30)+'px'; o.style.top=(i.y*30)+'px'; g.appendChild(o); });
+  heist.notes.filter(n=>!n.got).forEach(n=>{ const o=div('cell','💻'); o.style.left=(n.x*30)+'px'; o.style.top=(n.y*30)+'px'; g.appendChild(o); });
+  const p=div('cell','🐭'); p.style.left=(heist.x*30)+'px'; p.style.top=(heist.y*30)+'px'; g.appendChild(p);
+  f.appendChild(g); stage.appendChild(f);
+  stage.appendChild(div('message',heistMsg));
+}
+function drawHome(){
+  addHud(`Doors locked ${S.homeLocks}/4 | Don pressure ${(S.donProgress*100).toFixed(0)}%`);
+  const f=div('playfield');
+  const g=div('grid'); g.style.width='360px'; g.style.height='300px'; g.style.left='300px';
+  for(let y=0;y<=9;y++) for(let x=0;x<=11;x++){ const c=div('cell'); c.style.left=(x*30)+'px'; c.style.top=(y*30)+'px'; g.appendChild(c); }
+  home.doors.forEach(d=>{ const c=div('cell', d.l?'🔒':'🚪'); c.style.left=(d.x*30)+'px'; c.style.top=(d.y*30)+'px'; g.appendChild(c); });
+  [['☎️',5,0],['💻',8,4],['🔥',2,6],['🟨',6,9]].forEach(t=>{ const c=div('cell',t[0]); c.style.left=t[1]*30+'px'; c.style.top=t[2]*30+'px'; g.appendChild(c); });
+  const p=div('cell','🐹'); p.style.left=(home.x*30)+'px'; p.style.top=(home.y*30)+'px'; g.appendChild(p);
+  f.appendChild(g); stage.appendChild(f);
+  stage.appendChild(div('message',homeMsg));
+}
+function drawEnd(){
+  const p=div('panel');
+  p.innerHTML = `<h1 class="title">Mission Complete</h1>
+    <p>You made it back to the yellow blanket, locked up the house, and escaped the Don.</p>
+    <p><b>Final score:</b> ${Math.floor(S.score)}</p>
+    <p><b>Stars:</b> ${'⭐'.repeat(S.stars)}${'☆'.repeat(5-S.stars)}</p>
+    <p class="small">Press ENTER to play again.</p>`;
+  stage.appendChild(p);
+}
+</script>
+</body>
+</html>
