@@ -199,8 +199,10 @@ or `file://`). On the character-select screen:
 
 ## 8. ES trainer (train-nn.js)
 
-The original ES trainer is still present and functional. It is simpler
-to understand but plateaued at ~55% Hard WR.
+The original trainer, **Evolution Strategies** (OpenAI-ES: antithetic
+sampling + centered-rank fitness + Adam with weight decay). Simpler to
+understand than REINFORCE; plateaued at ~55% Hard WR with a 64×64 net.
+Good for quick experiments and as a gradient-free fallback.
 
 ```bash
 node smash/train-nn.js train \
@@ -213,9 +215,71 @@ node smash/train-nn.js train \
 ```
 
 Checkpoints land in `smash/ai/models/best.json` / `latest.json` / `log.csv`
-(separate from the RL trainer's `best-rl.json` / `latest-rl.json` / `log-rl.csv`).
+(separate from the RL trainer's `best-rl.json` / `latest-rl.json` /
+`log-rl.csv`). Eval: `node smash/train-nn.js eval
+smash/ai/models/best.json --games 60`.
 
-Eval: `node smash/train-nn.js eval smash/ai/models/best.json --games 60`
+### Each generation in detail
+
+1. Sample *P*/2 Gaussian noise vectors `ε`.
+2. For each, evaluate (θ + σε) and (θ − σε) on a battery of matches (two
+   antithetic evaluations per noise vector). Battery = Easy/Medium/Hard
+   heuristics plus, once there are snapshots, a rotating self-play pool.
+3. Characters are sampled uniformly from `CHAR_IDS` every match — the net
+   can't overfit to one matchup.
+4. Score via `shapePlayerScore`: +200 win, +50 KO, −80 self-KO, etc.
+   Designed to push winrate up, not just damage dealt.
+5. Centered-rank-transform the 2*P* fitnesses (outlier-robust).
+6. Estimate the gradient as a weighted sum of the noise vectors; apply
+   Adam with weight decay.
+7. Save `latest.json`, maybe `gen-NNN.json`, maybe `best.json`; append a
+   row to `log.csv` (`gen, meanF, bestF, wins, losses, draws, selfKos,
+   winrate, wallMs`).
+
+### Parallelism (`--workers N`)
+
+`train-nn.js` uses Node's `worker_threads` to evaluate antithetic pairs in
+parallel. Default: `numCPUs - 2` (18 on a 20-core machine). Override with
+`--workers N`; `--workers 0` forces the serial fallback.
+
+**Architecture.** Each worker receives one *pair task* — base θ plus the
+pair seed — and evaluates both (θ + σε) and (θ − σε) in a single message
+round-trip. Halves message overhead vs sending two separate perturbed
+models. Workers regenerate noise from the seed deterministically, so the
+main thread can regenerate it for gradient computation without a return
+trip.
+
+**Measured on a 20-core / 33 GB machine (Node 22):**
+
+| setting | wall time/gen (steady state) |
+|---|---|
+| serial (`--workers 0`) | ~10 s |
+| single worker | ~20–30 s (message overhead > compute) |
+| default (18 workers) | ~1.4 s |
+
+The ~7–10× speedup saturates around 18 workers for `pop=40`; more gives
+diminishing returns. **Recommended pop for multi-core machines:**
+`--pop 72` (P = 36 pairs). With 18 workers, 36 pair-tasks fill exactly 2
+parallel rounds with zero idle workers — 80% more training signal per
+generation at roughly the same wall-clock cost.
+
+**Timing as training matures:** early generations (~gen 0–50) run in
+~1 s because a random-weight NN self-KOs quickly (short matches). As the
+network learns to survive, matches approach the `--seconds` cap and
+per-gen time rises to ~3–5 s.
+
+### Flags unique to ES
+
+- `--pop N` (default 40) — population size; internally halved to P pairs.
+- `--sigma s` (default 0.08) — noise scale.
+- `--lr r` (default 0.03) — Adam learning rate (ES LR is higher than
+  REINFORCE LR because the gradient estimate is noisier).
+- `--weight-decay W` (default 5e-5) — L2 shrinkage on Adam step.
+- `--matches-per-opp N` (default 2) — battery matches per opponent per
+  side. More = lower variance, slower.
+- `--snapshot-every N` (default 20) — save `gen-NNN.json`.
+- `--self-play-every N` (default 20) — refresh self-play pool from
+  snapshots.
 
 ---
 

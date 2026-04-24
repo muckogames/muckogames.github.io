@@ -146,6 +146,70 @@ Reference `samster/index.html`'s `makeTouchButtons()` + `drawMobileControls()`.
 
 ---
 
+### `orbit/index.html` — Phase 3: scripted "Flight Programs"
+
+Phases 1, 2, 4, and 4.5/5/6 are shipped (free flight + burn engine + options
+panel + narration + achievements). The big pending feature is **scripted
+flight programs** — guided missions that fire burns at specific
+times/conditions and play out as mission replays with on-screen annotations.
+
+**Program data shape:**
+```js
+{ name, desc, color, trailRGB,
+  sx, sy, vx, vy, moonAngle0,   // initial state (same as orbit preset)
+  speed, trailEvery,
+  burns: [
+    { triggerType: 'time',      triggerVal: 0.0, direction: 'prograde', dv: 5.2 },
+    { triggerType: 'apoapsis',                   direction: 'prograde', dv: 3.1 }
+  ]
+}
+```
+The sim loop checks each burn's trigger per physics step and applies `dv`
+in the specified direction.
+
+**Proposed programs:**
+- **Hohmann Transfer** — LEO → circular high orbit via two prograde burns
+  (one at periapsis, one at apoapsis).
+- **Trans-Lunar Injection + Lunar Orbit Insertion** — the headline
+  program. TLI timed so Moon is at apoapsis of transfer ellipse, then LOI
+  retrograde burn at closest approach to Moon. LOI needs periapsis
+  detection: `d(rm)/dt` sign change. LOI ΔV ≈
+  `v_∞ * (sqrt(1 + 2·GM_M/(r_peri·v_∞²)) - 1)`.
+- **Free Return (Apollo-13 style)** — TLI aimed for just-barely-reach-Moon
+  trajectory; no LOI; swing around Moon back to Earth.
+- **Gravity Assist** — start with sub-escape energy; timed close flyby of
+  Moon to gain energy for a higher orbit or escape.
+
+**Periapsis detection utility:**
+```js
+var prevRm = Infinity;
+// in stepPhysics, after computing rm:
+if (rm > prevRm && prevRm < LOI_THRESHOLD) { /* just passed periapsis */ }
+prevRm = rm;
+```
+`ENCOUNTER_DIST` ≈ 0.15 DU (just inside Moon's SOI of 0.167 DU).
+
+Current `SIM_DT = 1/3600 TU` is fine for the shipped orbits but may need
+dropping to `1/7200` for very close Moon flybys during Phase 3 programs.
+
+---
+
+### `orbit/index.html` — Phase 6 Muckoification follow-ups
+
+All landed as part of the OPT panel + narration + achievements. Remaining
+ideas if we want another pass:
+
+- **More skins:** Samster's Rocket (hamster silhouette), Duck Dieb's
+  Escape Pod.
+- **More narration events:** first figure-8 Moon encounter, Hohmann
+  circularization complete, full orbit of Moon.
+- **Mission flavor text per flight program:** "Samster needs to reach the
+  Moon to recover the stolen cheese."
+- **Extra achievements:** fastest Moon insertion, smallest-ΔV Hohmann,
+  most figure-8 loops without crashing.
+
+---
+
 ### `smash/index.html` + `smash/sim.js` — next-pass Smash work
 
 The recent Smash work added trained CPU tiers, roster expansion, portrait/profile sprite
