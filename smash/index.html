@@ -1689,20 +1689,23 @@ function mobileLayout() {
   var actionR = Math.round(H * 0.078);
   var clusterY = H - Math.round(H * 0.14);
   var rightBase = W - edge;
-  return {
-    left:  { cx: edge + baseR, cy: clusterY, r: baseR, label: '◀' },
-    right: { cx: edge + baseR * 2 + 18, cy: clusterY, r: baseR, label: '▶' },
+  var L = {
+    left:  { cx: edge + baseR,            cy: clusterY, r: baseR,                      dir: -1 },
+    right: { cx: edge + baseR * 2 + 18,   cy: clusterY, r: baseR,                      dir:  1 },
     dash:  { cx: rightBase - actionR * 2.9 - 24, cy: clusterY, r: Math.round(actionR * 0.72), label: 'DASH' },
-    special:{ cx: rightBase - actionR - 6, cy: clusterY - actionR - 22, r: Math.round(actionR * 0.66), label: 'SPEC' },
-    jump:  { cx: rightBase - actionR, cy: clusterY, r: actionR, label: 'JUMP' }
+    jump:  { cx: rightBase - actionR,      cy: clusterY, r: actionR,                    label: 'JUMP' }
   };
-  if (spec) {
-    L.special = {
-      cx: W - 170, cy: H - 155, r: 36,
-      label: spec.label || 'SPEC',
-      caption: spec.caption || '',
-      charId: p.charId
-    };
+  var p = activeHumanEntity();
+  if (p) {
+    var spec = CHARACTERS[p.charId].special;
+    if (spec) {
+      L.special = {
+        cx: rightBase - actionR - 6, cy: clusterY - actionR - 22, r: Math.round(actionR * 0.66),
+        label: spec.label || 'SPEC',
+        caption: spec.caption || '',
+        charId: p.charId
+      };
+    }
   }
   return L;
 }
