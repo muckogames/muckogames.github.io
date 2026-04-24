@@ -209,12 +209,41 @@ knockback, dash collisions, generated arenas, and a growing roster of Mucko char
 The character select screen now supports portraits, side-view sprites, thumbnails,
 per-slot randomization, difficulty/lives settings, and restart-from-same-setup flow.
 
-The browser game has a matching headless simulator in `smash/sim.js`, plus an evolution
-harness in `smash/train.js`. Those two files are intentionally kept behaviorally aligned:
-if you change knockback, recovery, specials, or CPU decision rules in one, update the
-other. Current shipped specials include Duck Dieb sustained flight, J. Long neck-hammer,
-Saturn V abort-module shot, Hippo's "Margaritaville" pool shield, and Digory's
+The browser game has a matching headless simulator in `smash/sim.js`, plus two
+training harnesses under `smash/`: `train.js` evolves a 19-parameter heuristic
+genome (the Easy/Medium/Hard tiers), and `train-rl.js` / `train-nn.js` train a
+neural-net policy (the Expert tier). `sim.js` and `index.html` are
+intentionally kept behaviorally aligned — if you change knockback, recovery,
+specials, or CPU decision rules in one, update the other. Current shipped
+specials include Duck Dieb sustained flight, J. Long neck-hammer, Saturn V
+abort-module shot, Hippo's "Margaritaville" pool shield, and Digory's
 mass-boost bounce stance.
+
+**AI architecture (the `smash/ai/` folder).** The Expert tier is backed by a
+trained neural network:
+
+- `smash/ai/policy.js` — UMD module shared by `sim.js`, `index.html`, and the
+  trainers. Exposes `buildObservation()` (59-dim), `policyForward()` (MLP),
+  `actionsToInput()` (rising-edge decoding for `jumpPressed` /
+  `dashPressed` / `specialPressed`), `neuralDecide()` (the all-in-one), and
+  `validateModel()`. ES5, iOS-12 safe.
+- `smash/ai/expert-v1.json` — the shipped trained model (the only tracked
+  model file; `smash/ai/models/` is git-ignored).
+- **Injection point: `sim.js`'s existing `'scripted'` controller type.** Any
+  CPU that emits an input struct can plug in there via
+  `controller: { type: 'scripted', getInput: fn }`. No new sim.js
+  controller type was needed. In `index.html`, `cpuThink()` routes Expert
+  fighters through `Policy.neuralDecide()` against a `matchView` built from
+  the live `state`.
+- **Model file format.** `{ schemaVersion, obsVersion, arch: 'mlp', inDim,
+  outDim, layers: [{ in, out, activation, W, b }], meta }`. `validateModel`
+  rejects schema / `obsVersion` mismatches — bump `OBS_VERSION` in
+  `policy.js` whenever the observation feature layout changes, and old
+  models will be refused at load time rather than silently producing
+  garbage actions.
+- **Sim is the source of truth.** A model is only "better" if head-to-head
+  match stats in `sim.js` say so. See `smash/TRAIN_EXPERT.md` for the ship
+  gate and the training/eval/duel workflow.
 
 **Mobile controls.** On-canvas D-pad + action buttons in `drawMobileControls()`.
 Left/right chevrons are drawn via `drawChevron()` — never use Unicode arrow glyphs
@@ -254,6 +283,35 @@ fader, channel fader, crossfader. Beat-sync lights flash on the downbeat.
 **This is a CSS/DOM layout game** (no canvas). Needs different compat care (see
 CSS-Only Layout section). All flex `gap:` are commented with Safari 14.1+ warnings and
 have `> * + *` margin fallbacks.
+
+---
+
+#### Orbital Mechanics (`orbit/index.html`) — Canvas  · real physics
+
+A three-body gravity sim. Earth fixed at center, Moon on an analytical circular orbit
+(not physics-simulated — `pos = (cos(ωt), sin(ωt))`), and a spacecraft that
+integrates via **symplectic Euler** in true Earth+Moon gravity. Uses dimensionless
+units (`DU` = Earth–Moon distance, `TU` = Moon orbital period) so
+`GM_E = 4π²`, `GM_M = GM_E × 0.01230` — eliminates floating-point scale problems.
+
+**Presets:** Low Earth Orbit, Figure-8 Encounter (retrograde at period = ½ TU, makes
+a 3-petal figure-8 in the inertial frame), Hohmann Ellipse, and a free-placement
+"Custom Orbit" with drag-to-aim.
+
+**Burn engine.** Prograde/retro along velocity, lateral perpendicular; ΔV budget
+drains per sub-step. Keyboard (Space / arrows) and on-canvas touch buttons (BURN /
+RETRO / ◀ / ▶). ΔV meter color-graded green→amber→red.
+
+**Options panel (O key or OPT button).** Auto-orient autopilot, trajectory
+predictor toggle, Earth/Moon/Thrust mass multipliers, and a spacecraft-skin picker
+(Capsule / Saturn V / Duck Dieb). Achievements stored in `localStorage` key
+`orbit_ach`.
+
+**Coordinate-system reminder.** Physics coords have y *up*, screen coords have y
+*down*. Conversions: `sx(x) = CX + x * SCALE`, `sy(y) = CY - y * SCALE`; for a
+velocity direction on screen, `ndy = -vy/|v|` (flip y). Symplectic integration
+requires `v += a*dt` **before** `x += v*dt`; reversing the order makes the system
+anti-symplectic (energy-increasing, unstable).
 
 ---
 
@@ -682,15 +740,24 @@ The PIN gate on `index.html` restricts access to the whole collection.
 - `JOHN_CARMERO_REVIEW.md` — A fictional 1992 game magazine review in the voice of
   Carmack and Romero. Doubles as a creative direction document: it names the design
   weaknesses, proposes improvements, and several suggestions have shipped (tournament
-  mode, `mucko-engine.js`, `sync-ios.sh`, Contraband Trail). Read for design philosophy.
+  mode, `mucko-engine.js`, `sync-ios.sh`, Contraband Trail, trained-NN Expert CPU in
+  Smash). Read for design philosophy.
 
-- `PLAN.md` — Documents a completed Airplane Trail feature pass (status: COMPLETE ✅).
-  Safe to ignore; kept for reference.
+- `PUNCHLIST.md` — Active, grouped-by-priority queue of bugs and improvements. Items
+  are self-contained enough to hand to an agent.
+
+- `smash/TRAINING.md` — Reference for the genome-based heuristic trainer
+  (`smash/train.js`) that produced the Easy/Medium/Hard tiers.
+
+- `smash/TRAIN_EXPERT.md` — Step-by-step runbook for training, evaluating, and
+  shipping a new Expert-tier neural-net model via `smash/train-rl.js` (REINFORCE +
+  curriculum) or `smash/train-nn.js` (Evolution Strategies). Read this before
+  touching the AI pipeline.
+
+- `rockettrail/PLAYTESTING.md` — Notes from a 6-year-old playtester. **Read before
+  touching Rocket Trail's difficulty or controls.**
 
 - `local/` — Contains the source PDF for the Hippo book. Not used by any game.
-
-- `-r/`, `cp/` — Empty directories. Likely created by accidental `cp -r` invocations.
-  Safe to delete.
 
 - `nopin/index.html` — PIN bypass page (sets `sessionStorage` flag, redirects to
   `index.html`). Used during development. Navigating to `nopin/` skips the PIN gate.
