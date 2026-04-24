@@ -62,6 +62,16 @@ are system-balancing and second-pass polish rather than missing scaffolding.
 
 ## Priority 4 — Polish & Nice-to-Have
 
+### `smash/index.html` — Hippo Margaritaville pool drawn in front of character
+
+When Hippo activates his pool special, the kiddy pool is drawn behind him (it's the
+first thing painted in the margaritaville pose branch). It should be drawn after the
+body so it appears in front, making it clearer Hippo is sitting in it.
+
+**Fix:** in `drawCharacterSidescrollSprite`, move the `fillRoundRect` (pool rim) and
+`drawEllipse` (water shimmer) calls to *after* the body, head, ears, and nose draws.
+The music note `♪` glyphs should remain on top (drawn last).
+
 
 ## Architecture / Engine Work
 
