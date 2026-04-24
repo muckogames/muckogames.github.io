@@ -1690,8 +1690,8 @@ function mobileLayout() {
   var clusterY = H - Math.round(H * 0.14);
   var rightBase = W - edge;
   var L = {
-    left:  { cx: edge + baseR,            cy: clusterY, r: baseR,                      dir: -1 },
-    right: { cx: edge + baseR * 2 + 18,   cy: clusterY, r: baseR,                      dir:  1 },
+    left:  { cx: edge + baseR,            cy: clusterY, r: baseR,                      dir:  1 },
+    right: { cx: edge + baseR * 2 + 18,   cy: clusterY, r: baseR,                      dir: -1 },
     dash:  { cx: rightBase - actionR * 2.9 - 24, cy: clusterY, r: Math.round(actionR * 0.72), label: 'DASH' },
     jump:  { cx: rightBase - actionR,      cy: clusterY, r: actionR,                    label: 'JUMP' }
   };
