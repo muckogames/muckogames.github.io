@@ -31,23 +31,8 @@ Phase 3 (all 4 scripted programs) is fully shipped: Hohmann Transfer, Moon
 Insertion (TLI + LOI), Free Return, and Gravity Assist. Duck Dieb's Escape Pod
 skin, per-program story narration, and 5 narration events also done.
 
-**Remaining items (Phase 6 second pass):**
-
-- **Samster's Rocket skin** (hamster silhouette, skinIdx 3). Duck Dieb skin is
-  already in (skinIdx 2). Add a fourth skin toggled from the OPT panel.
-- **3 more narration events:**
-  - `figure8_moon`: first Figure-8 close Moon encounter (check Moon-relative
-    distance < 0.10 DU when in figure-8 preset)
-  - `hohmann_done`: Hohmann circularization burn fires (announce via existing
-    programAnnounce — could just be the announce text, no separate event needed)
-  - `moon_orbit`: full orbit of Moon completed (track Moon-relative angle
-    wrapped, fire when it exceeds 2π from start of lunar orbit)
-- **3 more achievements:**
-  - `fast_insertion`: Moon Insertion program completes with simT < some threshold
-  - `low_dv_hohmann`: Hohmann Transfer completes with remaining ΔV budget above
-    a threshold (efficient burn)
-  - `figure8_loops`: complete N figure-8 loops without crashing (track figure-8
-    loop count via Earth-crossing direction changes)
+All Phase 6 items are complete as of 2026-04-24. Skins: Capsule, Saturn V,
+Duck Dieb, Samster. Achievements: 12 total. Narration events: 8 total.
 
 ---
 
