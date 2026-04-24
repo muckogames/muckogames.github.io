@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Digory Stories: Diebs for Good</title>
+<style>
+html, body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0a1020;
+  color: #f6eec8;
+  font-family: 'Trebuchet MS', Verdana, sans-serif;
+}
+#stage {
+  position: absolute;
+  transform-origin: top left;
+}
+canvas {
+  display: block;
+  width: 960px;
+  height: 600px;
+  background: #0f1d35;
+  border: 2px solid #f7cb5b;
+}
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="game" width="960" height="600"></canvas></div>
+<script>
+(function(){
+  var W = 960, H = 600;
+  var stage = document.getElementById('stage');
+  var canvas = document.getElementById('game');
+  var ctx = canvas.getContext('2d');
+
+  var K = {}, JP = {};
+  var lastTs = 0;
+  var mx = 0, my = 0, mclk = false;
+
+  function resize(){
+    var vv = window.visualViewport;
+    var vw = vv ? vv.width : window.innerWidth;
+    var vh = vv ? vv.height : window.innerHeight;
+    var s = Math.min(vw / W, vh / H);
+    stage.style.transform = 'scale(' + s + ')';
+    stage.style.left = Math.round((vw - W * s) / 2) + 'px';
+    stage.style.top = Math.round((vh - H * s) / 2) + 'px';
+  }
+  window.addEventListener('resize', resize);
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
+  resize();
+
+  document.addEventListener('keydown', function(e){ if (!K[e.code]) JP[e.code] = true; K[e.code] = true; });
+  document.addEventListener('keyup', function(e){ K[e.code] = false; });
+
+  function toCanvasPos(clientX, clientY){
+    var r = canvas.getBoundingClientRect();
+    mx = (clientX - r.left) * (W / r.width);
+    my = (clientY - r.top) * (H / r.height);
+  }
+  canvas.addEventListener('click', function(e){ toCanvasPos(e.clientX, e.clientY); mclk = true; });
+  canvas.addEventListener('touchstart', function(e){
+    if (!e.touches || !e.touches.length) return;
+    toCanvasPos(e.touches[0].clientX, e.touches[0].clientY);
+    mclk = true;
+    e.preventDefault();
+  }, { passive:false });
+
+  function eat(code){ if (JP[code]) { JP[code] = false; return true; } return false; }
+
+  var game = {
+    phase: 'title',
+    stageIndex: 0,
+    score: 0,
+    gas: 100,
+    subX: 80,
+    player: { x: 80, y: 100, w: 26, h: 26, speed: 190 },
+    locksTotal: 8,
+    locksDone: 0,
+    lockDots: [],
+    warning: 0,
+    timer: 0,
+    notes: []
+  };
+
+  var STAGES = [
+    {
+      id: 'sub_outbound',
+      name: 'Stage 1: Submarine Outbound Route',
+      goal: 'Reach the Don\'s hideout and refuel at wreck-stations with E.',
+      init: function(){ game.subX = 80; game.gas = 100; game.warning = 0; game.timer = 80; },
+      update: function(dt){
+        var speed = 90;
+        if (K['ArrowRight']) { game.subX += speed * dt; game.gas -= 8 * dt; }
+        if (K['ArrowLeft']) { game.subX -= speed * dt; }
+        if (game.subX < 60) game.subX = 60;
+        if (game.subX > 900) game.subX = 900;
+
+        var nearStation = (game.subX > 260 && game.subX < 360) || (game.subX > 570 && game.subX < 680);
+        if (nearStation && K['KeyE']) {
+          game.gas += 28 * dt;
+          if (game.gas > 100) game.gas = 100;
+          game.score += dt * 2;
+        }
+
+        game.timer -= dt;
+        if (game.gas <= 0 || game.timer <= 0) {
+          game.phase = 'fail';
+          game.notes = ['Out of gas before reaching the hideout.'];
+        }
+        if (game.subX >= 875) { game.score += Math.max(0, Math.floor(game.gas)); nextStage(); }
+      },
+      draw: function(){
+        drawOcean();
+        drawStations();
+        drawSubmarine(game.subX, 360);
+      }
+    },
+    {
+      id: 'deeb_house',
+      name: 'Stage 2: Deeb from the Don',
+      goal: 'Collect 12 floppy disks and 12 containers. Find code 3657 for server room.',
+      init: function(){
+        game.player.x = 84; game.player.y = 84;
+        game.floppy = 0; game.container = 0; game.timer = 110;
+        game.items = makeItems();
+        game.doors = [{x:730,y:70,w:140,h:40,locked:true,code:'3657'}];
+        game.entered = '';
+      },
+      update: function(dt){
+        var p = game.player;
+        var s = p.speed * dt;
+        if (K['ArrowLeft']) p.x -= s;
+        if (K['ArrowRight']) p.x += s;
+        if (K['ArrowUp']) p.y -= s;
+        if (K['ArrowDown']) p.y += s;
+        if (p.x < 24) p.x = 24; if (p.y < 24) p.y = 24;
+        if (p.x > W-40) p.x = W-40; if (p.y > H-40) p.y = H-40;
+
+        var i;
+        for (i = game.items.length - 1; i >= 0; i--) {
+          var it = game.items[i];
+          if (Math.abs((p.x+13)-it.x) < 20 && Math.abs((p.y+13)-it.y) < 20) {
+            if (it.t === 'floppy') game.floppy++;
+            else game.container++;
+            game.items.splice(i,1);
+            game.score += 25;
+          }
+        }
+
+        if (eat('Digit3')) game.entered += '3';
+        if (eat('Digit6')) game.entered += '6';
+        if (eat('Digit5')) game.entered += '5';
+        if (eat('Digit7')) game.entered += '7';
+        if (game.entered.length > 4) game.entered = game.entered.slice(game.entered.length - 4);
+        if (game.entered === '3657') game.doors[0].locked = false;
+
+        game.timer -= dt;
+        if (game.timer <= 0) { game.phase = 'fail'; game.notes = ['The Sillies came back from swim lessons.']; }
+
+        if (game.floppy >= 12 && game.container >= 12 && !game.doors[0].locked && p.x > 840 && p.y < 150) {
+          game.score += 300;
+          nextStage();
+        }
+      },
+      draw: function(){ drawHouseLevel(); }
+    },
+    {
+      id: 'sub_escape',
+      name: 'Stage 3: Submarine Escape',
+      goal: 'Ride home while the Don drops charges. Press A when warning flashes.',
+      init: function(){ game.subX = 100; game.timer = 65; game.warning = 0; game.chargesDodged = 0; },
+      update: function(dt){
+        game.subX += 65 * dt;
+        game.timer -= dt;
+        game.warning -= dt;
+        if (Math.random() < 0.016 && game.warning <= 0) game.warning = 1.3;
+
+        if (game.warning > 0.2 && eat('KeyA')) {
+          game.chargesDodged++;
+          game.score += 40;
+          game.warning = 0;
+        }
+        if (game.warning > 0 && game.warning < 0.2) {
+          game.phase = 'fail';
+          game.notes = ['Depth charge hit! Try pressing A sooner.'];
+        }
+        if (game.timer <= 0 || game.subX > 860) { game.score += game.chargesDodged * 10; nextStage(); }
+      },
+      draw: function(){
+        drawOcean();
+        drawSubmarine(game.subX, 410);
+        ctx.fillStyle = '#a7e7ff';
+        ctx.fillText('Destroyer shadow above. Keep moving east!', 40, 46);
+        if (game.warning > 0) {
+          ctx.fillStyle = game.warning > 0.35 ? '#ff4b4b' : '#ffd45e';
+          ctx.fillRect(0, 0, W, 30);
+          ctx.fillStyle = '#000';
+          ctx.font = 'bold 18px Arial';
+          ctx.fillText('SONAR ALERT! Press A now!', 360, 22);
+        }
+      }
+    },
+    {
+      id: 'home_lockdown',
+      name: 'Stage 4: Home Lockdown',
+      goal: 'Lock all entries before the Don gets inside.',
+      init: function(){
+        game.player.x = 100; game.player.y = 300; game.timer = 70;
+        game.lockDots = [
+          {x:120,y:90,ok:false},{x:410,y:90,ok:false},{x:710,y:90,ok:false},{x:850,y:270,ok:false},
+          {x:120,y:510,ok:false},{x:410,y:510,ok:false},{x:710,y:510,ok:false},{x:70,y:270,ok:false}
+        ];
+        game.locksDone = 0;
+      },
+      update: function(dt){
+        var p = game.player;
+        var s = p.speed * dt;
+        if (K['ArrowLeft']) p.x -= s;
+        if (K['ArrowRight']) p.x += s;
+        if (K['ArrowUp']) p.y -= s;
+        if (K['ArrowDown']) p.y += s;
+        if (p.x < 30) p.x = 30; if (p.y < 30) p.y = 30;
+        if (p.x > W - 30) p.x = W - 30; if (p.y > H - 30) p.y = H - 30;
+
+        var i;
+        for (i = 0; i < game.lockDots.length; i++) {
+          var d = game.lockDots[i];
+          if (!d.ok && Math.abs(p.x-d.x) < 24 && Math.abs(p.y-d.y) < 24 && K['KeyE']) {
+            d.ok = true;
+            game.locksDone++;
+            game.score += 75;
+          }
+        }
+
+        game.timer -= dt;
+        if (game.locksDone >= game.locksTotal) { game.phase = 'win'; }
+        if (game.timer <= 0) { game.phase = 'fail'; game.notes = ['The Don found an unlocked window.']; }
+      },
+      draw: function(){
+        drawHouse();
+      }
+    }
+  ];
+
+  function makeItems(){
+    var items = [];
+    var i;
+    for (i = 0; i < 12; i++) items.push({ t:'floppy', x: 80 + Math.random()*760, y: 80 + Math.random()*440 });
+    for (i = 0; i < 12; i++) items.push({ t:'container', x: 80 + Math.random()*760, y: 80 + Math.random()*440 });
+    return items;
+  }
+
+  function nextStage(){
+    game.stageIndex++;
+    if (game.stageIndex >= STAGES.length) game.phase = 'win';
+    else STAGES[game.stageIndex].init();
+  }
+
+  function startGame(){
+    game.phase = 'play';
+    game.stageIndex = 0;
+    game.score = 0;
+    STAGES[0].init();
+  }
+
+  function drawTitle(){
+    fillBG('#0d1a2f');
+    ctx.fillStyle = '#f7cb5b';
+    ctx.font = 'bold 52px Georgia';
+    ctx.fillText('Digory Stories:', 250, 140);
+    ctx.fillText('Diebs for Good', 262, 195);
+    ctx.fillStyle = '#d4e9ff';
+    ctx.font = '22px Arial';
+    ctx.fillText('Adventure → Heist → Chase → Home Safety → Yellow Blanket Sleep', 130, 246);
+    ctx.font = '18px Arial';
+    ctx.fillText('Controls: Arrow keys move. E = interact/refuel/lock. A = dodge sonar charge.', 150, 294);
+    ctx.fillText('Canon details included: Digory is a black-and-white fox terrier, Louette is a black cat,', 120, 328);
+    ctx.fillText('Swan Dieb joins Duck Dieb, and Kraken builds an underwater city from shipwrecks.', 138, 352);
+    drawButton(350, 410, 260, 68, 'START ADVENTURE');
+    if ((mclk && inRect(mx,my,350,410,260,68)) || eat('Enter') || eat('Space')) startGame();
+  }
+
+  function drawHUD(){
+    var st = STAGES[game.stageIndex];
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.fillRect(0, 0, W, 64);
+    ctx.fillStyle = '#fef3ce';
+    ctx.font = 'bold 18px Arial';
+    ctx.fillText(st.name, 14, 24);
+    ctx.font = '15px Arial';
+    ctx.fillText(st.goal, 14, 46);
+    ctx.fillText('Score: ' + Math.floor(game.score), 810, 24);
+    if (st.id.indexOf('sub_') === 0) ctx.fillText('Gas: ' + Math.max(0, Math.floor(game.gas)) + '%', 810, 46);
+    else ctx.fillText('Time: ' + Math.max(0, Math.floor(game.timer)), 850, 46);
+  }
+
+  function drawOcean(){
+    fillBG('#143a66');
+    var i;
+    for (i = 0; i < 12; i++) {
+      ctx.fillStyle = i % 2 ? 'rgba(255,255,255,0.08)' : 'rgba(169,223,255,0.12)';
+      ctx.fillRect(0, 70 + i*44, W, 22);
+    }
+    ctx.fillStyle = '#d4f0ff';
+    ctx.font = '16px Arial';
+    ctx.fillText('Kraken City route through salvaged ships and the Titanic office block.', 40, 92);
+  }
+
+  function drawStations(){
+    drawStation(290, 230, 'Wreck Station A');
+    drawStation(610, 250, 'Wreck Station B');
+    ctx.fillStyle = '#98f0a6';
+    ctx.font = '16px Arial';
+    ctx.fillText('Hold E near a station to refuel.', 675, 104);
+    ctx.fillStyle = '#ffc972';
+    ctx.fillRect(870, 300, 40, 150);
+    ctx.fillStyle = '#231';
+    ctx.fillText('Don', 871, 468);
+  }
+
+  function drawStation(x,y,label){
+    ctx.fillStyle = '#705746';
+    ctx.fillRect(x-50, y, 120, 80);
+    ctx.fillStyle = '#9d8778';
+    ctx.fillRect(x-35, y+15, 90, 50);
+    ctx.fillStyle = '#ffd997';
+    ctx.font = '14px Arial';
+    ctx.fillText(label, x-45, y-8);
+  }
+
+  function drawSubmarine(x,y){
+    ctx.fillStyle = '#ffe26f';
+    ctx.beginPath();
+    ctx.ellipse(x, y, 85, 40, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = '#3a4a63';
+    ctx.fillRect(x-16, y-56, 32, 24);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(x+72, y-8, 30, 8);
+    ctx.fillStyle = '#111';
+    ctx.font = '12px Arial';
+    ctx.fillText('DIGORY', x-24, y+5);
+  }
+
+  function drawHouseLevel(){
+    fillBG('#312641');
+    ctx.fillStyle = '#4f3a66';
+    ctx.fillRect(50, 70, 860, 490);
+    ctx.fillStyle = '#735396';
+    ctx.fillRect(700, 70, 210, 120);
+    var d = game.doors[0];
+    ctx.fillStyle = d.locked ? '#bf5e5e' : '#7fd57b';
+    ctx.fillRect(d.x, d.y, d.w, d.h);
+    ctx.fillStyle = '#fff';
+    ctx.font = '16px Arial';
+    ctx.fillText(d.locked ? 'Server door LOCKED' : 'Server door OPEN', d.x+8, d.y+25);
+    ctx.fillText('Type code with number keys: ' + game.entered, d.x+8, d.y+44);
+
+    var i, it;
+    for (i = 0; i < game.items.length; i++) {
+      it = game.items[i];
+      if (it.t === 'floppy') { ctx.fillStyle = '#87e5ff'; ctx.fillRect(it.x-8, it.y-8, 16, 16); }
+      else { ctx.fillStyle = '#ffd073'; ctx.fillRect(it.x-10, it.y-10, 20, 20); }
+    }
+    drawDigory(game.player.x, game.player.y);
+    ctx.fillStyle = '#ffe8b7';
+    ctx.fillText('Floppies: ' + game.floppy + '/12', 690, 228);
+    ctx.fillText('Containers: ' + game.container + '/12', 690, 252);
+    ctx.fillText('Exit through top-right once complete.', 690, 276);
+    ctx.fillText('Hint from Johnny Mackerel: 3657', 690, 300);
+  }
+
+  function drawHouse(){
+    fillBG('#1d1a23');
+    ctx.fillStyle = '#374050';
+    ctx.fillRect(60, 60, 840, 480);
+    ctx.fillStyle = '#2b313f';
+    ctx.fillRect(90, 90, 780, 420);
+    var i, d;
+    for (i = 0; i < game.lockDots.length; i++) {
+      d = game.lockDots[i];
+      ctx.fillStyle = d.ok ? '#6fde86' : '#ffb25e';
+      ctx.beginPath(); ctx.arc(d.x, d.y, 15, 0, Math.PI*2); ctx.fill();
+    }
+    drawDigory(game.player.x, game.player.y);
+    ctx.fillStyle = '#fff1c9';
+    ctx.fillText('Lock points done: ' + game.locksDone + '/' + game.locksTotal, 700, 90);
+    ctx.fillText('Press E when standing on a lock point.', 645, 114);
+    drawButton(686, 140, 205, 48, 'Call Firelight Guy (+50)');
+    if (mclk && inRect(mx,my,686,140,205,48)) {
+      game.score += 50;
+      mclk = false;
+    }
+  }
+
+  function drawDigory(x,y){
+    ctx.fillStyle = '#f5f5f5';
+    ctx.fillRect(x, y, 24, 24);
+    ctx.fillStyle = '#111';
+    ctx.fillRect(x+3, y+2, 14, 10);
+    ctx.fillRect(x+17, y+10, 5, 10);
+    ctx.fillStyle = '#8b5f3c';
+    ctx.fillRect(x+10, y+10, 5, 4);
+  }
+
+  function drawWin(){
+    fillBG('#0f2930');
+    ctx.fillStyle = '#ffd76a';
+    ctx.font = 'bold 50px Georgia';
+    ctx.fillText('Mission Complete!', 286, 170);
+    ctx.fillStyle = '#d4f3ff';
+    ctx.font = '22px Arial';
+    ctx.fillText('Digory returns home, climbs onto the yellow blanket, and falls asleep.', 155, 245);
+    ctx.fillText('Final Score: ' + Math.floor(game.score), 390, 286);
+    var stars = game.score > 1200 ? '★★★' : game.score > 800 ? '★★☆' : '★☆☆';
+    ctx.font = '46px Arial';
+    ctx.fillText(stars, 425, 350);
+    drawButton(350, 430, 250, 64, 'PLAY AGAIN');
+    if ((mclk && inRect(mx,my,350,430,250,64)) || eat('Enter')) startGame();
+  }
+
+  function drawFail(){
+    fillBG('#30161a');
+    ctx.fillStyle = '#ffb3b3';
+    ctx.font = 'bold 44px Georgia';
+    ctx.fillText('Oops! Story Detour', 300, 170);
+    ctx.font = '22px Arial';
+    ctx.fillText(game.notes[0] || 'Try again.', 250, 238);
+    ctx.fillText('Charlotte says: "No worries, we can reset this adventure."', 188, 275);
+    drawButton(340, 400, 280, 66, 'TRY AGAIN');
+    if ((mclk && inRect(mx,my,340,400,280,66)) || eat('Enter')) startGame();
+  }
+
+  function drawButton(x,y,w,h,label){
+    ctx.fillStyle = '#ffe39c';
+    ctx.fillRect(x,y,w,h);
+    ctx.fillStyle = '#2b2332';
+    ctx.font = 'bold 28px Arial';
+    ctx.fillText(label, x + 18, y + 43);
+  }
+
+  function fillBG(c){
+    ctx.fillStyle = c;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  function inRect(px,py,x,y,w,h){ return px>=x && px<=x+w && py>=y && py<=y+h; }
+
+  function frame(ts){
+    if (!lastTs) lastTs = ts;
+    var dt = (ts - lastTs) / 1000;
+    if (dt > 0.05) dt = 0.05;
+    lastTs = ts;
+
+    ctx.clearRect(0,0,W,H);
+
+    if (game.phase === 'title') drawTitle();
+    else if (game.phase === 'play') {
+      STAGES[game.stageIndex].update(dt);
+      STAGES[game.stageIndex].draw();
+      drawHUD();
+    }
+    else if (game.phase === 'win') drawWin();
+    else if (game.phase === 'fail') drawFail();
+
+    mclk = false;
+    JP = {};
+    requestAnimationFrame(frame);
+  }
+
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
