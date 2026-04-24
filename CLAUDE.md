@@ -216,6 +216,16 @@ other. Current shipped specials include Duck Dieb sustained flight, J. Long neck
 Saturn V abort-module shot, Hippo's "Margaritaville" pool shield, and Digory's
 mass-boost bounce stance.
 
+**Mobile controls.** On-canvas D-pad + action buttons in `drawMobileControls()`.
+Left/right chevrons are drawn via `drawChevron()` — never use Unicode arrow glyphs
+(◀/▶) in rendered UI, they render as empty boxes on iPhone. The special button is
+**only drawn when the active character has a `special`** in the CHARACTERS table and
+is tinted with the character's `accent`/`color` palette. Add a short `label` (≤ 6
+chars, drawn inside the button) and `caption` (≤ 12 chars, drawn on the plaque above
+the button) to the special definition — `mobileLayout()` picks them up automatically.
+Characters without a special (Samster, Nik, Lekan, Basil, Mandy, Captain Mucko, Pras,
+Natasha) render no special button at all.
+
 ---
 
 ### Educational
