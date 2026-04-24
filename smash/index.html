@@ -251,6 +251,7 @@ var CHARACTERS = {
   natasha: { name: 'Natasha',        color: '#45b95c', accent: '#ef6944', outline: '#245a2d', sprite: 'parrot' }
 };
 var CHAR_IDS = ['samster', 'duck', 'hippo', 'nik', 'lekan', 'basil', 'mandy', 'rocket', 'digory', 'jlong', 'pras', 'natasha'];
+var SLOT_COLORS = ['#2c7ae8', '#e8862c', '#3ab83a', '#9b4ce8'];
 
 var STOCK_OPTIONS = [1, 2, 3, 4, 5, 6, Infinity];
 var EASY_MODE_GENOME = {
@@ -931,6 +932,7 @@ function ensureSlotPreviewState(slot) {
 var state = {
   phase: 'title',          // 'title' | 'select' | 'play'
   phaseTime: 0,
+  selectActiveSlot: 0,
   slots: [
     { kind: 'player', charIdx: 0, mode: 'play', stocks: START_STOCKS },
     { kind: 'cpu',    charIdx: 1, mode: 'medium', stocks: START_STOCKS },
@@ -1835,6 +1837,7 @@ function updateTitle(dt) {
     mclk = false;
     state.phase = 'select';
     state.phaseTime = 0;
+    state.selectActiveSlot = 0;
   }
 }
 
@@ -1842,50 +1845,49 @@ function updateTitle(dt) {
 // Layout: four vertical cards across the screen. Each card has:
 //   - slot label at top (P1 / CPU 1 / CPU 2 / CPU 3)
 //   - left ◀ / right ▶ arrow pills that cycle the character
-//   - portrait in the middle
-//   - lives pill + mode pill near the bottom
-// Start button at the bottom. Needs at least one active character.
+// One shared character grid at top; four slim slot strips below.
+// Clicking a tile assigns the character to the focused slot.
+// Clicking a strip focuses that slot (and activates a CPU that was off).
 function selectLayout() {
-  var cardW = 180, cardH = 380, gap = 10;
-  var total = cardW * 4 + gap * 3;
-  var x0 = (W - total) / 2;
-  var y0 = 92;
-  var cards = [];
-  var thumbCols = 4;
-  var thumbGap = 4;
-  var thumbW = 33;
-  var thumbH = 22;
+  var tileW = 108, tileH = 78, tileGapX = 8, tileGapY = 8;
+  var tileCols = 6;
+  var tileRows = Math.ceil(CHAR_IDS.length / tileCols);
+  var gridW = tileCols * tileW + (tileCols - 1) * tileGapX;
+  var gridX0 = Math.round((W - gridW) / 2);
+  var gridY0 = 88;
+  var tiles = [];
+  for (var j = 0; j < CHAR_IDS.length; j++) {
+    var col = j % tileCols;
+    var row = Math.floor(j / tileCols);
+    tiles.push({
+      charIdx: j,
+      x: gridX0 + col * (tileW + tileGapX),
+      y: gridY0 + row * (tileH + tileGapY),
+      w: tileW, h: tileH
+    });
+  }
+  var stripW = 182, stripH = 160, stripGap = 10;
+  var stripTotalW = 4 * stripW + 3 * stripGap;
+  var stripX0 = Math.round((W - stripTotalW) / 2);
+  var stripY0 = gridY0 + tileRows * tileH + (tileRows - 1) * tileGapY + 12;
+  var strips = [];
   for (var i = 0; i < 4; i++) {
-    var cx = x0 + i * (cardW + gap);
-    var thumbs = [];
-    var thumbX0 = cx + 18;
-    var thumbY0 = y0 + 60;
-    for (var j = 0; j < CHAR_IDS.length; j++) {
-      var col = j % thumbCols;
-      var row = Math.floor(j / thumbCols);
-      thumbs.push({
-        charIdx: j,
-        x: thumbX0 + col * (thumbW + thumbGap),
-        y: thumbY0 + row * (thumbH + thumbGap),
-        w: thumbW,
-        h: thumbH
-      });
-    }
-    cards.push({
+    var sx = stripX0 + i * (stripW + stripGap);
+    var sy = stripY0;
+    strips.push({
       slotIndex: i,
-      x: cx, y: y0, w: cardW, h: cardH,
-      portrait:  { x: cx + 20, y: y0 + 136, w: cardW - 40, h: 110 },
-      thumbs: thumbs,
-      leftArrow: { x: cx + 8,  y: y0 + 198, w: 28, h: 36 },
-      rightArrow:{ x: cx + cardW - 36, y: y0 + 198, w: 28, h: 36 },
-      randomBtn: { x: cx + 42, y: y0 + 260, w: cardW - 84, h: 26 },
-      stockPill: { x: cx + 16, y: y0 + 296, w: cardW - 32, h: 34 },
-      modePill:  { x: cx + 16, y: y0 + 338, w: cardW - 32, h: 38 }
+      x: sx, y: sy, w: stripW, h: stripH,
+      leftArrow:  { x: sx + 10,  y: sy + 108, w: 28, h: 24 },
+      randomBtn:  { x: sx + 46,  y: sy + 108, w: 90, h: 24 },
+      rightArrow: { x: sx + 134, y: sy + 108, w: 28, h: 24 },
+      stockPill:  { x: sx + 10,  y: sy + 136, w: 78, h: 22 },
+      modePill:   { x: sx + 96,  y: sy + 136, w: 76, h: 22 }
     });
   }
   return {
-    cards: cards,
-    startBtn: { x: W / 2 - 120, y: y0 + cardH + 18, w: 240, h: 50 }
+    tiles: tiles,
+    strips: strips,
+    startBtn: { x: W / 2 - 120, y: stripY0 + stripH + 12, w: 240, h: 46 }
   };
 }
 function hit(r) { return mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h; }
@@ -1933,88 +1935,108 @@ function cycleMode(slot) {
 
 function drawSelect() {
   drawBackground();
-  fillRoundRect(ctx, 20, 12, W - 40, 70, 18, 'rgba(16,30,46,0.82)', 'rgba(255,239,190,0.5)', 2);
-  drawText(ctx, 'PICK YOUR CHARACTERS', W / 2, 46, '#ffd86f', 26, 'center', 'bold');
-  drawText(ctx, 'Tap thumbnails or the arrows to switch character \u2022 tap lives or difficulty to change them',
-    W / 2, 68, '#d9e6ef', 12, 'center', 'bold');
+  fillRoundRect(ctx, 20, 8, W - 40, 72, 18, 'rgba(16,30,46,0.82)', 'rgba(255,239,190,0.5)', 2);
+  drawText(ctx, 'PICK YOUR CHARACTERS', W / 2, 40, '#ffd86f', 26, 'center', 'bold');
+  drawText(ctx, 'Tap a character to select • tap a slot strip to focus it • tap LIVES or difficulty to change',
+    W / 2, 64, '#d9e6ef', 11, 'center', 'bold');
 
   var L = selectLayout();
-  for (var i = 0; i < L.cards.length; i++) {
-    var c = L.cards[i];
+  var activeSlotIdx = state.selectActiveSlot;
+  var activeSlot = state.slots[activeSlotIdx];
+
+  // Shared character grid
+  for (var j = 0; j < L.tiles.length; j++) {
+    var tile = L.tiles[j];
+    var isActiveChar = slotActive(activeSlot) && tile.charIdx === activeSlot.charIdx;
+    var tileFill = 'rgba(22,34,50,0.72)';
+    var tileStroke = 'rgba(255,244,207,0.28)';
+    var strokeW = 1.5;
+    if (isActiveChar) {
+      tileFill = 'rgba(255,246,214,0.12)';
+      tileStroke = SLOT_COLORS[activeSlotIdx];
+      strokeW = 3;
+    }
+    fillRoundRect(ctx, tile.x, tile.y, tile.w, tile.h, 10, tileFill, tileStroke, strokeW);
+    ctx.save();
+    ctx.translate(tile.x + tile.w / 2, tile.y + Math.round(tile.h * 0.5));
+    ctx.scale(0.55, 0.55);
+    drawCharacter(ctx, CHAR_IDS[tile.charIdx], 0, 0, 'right', state.phaseTime * 3 + j, 0.55, 'portrait');
+    ctx.restore();
+    drawText(ctx, CHARACTERS[CHAR_IDS[tile.charIdx]].name,
+      tile.x + tile.w / 2, tile.y + tile.h - 5, '#c8d8e8', 8, 'center', 'bold');
+
+    // Slot badges: colored circles showing which active slots picked this character
+    var badgeCount = 0;
+    for (var si = 0; si < 4; si++) {
+      if (slotActive(state.slots[si]) && state.slots[si].charIdx === tile.charIdx) {
+        var bx = tile.x + tile.w - 8 - badgeCount * 16;
+        var by = tile.y + 8;
+        drawCircle(ctx, bx, by, 7, SLOT_COLORS[si], '#fff4cf', 1.5);
+        drawText(ctx, String(si + 1), bx, by + 5, '#fff', 10, 'center', 'bold');
+        badgeCount++;
+      }
+    }
+  }
+
+  // Slot strips
+  for (var i = 0; i < L.strips.length; i++) {
+    var c = L.strips[i];
     var slot = state.slots[i];
     ensureSlotPreviewState(slot);
     var active = slotActive(slot);
+    var isFocused = (i === activeSlotIdx);
 
-    var cardFill = active ? 'rgba(255,246,214,0.96)' : 'rgba(217,210,193,0.65)';
-    var cardStroke = active ? '#d8982a' : 'rgba(90,70,34,0.4)';
-    fillRoundRect(ctx, c.x, c.y, c.w, c.h, 18, cardFill, cardStroke, active ? 3 : 2);
+    var cardFill = isFocused ? 'rgba(255,246,214,0.96)' : (active ? 'rgba(230,224,208,0.82)' : 'rgba(180,175,162,0.50)');
+    var cardStroke = isFocused ? SLOT_COLORS[i] : 'rgba(90,70,34,0.38)';
+    fillRoundRect(ctx, c.x, c.y, c.w, c.h, 14, cardFill, cardStroke, isFocused ? 3 : 1.5);
 
-    // Slot label header
-    var labelColor = slot.kind === 'player' ? '#2c5ea8' : '#7b4f1a';
-    fillRoundRect(ctx, c.x + 14, c.y + 14, c.w - 28, 36, 12, labelColor, null);
+    // Slot label banner
+    fillRoundRect(ctx, c.x + 10, c.y + 6, c.w - 20, 24, 8, SLOT_COLORS[i], null);
     var slotName = slot.kind === 'player' ? 'PLAYER 1' : ('CPU ' + i);
-    drawText(ctx, slotName, c.x + c.w / 2, c.y + 38, '#fff4cf', 17, 'center', 'bold');
+    drawText(ctx, slotName, c.x + c.w / 2, c.y + 22, '#fff4cf', 13, 'center', 'bold');
 
-    for (var j = 0; j < c.thumbs.length; j++) {
-      var thumb = c.thumbs[j];
-      var selected = thumb.charIdx === slot.charIdx;
-      var thumbFill = selected ? '#fff4cf' : (active ? 'rgba(255,240,205,0.76)' : 'rgba(215,208,192,0.6)');
-      var thumbStroke = selected ? '#d8982a' : 'rgba(90,70,34,0.42)';
-      fillRoundRect(ctx, thumb.x, thumb.y, thumb.w, thumb.h, 7, thumbFill, thumbStroke, selected ? 2.5 : 1.2);
-      ctx.save();
-      ctx.translate(thumb.x + thumb.w / 2, thumb.y + Math.round(thumb.h * 0.5));
-      ctx.scale(0.40, 0.40);
-      drawCharacter(ctx, CHAR_IDS[thumb.charIdx], 0, 0, 'right', state.phaseTime * 3 + j, 0.55, 'portrait');
-      ctx.restore();
-    }
-
-    // Portrait + cycle arrows
+    // Character preview
     if (active) {
       var previewVariant = slot.previewFacing === 'front' ? 'portrait' : 'sidescroll';
       var previewFacing = slot.previewFacing === 'front' ? 'right' : slot.previewFacing;
-      drawCharacter(ctx, CHAR_IDS[slot.charIdx],
-        c.x + c.w / 2, c.y + 200, previewFacing, state.phaseTime * 4 + i, 1.15, previewVariant, slot.previewTurnT);
+      ctx.save();
+      ctx.translate(c.x + c.w / 2, c.y + 82);
+      ctx.scale(0.72, 0.72);
+      drawCharacter(ctx, CHAR_IDS[slot.charIdx], 0, 0, previewFacing, state.phaseTime * 4 + i, 0.55, previewVariant, slot.previewTurnT);
+      ctx.restore();
       drawText(ctx, CHARACTERS[CHAR_IDS[slot.charIdx]].name,
-        c.x + c.w / 2, c.y + 250, '#5a3d16', 14, 'center', 'bold');
+        c.x + c.w / 2, c.y + 100, '#5a3d16', 11, 'center', 'bold');
     } else {
       drawText(ctx, slot.kind === 'player' ? '(spectating)' : '(off)',
-        c.x + c.w / 2, c.y + 200, '#6a5d44', 16, 'center', 'bold');
+        c.x + c.w / 2, c.y + 76, '#8a7a5e', 12, 'center');
     }
 
-    var arrowFill = active ? 'rgba(255,228,170,0.9)' : 'rgba(200,200,200,0.6)';
-    fillRoundRect(ctx, c.leftArrow.x,  c.leftArrow.y,  c.leftArrow.w,  c.leftArrow.h, 10, arrowFill, '#7b4f1a', 2);
-    fillRoundRect(ctx, c.rightArrow.x, c.rightArrow.y, c.rightArrow.w, c.rightArrow.h, 10, arrowFill, '#7b4f1a', 2);
-    drawChevron(ctx,
-      c.leftArrow.x  + c.leftArrow.w  / 2, c.leftArrow.y  + c.leftArrow.h  / 2,
-      14,  1, '#5a3d16', 4);
-    drawChevron(ctx,
-      c.rightArrow.x + c.rightArrow.w / 2, c.rightArrow.y + c.rightArrow.h / 2,
-      14, -1, '#5a3d16', 4);
-    fillRoundRect(ctx, c.randomBtn.x, c.randomBtn.y, c.randomBtn.w, c.randomBtn.h, 10,
-      active ? 'rgba(255,228,170,0.92)' : 'rgba(200,200,200,0.62)', '#7b4f1a', 2);
-    drawText(ctx, 'RANDOM', c.randomBtn.x + c.randomBtn.w / 2, c.randomBtn.y + 18, '#5a3d16', 13, 'center', 'bold');
+    // Arrow + random row
+    var arrowFill = isFocused ? 'rgba(255,228,170,0.9)' : 'rgba(200,196,180,0.7)';
+    fillRoundRect(ctx, c.leftArrow.x,  c.leftArrow.y,  c.leftArrow.w,  c.leftArrow.h,  8, arrowFill, '#7b4f1a', 1.5);
+    fillRoundRect(ctx, c.rightArrow.x, c.rightArrow.y, c.rightArrow.w, c.rightArrow.h, 8, arrowFill, '#7b4f1a', 1.5);
+    fillRoundRect(ctx, c.randomBtn.x,  c.randomBtn.y,  c.randomBtn.w,  c.randomBtn.h,  8, arrowFill, '#7b4f1a', 1.5);
+    drawChevron(ctx, c.leftArrow.x  + c.leftArrow.w  / 2, c.leftArrow.y  + c.leftArrow.h / 2, 10,  1, '#5a3d16', 3);
+    drawChevron(ctx, c.rightArrow.x + c.rightArrow.w / 2, c.rightArrow.y + c.rightArrow.h / 2, 10, -1, '#5a3d16', 3);
+    drawText(ctx, 'RND', c.randomBtn.x + c.randomBtn.w / 2, c.randomBtn.y + 16, '#5a3d16', 11, 'center', 'bold');
 
-    fillRoundRect(ctx, c.stockPill.x, c.stockPill.y, c.stockPill.w, c.stockPill.h, 12,
-      'rgba(56,74,90,0.88)', '#322010', 2);
-    drawText(ctx, 'LIVES ' + stockLabel(slot.stocks), c.x + c.w / 2, c.stockPill.y + 23,
-      '#fff4cf', 15, 'center', 'bold');
-
-    // Mode pill
-    fillRoundRect(ctx, c.modePill.x, c.modePill.y, c.modePill.w, c.modePill.h, 14,
-      slotModeColor(slot), '#322010', 2);
-    drawText(ctx, slotModeLabel(slot), c.x + c.w / 2, c.modePill.y + 28,
-      '#20160a', 17, 'center', 'bold');
+    // Lives + mode pills side by side
+    fillRoundRect(ctx, c.stockPill.x, c.stockPill.y, c.stockPill.w, c.stockPill.h, 8, 'rgba(56,74,90,0.88)', '#322010', 1.5);
+    drawText(ctx, 'LIVES ' + stockLabel(slot.stocks),
+      c.stockPill.x + c.stockPill.w / 2, c.stockPill.y + 15, '#fff4cf', 11, 'center', 'bold');
+    fillRoundRect(ctx, c.modePill.x, c.modePill.y, c.modePill.w, c.modePill.h, 8, slotModeColor(slot), '#322010', 1.5);
+    drawText(ctx, slotModeLabel(slot),
+      c.modePill.x + c.modePill.w / 2, c.modePill.y + 15, '#20160a', 11, 'center', 'bold');
   }
 
-  // Start button — disabled if no active characters
+  // Start button
   var B = L.startBtn;
   var canStart = activeSlotCount() >= 1;
-  var startHover = hit(B);
-  var sfill = !canStart ? 'rgba(150,140,120,0.8)'
-    : (startHover ? '#ffd86f' : '#f2c85a');
-  fillRoundRect(ctx, B.x, B.y, B.w, B.h, 18, sfill, '#7b4f1a', 3);
-  drawText(ctx, canStart ? 'START' : 'NEED A CHARACTER', B.x + B.w / 2, B.y + 34,
-    '#3a2608', canStart ? 24 : 18, 'center', 'bold');
+  fillRoundRect(ctx, B.x, B.y, B.w, B.h, 18,
+    !canStart ? 'rgba(150,140,120,0.8)' : (hit(B) ? '#ffd86f' : '#f2c85a'),
+    '#7b4f1a', 3);
+  drawText(ctx, canStart ? 'START' : 'NEED A CHARACTER', B.x + B.w / 2, B.y + 31,
+    '#3a2608', canStart ? 22 : 16, 'center', 'bold');
 }
 
 function updateSelect(dt) {
@@ -2047,38 +2069,49 @@ function updateSelect(dt) {
   mclk = false;
   var L = selectLayout();
 
-  for (var i = 0; i < L.cards.length; i++) {
-    var c = L.cards[i];
-    var slot = state.slots[i];
-    for (var j = 0; j < c.thumbs.length; j++) {
-      var thumb = c.thumbs[j];
-      if (hit(thumb)) {
-        if (!slotActive(slot) && slot.kind === 'cpu') slot.mode = 'medium';
-        slot.charIdx = thumb.charIdx;
-        return;
-      }
+  // Shared character grid: assign tapped character to focused slot.
+  for (var j = 0; j < L.tiles.length; j++) {
+    var tile = L.tiles[j];
+    if (hit(tile)) {
+      var aslot = state.slots[state.selectActiveSlot];
+      if (!slotActive(aslot) && aslot.kind === 'cpu') aslot.mode = 'medium';
+      aslot.charIdx = tile.charIdx;
+      return;
     }
-    if (hit(c.leftArrow))  {
+  }
+
+  // Slot strips: buttons focus the strip AND act on that slot.
+  for (var i = 0; i < L.strips.length; i++) {
+    var c = L.strips[i];
+    var slot = state.slots[i];
+    if (hit(c.leftArrow)) {
+      state.selectActiveSlot = i;
       if (!slotActive(slot) && slot.kind === 'cpu') slot.mode = 'medium';
       cycleCharacter(slot, -1); return;
     }
     if (hit(c.rightArrow)) {
+      state.selectActiveSlot = i;
       if (!slotActive(slot) && slot.kind === 'cpu') slot.mode = 'medium';
       cycleCharacter(slot, +1); return;
     }
     if (hit(c.randomBtn)) {
+      state.selectActiveSlot = i;
       if (!slotActive(slot) && slot.kind === 'cpu') slot.mode = 'medium';
       randomizeCharacter(slot); return;
     }
-    if (hit(c.stockPill))  {
+    if (hit(c.stockPill)) {
+      state.selectActiveSlot = i;
       if (!slotActive(slot) && slot.kind === 'cpu') slot.mode = 'medium';
       cycleStocks(slot); return;
     }
-    if (hit(c.modePill))   { cycleMode(slot); return; }
-    if (hit(c.portrait))   {
-      // Tap portrait as convenience: cycle character forward.
+    if (hit(c.modePill)) {
+      state.selectActiveSlot = i;
+      cycleMode(slot); return;
+    }
+    // Clicking anywhere else on the strip focuses it (and activates a CPU that was off).
+    if (hit(c)) {
+      state.selectActiveSlot = i;
       if (!slotActive(slot) && slot.kind === 'cpu') slot.mode = 'medium';
-      else cycleCharacter(slot, +1);
       return;
     }
   }
@@ -2512,6 +2545,7 @@ function updateResults(dt) {
     mclk = false;
     state.phase = 'select';
     state.phaseTime = 0;
+    state.selectActiveSlot = 0;
   }
 }
 
