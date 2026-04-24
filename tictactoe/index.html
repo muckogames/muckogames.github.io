@@ -470,8 +470,8 @@ body {
       </div>
       <div class="section-sub">Who Goes First?</div>
       <div class="tog-row">
-        <button class="tog-btn on" id="t-huf" onclick="setCpuFirst(false)">You (P1)</button>
-        <button class="tog-btn"    id="t-cpf" onclick="setCpuFirst(true)">CPU goes first</button>
+        <button class="tog-btn on" id="t-huf" onclick="setCpuFirst(false)">🧒 You (P1)</button>
+        <button class="tog-btn"    id="t-cpf" onclick="setCpuFirst(true)">🤖 CPU goes first</button>
       </div>
     </div>
   </div>
@@ -537,7 +537,7 @@ body {
   </div>
 
   <div id="game-controls">
-    <button class="btn-game primary" onclick="newGame()">New Game</button>
+    <button class="btn-game primary" onclick="newGame()">🔄 New Game</button>
     <button class="btn-game" onclick="showSetup()">◀ Setup</button>
   </div>
 </div>
@@ -552,8 +552,8 @@ body {
     <div id="res-sub"></div>
     <div id="res-tourney" style="display:none;margin:8px 0 4px;font-size:0.95em;color:#d4a853;font-weight:bold;letter-spacing:0.04em;"></div>
     <div class="res-btns">
-      <button class="btn-game primary" id="btn-again" onclick="newGame()">Play Again!</button>
-      <button class="btn-game" onclick="showSetup()">Setup</button>
+      <button class="btn-game primary" id="btn-again" onclick="newGame()">🔄 Play Again!</button>
+      <button class="btn-game" onclick="showSetup()">⚙️ Setup</button>
     </div>
   </div>
 </div>
@@ -1777,10 +1777,10 @@ function showResult(winner, isDraw) {
       tourneyEl.textContent = `Series: P1 ${pips(tn.p1,tn.goal)} — ${pips(tn.p2,tn.goal)} P2  (${gamesLeft} game${gamesLeft!==1?'s':''} left)`;
     }
     tourneyEl.style.display = '';
-    againBtn.textContent = tn.done ? 'New Match!' : 'Next Game!';
+    againBtn.textContent = tn.done ? '🏆 New Match!' : '▶ Next Game!';
   } else {
     tourneyEl.style.display = 'none';
-    againBtn.textContent = 'Play Again!';
+    againBtn.textContent = '🔄 Play Again!';
   }
 
   overlay.classList.add('show');
