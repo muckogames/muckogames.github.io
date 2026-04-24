@@ -1986,10 +1986,10 @@ function drawSelect() {
     fillRoundRect(ctx, c.rightArrow.x, c.rightArrow.y, c.rightArrow.w, c.rightArrow.h, 10, arrowFill, '#7b4f1a', 2);
     drawChevron(ctx,
       c.leftArrow.x  + c.leftArrow.w  / 2, c.leftArrow.y  + c.leftArrow.h  / 2,
-      14, -1, '#5a3d16', 4);
+      14,  1, '#5a3d16', 4);
     drawChevron(ctx,
       c.rightArrow.x + c.rightArrow.w / 2, c.rightArrow.y + c.rightArrow.h / 2,
-      14,  1, '#5a3d16', 4);
+      14, -1, '#5a3d16', 4);
     fillRoundRect(ctx, c.randomBtn.x, c.randomBtn.y, c.randomBtn.w, c.randomBtn.h, 10,
       active ? 'rgba(255,228,170,0.92)' : 'rgba(200,200,200,0.62)', '#7b4f1a', 2);
     drawText(ctx, 'RANDOM', c.randomBtn.x + c.randomBtn.w / 2, c.randomBtn.y + 18, '#5a3d16', 13, 'center', 'bold');
