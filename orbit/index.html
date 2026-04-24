@@ -215,24 +215,26 @@ var V_CIRC_APO     = Math.sqrt(GM_E / R_HOH_APO);                    // ≈ 8.47
 var HOHMANN_DV1    = V_HOH     - Math.sqrt(GM_E / R_HOH_PERI);       // ≈ 5.10
 var HOHMANN_DV2    = V_CIRC_APO - V_APO_HOH;                         // ≈ 3.40
 
-// Trans-Lunar Injection: transfer ellipse peri=R_LEO, apo=0.94 DU (just
-// short of the Moon's orbit so Moon's gravity pulls us in cleanly).
-var R_TLI_APO      = 0.94;
+// Trans-Lunar Injection: transfer ellipse peri=R_LEO, apo=1.0 DU (Moon's orbit).
+// Moon phased 0.07 rad ahead of rendezvous so spacecraft approaches from behind;
+// three-body sim bends trajectory to periapsis ~0.064 DU from Moon for stable LOI.
+var R_TLI_APO      = 1.0;
 var A_TLI          = (R_LEO + R_TLI_APO) / 2;
-var V_TLI_PERI     = Math.sqrt(GM_E * (2 / R_LEO - 1 / A_TLI));       // ≈ 24.15
-var TLI_DV         = V_TLI_PERI - Math.sqrt(GM_E / R_LEO);            // ≈ 6.01
-var TLI_HALF_PERIOD = Math.PI * Math.sqrt(A_TLI * A_TLI * A_TLI / GM_E); // ≈ 0.193 TU
-// Phase Moon so it's at (-1,0) when spacecraft reaches apoapsis
-var TLI_MOON_ANGLE0 = Math.PI - MOON_W * (0.003 + TLI_HALF_PERIOD);    // ≈ 1.91 rad
+var V_TLI_PERI     = Math.sqrt(GM_E * (2 / R_LEO - 1 / A_TLI));       // ≈ 24.24
+var TLI_DV         = V_TLI_PERI - Math.sqrt(GM_E / R_LEO);            // ≈ 6.10
+var TLI_HALF_PERIOD = Math.PI * Math.sqrt(A_TLI * A_TLI * A_TLI / GM_E); // ≈ 0.210 TU
+// +0.07 offset phases Moon ahead so periapsis is ~0.064 DU from Moon center
+var TLI_MOON_ANGLE0 = Math.PI - MOON_W * (0.003 + TLI_HALF_PERIOD) + 0.07; // ≈ 1.88 rad
 
-// Free Return: transfer apoapsis short of Moon's orbit. Moon phased for a
-// distant swing-by that nudges the trajectory — no second burn needed.
-var R_FR_APO       = 0.88;
+// Free Return: apoapsis 0.96 DU, Moon phased 0.12 rad ahead for a close flyby
+// (~0.075 DU) that swings the spacecraft around and sends it home — no LOI burn.
+var R_FR_APO       = 0.96;
 var A_FR           = (R_LEO + R_FR_APO) / 2;
 var V_FR_PERI      = Math.sqrt(GM_E * (2 / R_LEO - 1 / A_FR));
 var FR_TLI_DV      = V_FR_PERI - Math.sqrt(GM_E / R_LEO);
 var FR_HALF_PERIOD = Math.PI * Math.sqrt(A_FR * A_FR * A_FR / GM_E);
-var FR_MOON_ANGLE0 = Math.PI - MOON_W * (0.003 + FR_HALF_PERIOD);
+// +0.12 offset phases Moon ahead for a dramatic close flyby before the free return arc
+var FR_MOON_ANGLE0 = Math.PI - MOON_W * (0.003 + FR_HALF_PERIOD) + 0.12;
 
 var ORBITS = [
   {
