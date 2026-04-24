@@ -115,33 +115,6 @@ are system-balancing and second-pass polish rather than missing scaffolding.
 
 ## Priority 4 — Polish & Nice-to-Have
 
-### All Trail games — "Continue" on driving screens auto-advances
-
-In Car Trail and Train Trail, the driving screen has a "Continue" button that requires
-a tap. From Rocket Trail's playtesting notes: players expect tapping anywhere non-UI on
-the screen to advance. This is especially jarring during the between-stop driving
-animation.
-
-**Fix:** Allow a tap anywhere outside interactive buttons to trigger Continue.
-
----
-
-### `tictactoe/index.html` — no way to reset PIN
-
-If a user forgets their PIN, there is no in-game way to reset it. They must manually
-clear localStorage. A hidden "reset PIN" flow would help.
-
-**Fix:** On the PIN entry screen, if the user enters a deliberately wrong PIN 5 times,
-show a "Reset PIN?" confirmation that calls `localStorage.removeItem('mgs_pin_hash')`.
-
----
-
-### `lakehousemath/` — no high score display in-game
-
-The game stores a best score in localStorage but never shows it to the player. Adding a
-"Personal Best" display on the victory screen would give replayability.
-
----
 
 ## Architecture / Engine Work
 
