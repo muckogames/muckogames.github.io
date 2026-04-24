@@ -1878,9 +1878,9 @@ function selectLayout() {
       thumbs: thumbs,
       leftArrow: { x: cx + 8,  y: y0 + 198, w: 28, h: 36 },
       rightArrow:{ x: cx + cardW - 36, y: y0 + 198, w: 28, h: 36 },
-      randomBtn: { x: cx + 42, y: y0 + 264, w: cardW - 84, h: 26 },
-      stockPill: { x: cx + 16, y: y0 + cardH - 102, w: cardW - 32, h: 34 },
-      modePill:  { x: cx + 16, y: y0 + cardH - 58,  w: cardW - 32, h: 38 }
+      randomBtn: { x: cx + 42, y: y0 + 260, w: cardW - 84, h: 26 },
+      stockPill: { x: cx + 16, y: y0 + 296, w: cardW - 32, h: 34 },
+      modePill:  { x: cx + 16, y: y0 + 338, w: cardW - 32, h: 38 }
     });
   }
   return {
@@ -1962,7 +1962,7 @@ function drawSelect() {
       var thumbStroke = selected ? '#d8982a' : 'rgba(90,70,34,0.42)';
       fillRoundRect(ctx, thumb.x, thumb.y, thumb.w, thumb.h, 7, thumbFill, thumbStroke, selected ? 2.5 : 1.2);
       ctx.save();
-      ctx.translate(thumb.x + thumb.w / 2, thumb.y + thumb.h - 1);
+      ctx.translate(thumb.x + thumb.w / 2, thumb.y + Math.round(thumb.h * 0.5));
       ctx.scale(0.40, 0.40);
       drawCharacter(ctx, CHAR_IDS[thumb.charIdx], 0, 0, 'right', state.phaseTime * 3 + j, 0.55, 'portrait');
       ctx.restore();
