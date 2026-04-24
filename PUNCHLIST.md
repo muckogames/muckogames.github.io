@@ -7,100 +7,23 @@ then by game. Each item is self-contained enough to hand to an agent.
 
 ## Priority 1 — Compat Bugs (iOS 12 / Safari 12 breakage)
 
-### `airplanetrail.html` — flex `gap` in HTML screens
+### Ongoing: `??` / `?.` / `Array.prototype.at()` audit
 
-Airplane Trail uses CSS flex `gap:` in six places (`.sbar`, `.crew-row`, `.ev-choices`,
-`.store-item`, `.diff-row`, `.throttle-bar`) without Safari 12 fallbacks.
-
-**Fix:** Add `/* Safari 14.1+ */` comments and `> * + *` margin fallbacks. ✅ Done.
-
----
-
-### All canvas games — `??` / `?.` / `Array.prototype.at()` audit
-
-Run a regex scan over all game files for `\?\?`, `\?\.`, and `\.at\(` to confirm none
-have crept in. Audited clean as of 2026-04-24.
+After any PR that touches canvas game JS, run:
+```sh
+grep -rn '\?\?\|\?\.\|\.at(' samster/ hippo/ duckdieb/ rockettrail/ orbit/ smash/ tictactoe/ contraband/ airplanetrail.html
+```
+Audited clean as of 2026-04-24.
 
 ---
 
 ## Priority 2 — Functional Bugs (things that break gameplay)
 
-### `contraband/index.html` — flex `gap` in HTML screens
-
-Contraband Trail's HTML screens use CSS flex with `gap:` in several places
-(`.btn-row`, `.sbar`, `.rstop`, `.ev-choices`, `.page`). ✅ Fixed with `> * + *`
-margin fallbacks and inline-style `gap:` removed from JS strings.
+*(All known P2 items fixed as of 2026-04-24.)*
 
 ---
 
 ## Priority 3 — Gameplay Improvements
-
-### `rockettrail/index.html` — moon lander controls cramped on phone
-
-The three-button row (LEFT / THRUST / RIGHT) is close together on small screens. From
-`PLAYTESTING.md`: thumbs hit two at once. The playtesting notes already contain the full
-fix plan:
-
-**Fix (from PLAYTESTING.md, Priority 1A):**
-- Move THRUST to a large center-bottom zone; LEFT/RIGHT to outer sides
-- Add "tap anywhere in upper half = thrust" as fallback
-- Add pulsing red "TOO FAST ▼" text + beep when `vy > 60%` of `maxSafe`
-- Add distinct "CRASH — TOO FAST" vs "CRASH — OFF COURSE" result message
-
----
-
-### `rockettrail/index.html` — re-entry only has one rocket type
-
-All enemy rockets look identical. From `PLAYTESTING.md` Priority 2D:
-
-**Fix:** Three types (weighted random):
-- Standard (60%): current behavior
-- Big & slow (20%): `w=22`, `×0.65` speed
-- Fast & small (20%): `w=8`, `×1.6` speed
-
----
-
-### `rockettrail/index.html` — no interactive flag plant after landing
-
-After a safe moon landing the astronaut auto-plants the flag. From `PLAYTESTING.md`
-Priority 2E: "I wanted to plant the flag MYSELF!"
-
-**Fix:** After the result overlay fades, show "TAP TO PLANT FLAG 🚩" button. Player taps
-→ astronaut walks and plants. Auto-triggers after 3s if no tap.
-
----
-
-### `duckdieb/index.html` — high score table not accessible from victory screen
-
-After completing a run, there is no in-game route to the high scores table without
-going back to the title screen and pressing the "View High Scores" button. The
-transition from victory → high scores should be direct.
-
-**Fix:** Add a "View High Scores" button directly on the victory screen.
-
----
-
-### `hippo/index.html` — cheat scroll room renders plain text
-
-The cheat scroll easter egg (shown when 3+ cheats are entered) displays flavor text but
-is visually bare compared to the rest of the game's illustrated scenes.
-
-**Fix:** Draw the scroll as a proper parchment canvas element with each code listed in
-themed handwriting-style text, and add a small character icon (Lekan, Basil, Pras, etc.)
-beside each entry's lore blurb.
-
----
-
-### `contraband/index.html` — port canvas touch controls incomplete
-
-The top-down port canvas minigame has a touch controls overlay for the D-pad + action
-button, but the `portTouch` handler only detects taps in the bottom-right area for
-the action button. Full D-pad support for the canvas phase is missing.
-
-**Fix:** Add the same D-pad button layout used in Samster to the port canvas minigame.
-Reference `samster/index.html`'s `makeTouchButtons()` + `drawMobileControls()`.
-
----
 
 ### `orbit/index.html` — Phase 3: scripted "Flight Programs"
 
@@ -187,8 +110,6 @@ are system-balancing and second-pass polish rather than missing scaffolding.
   - rerun AI evaluation after major special or physics changes so shipped tiers do not
     drift from the actual game.
   - consider adding cross-character eval suites, not only mirror and baseline checks.
-- Add a dedicated Smash roadmap or design note if the feature surface keeps expanding;
-  `smash/TRAINING.md` now covers training and maintenance, but not long-form design goals.
 
 ---
 
@@ -215,28 +136,10 @@ show a "Reset PIN?" confirmation that calls `localStorage.removeItem('mgs_pin_ha
 
 ---
 
-### `samster/index.html` + `hippo/index.html` — debug info visible in production
-
-Hippo has a debug overlay that logs canvas CSS dimensions, DPR, and scale at `?debug`
-URL param. Samster may also have residual debug flags. Both are fine as-is; just worth
-confirming the overlay is fully gated and not visible in normal play.
-
----
-
 ### `lakehousemath/` — no high score display in-game
 
 The game stores a best score in localStorage but never shows it to the player. Adding a
 "Personal Best" display on the victory screen would give replayability.
-
----
-
-### Clean up empty directories
-
-`-r/` and `cp/` at the repo root are empty directories created by accidental shell
-command typos. Safe to delete:
-```sh
-rmdir -- -r cp
-```
 
 ---
 

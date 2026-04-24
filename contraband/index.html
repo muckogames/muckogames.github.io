@@ -835,12 +835,18 @@ function drawPort(){
     ctx.beginPath();ctx.arc(DJOY_CX,DJOY_CY,55,0,Math.PI*2);
     ctx.fillStyle='rgba(20,16,8,0.7)';ctx.fill();
     ctx.strokeStyle='rgba(200,168,74,0.4)';ctx.lineWidth=1.5;ctx.stroke();
-    // Arrow triangles
-    ctx.fillStyle='#c8a84a';ctx.font='bold 20px monospace';ctx.textAlign='center';
-    ctx.fillText('▲',DJOY_CX,DJOY_CY-28);
-    ctx.fillText('▼',DJOY_CX,DJOY_CY+36);
-    ctx.fillText('◀',DJOY_CX-32,DJOY_CY+7);
-    ctx.fillText('▶',DJOY_CX+32,DJOY_CY+7);
+    // Arrow triangles — drawn as canvas paths (not Unicode glyphs, which are empty on iOS)
+    ctx.fillStyle='#c8a84a';
+    function _tri(cx,cy,dir){
+      ctx.beginPath();
+      if(dir===0){ctx.moveTo(cx,cy-9);ctx.lineTo(cx-7,cy+5);ctx.lineTo(cx+7,cy+5);}  // up
+      else if(dir===1){ctx.moveTo(cx,cy+9);ctx.lineTo(cx-7,cy-5);ctx.lineTo(cx+7,cy-5);}  // down
+      else if(dir===2){ctx.moveTo(cx-9,cy);ctx.lineTo(cx+5,cy-7);ctx.lineTo(cx+5,cy+7);}  // left
+      else{ctx.moveTo(cx+9,cy);ctx.lineTo(cx-5,cy-7);ctx.lineTo(cx-5,cy+7);}  // right
+      ctx.fill();
+    }
+    _tri(DJOY_CX,DJOY_CY-30,0); _tri(DJOY_CX,DJOY_CY+30,1);
+    _tri(DJOY_CX-30,DJOY_CY,2); _tri(DJOY_CX+30,DJOY_CY,3);
     // Action button
     var ABTN_X=W-80,ABTN_Y=H-80;
     ctx.beginPath();ctx.arc(ABTN_X,ABTN_Y,40,0,Math.PI*2);
