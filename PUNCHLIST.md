@@ -7,34 +7,19 @@ then by game. Each item is self-contained enough to hand to an agent.
 
 ## Priority 1 — Compat Bugs (iOS 12 / Safari 12 breakage)
 
-### `ttrail/onlineGame/index.html` — no `visualViewport` in resize
+### `airplanetrail.html` — flex `gap` in HTML screens
 
-The Titanic Trail resize function uses `window.innerWidth / window.innerHeight`. On iOS
-Safari, `window.innerHeight` includes the browser chrome (address bar), so the bottom
-of the game is clipped. This is the same issue already fixed in Rocket Trail, Car Trail,
-Train Trail, and Duck Dieb.
+Airplane Trail uses CSS flex `gap:` in six places (`.sbar`, `.crew-row`, `.ev-choices`,
+`.store-item`, `.diff-row`, `.throttle-bar`) without Safari 12 fallbacks.
 
-**Fix:** Add `viewW()`/`viewH()` helpers using `visualViewport` (same pattern as the
-other Trail games after their fix). Also add a `window.visualViewport.addEventListener`
-call.
-
----
-
-### `airplanetrail.html` — no `visualViewport` in resize
-
-Airplane Trail uses HTML DOM layout (`#app { width: min(780px, 100%) }`) which is
-partially responsive on its own, but it doesn't explicitly account for the iOS browser
-chrome height. Worth auditing whether the bottom is clipped.
-
-**Fix:** Audit and apply `visualViewport`-aware resize if the layout truncates on iPad.
-The game is DOM-based so the fix may differ from the canvas games.
+**Fix:** Add `/* Safari 14.1+ */` comments and `> * + *` margin fallbacks. ✅ Done.
 
 ---
 
 ### All canvas games — `??` / `?.` / `Array.prototype.at()` audit
 
 Run a regex scan over all game files for `\?\?`, `\?\.`, and `\.at\(` to confirm none
-have crept in. Currently passing but worth automating as a pre-push check.
+have crept in. Audited clean as of 2026-04-24.
 
 ---
 
@@ -43,37 +28,8 @@ have crept in. Currently passing but worth automating as a pre-push check.
 ### `contraband/index.html` — flex `gap` in HTML screens
 
 Contraband Trail's HTML screens use CSS flex with `gap:` in several places
-(`.btn-row`, `.sbar`, `.rstop`, `.ev-choices`, `.page`). On Safari 12, these have no
-spacing between items. The game still functions but buttons and resources overlap or
-look wrong.
-
-**Fix:** Add `> * + *` margin fallbacks for each flex gap usage in the file. The DJ
-Mixer (`dj/index.html`) is a good reference — it has this pattern done correctly
-throughout, with comments marking each `gap:` as `/* Safari 14.1+ */`.
-
----
-
-### `tictactoe/index.html` — `backdrop-filter: blur()` on result overlay
-
-The `#result-overlay` uses `backdrop-filter: blur(5px)`. This is not supported in
-Safari < 9 and requires `-webkit-backdrop-filter` as a fallback in some older versions.
-More importantly, on low-power devices it can cause significant frame drops during the
-fade-in animation.
-
-**Fix:** Remove `backdrop-filter` from the result overlay (the dark `rgba` background
-is sufficient) or add `-webkit-backdrop-filter` prefix.
-
----
-
-### `rockettrail/index.html` — no `visualViewport.scroll` listener
-
-The resize function now listens to `visualViewport.resize` but not `scroll`. On iOS,
-when the virtual keyboard appears (not applicable here, but the scroll event is how
-`visualViewport` position updates propagate on some iOS builds). Low risk for a game
-without text input, but the Samster pattern includes it.
-
-**Fix:** Add `window.visualViewport.addEventListener('scroll', resize)` alongside the
-`resize` listener.
+(`.btn-row`, `.sbar`, `.rstop`, `.ev-choices`, `.page`). ✅ Fixed with `> * + *`
+margin fallbacks and inline-style `gap:` removed from JS strings.
 
 ---
 

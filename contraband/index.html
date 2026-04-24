@@ -13,7 +13,8 @@ body{background:#0d0b08;color:#d4c9a8;font-family:Georgia,serif;width:100%;heigh
 #app{width:800px;min-height:560px;padding:0;display:flex;flex-direction:column;background:#0d0b08;}
 #app.hidden{display:none;}
 
-.page{padding:24px 32px;flex:1;display:flex;flex-direction:column;gap:12px;max-width:800px;}
+.page{padding:24px 32px;flex:1;display:flex;flex-direction:column;gap:12px /* Safari 14.1+ */;max-width:800px;}
+.page > * + *{margin-top:12px;}
 .page-title{font-size:2.2em;color:#c8a84a;text-align:center;font-weight:bold;letter-spacing:0.08em;text-shadow:0 2px 12px rgba(180,140,40,0.5);}
 .page-sub{font-size:0.95em;color:#7a6840;text-align:center;font-style:italic;margin-top:-8px;}
 
@@ -21,7 +22,8 @@ body{background:#0d0b08;color:#d4c9a8;font-family:Georgia,serif;width:100%;heigh
 .card h3{color:#c8a84a;font-size:1em;margin-bottom:8px;letter-spacing:0.06em;}
 
 /* Resource bar */
-.sbar{display:flex;gap:6px;flex-wrap:wrap;background:rgba(20,16,8,0.95);border:1px solid rgba(140,110,40,0.4);border-radius:6px;padding:8px 12px;}
+.sbar{display:flex;gap:6px /* Safari 14.1+ */;flex-wrap:wrap;background:rgba(20,16,8,0.95);border:1px solid rgba(140,110,40,0.4);border-radius:6px;padding:8px 12px;}
+.sbar > * + *{margin-left:6px;}
 .sbar-item{display:flex;flex-direction:column;align-items:center;flex:1;min-width:60px;}
 .sbar-label{font-size:0.65em;color:#7a6840;letter-spacing:0.05em;font-family:monospace;font-weight:bold;}
 .sbar-val{font-size:1em;font-weight:bold;font-family:monospace;}
@@ -31,7 +33,8 @@ body{background:#0d0b08;color:#d4c9a8;font-family:Georgia,serif;width:100%;heigh
 
 /* Route strip */
 .route{display:flex;align-items:flex-start;gap:0;margin:4px 0;}
-.rstop{display:flex;flex-direction:column;align-items:center;flex:1;font-size:0.7em;color:#6a5830;text-align:center;gap:4px;}
+.rstop{display:flex;flex-direction:column;align-items:center;flex:1;font-size:0.7em;color:#6a5830;text-align:center;gap:4px /* Safari 14.1+ */;}
+.rstop > * + *{margin-top:4px;}
 .rstop-line{flex:1;height:3px;background:rgba(100,80,30,0.3);margin-top:8px;}
 .rdot{width:14px;height:14px;border-radius:50%;border:2px solid #443820;background:#1a1408;}
 .rdot.done{background:#7a5820;border-color:#c8a84a;}
@@ -47,14 +50,16 @@ body{background:#0d0b08;color:#d4c9a8;font-family:Georgia,serif;width:100%;heigh
 .btn.primary:hover{background:rgba(80,60,12,0.95);}
 .btn.danger{border-color:#884422;color:#cc8855;}
 .btn.danger:hover{background:rgba(60,20,5,0.95);}
-.btn-row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;}
+.btn-row{display:flex;gap:10px /* Safari 14.1+ */;flex-wrap:wrap;justify-content:center;}
+.btn-row > * + *{margin-left:10px;}
 
 /* Events */
 .ev-box{background:rgba(25,20,8,0.95);border:2px solid rgba(160,130,60,0.45);border-radius:10px;padding:20px;margin:8px 0;}
 .ev-title{font-size:1.15em;color:#d4b858;font-weight:bold;margin-bottom:8px;}
 .ev-big{font-size:3.2em;line-height:1;text-align:center;display:block;margin:2px 0 10px;}
 .ev-text{font-size:0.9em;color:#b8aa88;font-style:italic;line-height:1.55;margin-bottom:14px;}
-.ev-choices{display:flex;flex-direction:column;gap:8px;}
+.ev-choices{display:flex;flex-direction:column;gap:8px /* Safari 14.1+ */;}
+.ev-choices > * + *{margin-top:8px;}
 .ev-choice{background:rgba(30,24,8,0.9);border:1px solid rgba(130,100,40,0.5);color:#c8b888;padding:10px 16px;border-radius:6px;cursor:pointer;font-family:Georgia,serif;font-size:0.88em;text-align:left;transition:background 0.15s,border-color 0.15s;display:flex;align-items:center;}
 .ev-choice .ch-icon{font-size:1.5em;margin-right:10px;flex-shrink:0;}
 .ev-choice .ch-txt{flex:1;}
@@ -296,7 +301,7 @@ function routeStrip(){
 }
 
 function showTitle(){
-  el().innerHTML='<div class="page" style="justify-content:center;align-items:center;text-align:center;gap:20px;">'+
+  el().innerHTML='<div class="page" style="justify-content:center;align-items:center;text-align:center;">'+
     '<div class="page-title" style="font-size:2.8em">CONTRABAND TRAIL</div>'+
     '<div class="page-sub" style="font-size:1.1em">Rhine River, 1922 — Weimar Germany</div>'+
     '<div class="card" style="max-width:460px;text-align:left;font-size:0.88em;color:#b8aa88;line-height:1.6;">'+
@@ -344,7 +349,7 @@ function selectCargo(id){
 function showTravel(){
   var th=G.throttle;
   var btnStyle='padding:8px 16px;font-size:0.82em;margin:2px;';
-  var tBtns='<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin:6px 0">'+
+  var tBtns='<div style="display:flex;flex-wrap:wrap;justify-content:center;margin:6px 0">'+
     '<button class="btn'+(th==='careful'?' primary':'')+'" style="'+btnStyle+'" onclick="setThrottle(\'careful\')">🐢 Careful</button>'+
     '<button class="btn'+(th==='normal'?' primary':'')+'" style="'+btnStyle+'" onclick="setThrottle(\'normal\')">⛵ Normal</button>'+
     '<button class="btn'+(th==='full'?' primary':'')+'" style="'+btnStyle+'" onclick="setThrottle(\'full\')">🔥 Full Speed</button>'+
@@ -896,7 +901,7 @@ function playEndSting(kind){
 
 function showArrested(){
   playEndSting('lose');
-  el().innerHTML='<div class="page" style="justify-content:center;align-items:center;text-align:center;gap:16px">'+
+  el().innerHTML='<div class="page" style="justify-content:center;align-items:center;text-align:center;">'+
     '<div style="font-size:5em;line-height:1">😵 🚔</div>'+
     '<div class="page-title" style="color:#cc4444">ARRESTED</div>'+
     '<div class="card" style="max-width:480px;text-align:left">'+
@@ -913,7 +918,7 @@ function showVictory(){
   var final=Math.round(G.marks+(G.heat<30?80:G.heat<60?40:0));
   var grade=final>500?'S':final>350?'A':final>220?'B':'C';
   var gradeCol={'S':'#f0d060','A':'#88ff88','B':'#aaddff','C':'#cc9966'}[grade];
-  el().innerHTML='<div class="page" style="justify-content:center;align-items:center;text-align:center;gap:16px">'+
+  el().innerHTML='<div class="page" style="justify-content:center;align-items:center;text-align:center;">'+
     '<div style="font-size:5em;line-height:1">🏆 🎉</div>'+
     '<div class="page-title" style="color:#ffd700;text-shadow:0 0 12px rgba(255,215,0,.4)">ROTTERDAM</div>'+
     '<div class="page-sub">You made it. The Rhine is behind you. The buyer is pleased.</div>'+
