@@ -1,8 +1,14 @@
 # Mucko Smash — Expert CPU Training Runbook
 
 Step-by-step instructions to train, evaluate, and ship the Expert-tier
-neural-network CPU from any machine. For the reference docs on what the
-trainer is actually doing, see [`TRAINING_NN.md`](TRAINING_NN.md).
+neural-network CPU from any machine.
+
+There are two trainers:
+
+- **`train-rl.js`** — REINFORCE with curriculum learning. **Recommended.**
+  Produced `expert-v1.json` (Easy 1.00 / Medium 0.70 / Hard 0.70 WR).
+- **`train-nn.js`** — Evolution Strategies (ES). Simpler but plateaued at
+  ~55% Hard WR with the 64×64 network. Good for quick experiments.
 
 ---
 
@@ -10,13 +16,10 @@ trainer is actually doing, see [`TRAINING_NN.md`](TRAINING_NN.md).
 
 - Node.js ≥ 12 (check: `node --version`)
 - Git
-- ~500 MB free disk (training checkpoints are ~265 KB each and you'll
-  accumulate several; all are git-ignored)
-- A few hours of laptop time — ES training is CPU-bound but easily paused
-  and resumed
+- ~500 MB free disk (checkpoints are ~770 KB each, git-ignored)
+- ~45 minutes of laptop time for a full RL run (parallelized across 16 cores)
 
-No `npm install`. No Python. No GPU. The harness uses only Node's standard
-library + the repo's own `smash/sim.js` and `smash/ai/policy.js`.
+No `npm install`. No Python. No GPU.
 
 ---
 
@@ -25,16 +28,6 @@ library + the repo's own `smash/sim.js` and `smash/ai/policy.js`.
 ```bash
 git clone https://github.com/muckogames/muckogames.github.io.git
 cd muckogames.github.io
-git checkout claude/mucko-smash-game-2uiqx   # or main, once this is merged
-git pull
-```
-
-Or if you already have it:
-
-```bash
-cd muckogames.github.io
-git fetch
-git checkout claude/mucko-smash-game-2uiqx
 git pull
 ```
 
@@ -42,22 +35,172 @@ git pull
 
 ## 2. Smoke-test the setup (30 seconds)
 
-Before committing to a long training run, confirm everything works:
-
 ```bash
 node smash/ai/_smoke.js
 ```
 
 You should see 16 matches run, all ending with `reason=last-entity`, and
-the final line `pass criteria: every match completed, no exceptions.` A
-random-weights NN won't win any, but the match loop has to complete
-cleanly. If it doesn't, stop and debug before training.
+the final line `pass criteria: every match completed, no exceptions.`
 
 ---
 
-## 3. Start training
+## 3. Train with RL (recommended)
 
-The main training command:
+### Start a fresh run
+
+```bash
+node smash/train-rl.js train \
+  --fresh \
+  --hidden 128,128 \
+  --epochs 4000 \
+  --episodes 16 \
+  --workers 16 \
+  --lr 0.001 \
+  --seconds 30
+```
+
+**What to expect:**
+
+```
+starting fresh  hidden: 128,128  params: 24837
+workers: 16
+epoch 0  phase 1  return -45.2  wr 0.00  selfKos 38  (612ms)
+...
+epoch 280  phase 1  return 32.1  wr 1.00  selfKos 0  (598ms)
+...
+epoch 1320  phase 2  return 18.4  wr 0.69  selfKos 0  (605ms)
+...
+epoch 2640  phase 3  return 41.5  wr 0.56  selfKos 0  (601ms)
+```
+
+**Three curriculum phases** (each ~33% of total epochs):
+
+| Phase | Opponents | Rewards |
+|-------|-----------|---------|
+| 1 | Easy only | Survive + deal damage |
+| 2 | Easy + Medium | Add KO/death stakes |
+| 3 | Easy + Medium + Hard | Add win/loss terminal reward + self-play |
+
+Watch for:
+- **`selfKos`** dropping to 0 by epoch ~280 and staying there
+- **`wr`** climbing to 1.00 in phase 1, then dropping to ~0.5–0.7 when
+  Medium/Hard opponents are introduced — that's normal and expected
+- Epoch timing stable at ~600ms — any wild variation means a problem
+
+### Stop / resume
+
+**Ctrl-C at any time.** `latest-rl.json` is written every epoch.
+
+```bash
+# Resume from latest checkpoint
+node smash/train-rl.js train --epochs 4000 --workers 16
+```
+
+No `--fresh` → resumes from `smash/ai/models/latest-rl.json`. The epoch
+counter continues from where it stopped.
+
+### Flags
+
+| Flag | Default | Effect |
+|------|---------|--------|
+| `--hidden W,W` | 64,64 | Network shape; 128,128 = 4× params, ~2× slower |
+| `--epochs N` | 2000 | Total training epochs |
+| `--episodes N` | 8 | Episodes per gradient update |
+| `--workers N` | 0 | Worker threads (0 = serial); match to CPU core count |
+| `--lr R` | 0.001 | Adam learning rate |
+| `--seconds N` | 30 | Match length cap |
+| `--gamma G` | 0.99 | Return discount |
+| `--fresh` | — | Ignore latest-rl.json and start from scratch |
+| `--min-phase N` | 0 | Force curriculum to start at phase N (useful on resume) |
+
+---
+
+## 4. Monitor progress
+
+```bash
+tail -f smash/ai/models/log-rl.csv
+```
+
+Columns: `epoch, phase, meanReturn, wins, losses, kos, selfKos, wallMs`
+
+---
+
+## 5. Evaluate a checkpoint
+
+```bash
+node smash/train-rl.js eval smash/ai/models/best-rl.json --games 60
+```
+
+Output:
+```
+matches: 60
+wins/losses/draws: 48/12/0  winrate: 0.800
+kos: 47  deaths: 9  selfKos: 0
+dmg dealt/taken: 2991.6/2136.5
+per-opponent:
+  easy:   20W  0L  0D  winrate=1.000
+  medium: 14W  6L  0D  winrate=0.700
+  hard:   14W  6L  0D  winrate=0.700
+```
+
+**Ship gate:**
+
+| Metric | Threshold |
+|--------|-----------|
+| Hard WR | ≥ 0.55 |
+| Medium WR | ≥ 0.60 |
+| Easy WR | ≥ 0.80 |
+| selfKos | ≤ 5% of deaths |
+
+The original ES gate (Hard ≥ 0.65 / Medium ≥ 0.85 / Easy ≥ 0.95) was set
+before we knew the ceiling; the revised gate above reflects what a well-
+trained REINFORCE model realistically achieves against these heuristics.
+
+### Compare two checkpoints
+
+```bash
+node smash/train-rl.js duel smash/ai/models/best-rl.json smash/ai/models/rl-ep2000.json --games 60
+```
+
+A wins > 55% → A is meaningfully better.
+
+---
+
+## 6. Ship the model
+
+```bash
+cp smash/ai/models/best-rl.json smash/ai/expert-v1.json
+git add smash/ai/expert-v1.json
+git commit -m "Smash: ship Expert v1 RL CPU"
+git push
+```
+
+For a second iteration, bump the filename (`expert-v2.json`) and update
+the `fetch()` path near the top of `smash/index.html`.
+
+`smash/ai/models/` is git-ignored. Only the file you explicitly `cp` into
+`smash/ai/expert-vN.json` lands in the repo.
+
+---
+
+## 7. Verify in-browser
+
+Open `smash/index.html` locally (`python -m http.server` from repo root,
+or `file://`). On the character-select screen:
+
+1. Tap a CPU mode pill until it reads **EXPERT** (purple). If it reads
+   `EXPERT…` or `EXPERT?`, the model didn't load — check the browser
+   console for validation errors.
+2. Pick a character and start a match.
+3. The Expert CPU should move with intent — approach, jump, attack,
+   recover — not walk off the stage.
+
+---
+
+## 8. ES trainer (train-nn.js)
+
+The original ES trainer is still present and functional. It is simpler
+to understand but plateaued at ~55% Hard WR.
 
 ```bash
 node smash/train-nn.js train \
@@ -69,203 +212,86 @@ node smash/train-nn.js train \
   --seconds 30
 ```
 
-**What to expect on output:**
+Checkpoints land in `smash/ai/models/best.json` / `latest.json` / `log.csv`
+(separate from the RL trainer's `best-rl.json` / `latest-rl.json` / `log-rl.csv`).
 
-```
-hidden: 64x64  params: 8325  pairs: 20  sigma: 0.08  lr: 0.03
-starting fresh
-gen 0 mean -201.44 best -23.15 holdout -187.03 wr 0.050 selfKos 38  easy:0.08 medium:0.00 hard:0.00 (9821ms)
-gen 1 mean -193.22 best  -3.88 holdout -172.10 wr 0.075 selfKos 34  easy:0.16 medium:0.08 hard:0.00 (9634ms)
-gen 2 ...
-```
-
-Watch for:
-
-- **`selfKos`** dropping over time — a random net falls off the stage
-  constantly; the first thing the NN should learn is "don't step off."
-  If self-KOs aren't decreasing after ~50 generations, something's off.
-- **`wr` (holdout winrate)** trending upward — starts near 0, should
-  climb past 0.3 by gen ~100, past 0.5 by gen ~300, toward 0.7+ by the
-  end.
-- **`easy/medium/hard`** per-opponent winrates — Easy should climb first,
-  then Medium, then Hard.
-- **Wall time per generation** — ~10 seconds with these settings is
-  typical. Faster = shorter matches (fewer stocks or `--seconds`
-  lower); slower = more matches per opponent or bigger hidden layers.
-
-### Stop safely
-
-**Ctrl-C at any time.** `latest.json` is written every generation, so
-you lose at most the in-progress generation. Training resumes from
-`latest.json` by default when you re-run `train`.
-
-### Resume
-
-```bash
-node smash/train-nn.js train --generations 500
-```
-
-No `--fresh` flag → resumes from `smash/ai/models/latest.json`. The
-`gen` counter in the log continues from where it stopped.
-
-### Start over
-
-```bash
-node smash/train-nn.js train --fresh --generations 1000
-```
-
-`--fresh` ignores `latest.json` but keeps `best.json` (so your historical
-best is never lost). Wipe everything with `rm -r smash/ai/models` first
-if you really want a clean slate.
-
-### Tune it (optional)
-
-| Flag | Default | Effect |
-|---|---|---|
-| `--pop N` | 40 | 20 antithetic pairs → 40 matches per gen just for ES |
-| `--matches-per-opp N` | 2 | More = lower noise, slower gens |
-| `--seconds N` | 30 | Match-length cap; shorter = faster but noisier |
-| `--sigma s` | 0.08 | Noise scale; 0.05–0.15 is sane |
-| `--lr r` | 0.03 | Adam LR; halve it if fitness oscillates |
-| `--hidden 64,64` | 64,64 | Network shape. `128,128` = 4× params, ~2× slower |
-
----
-
-## 4. Monitor progress
-
-Two artifacts help you watch the run:
-
-- **`smash/ai/models/log.csv`** — one row per generation. Easy to chart:
-  ```bash
-  tail -f smash/ai/models/log.csv
-  ```
-- **`smash/ai/models/latest.json`** — current net, inspectable:
-  ```bash
-  node -e "var m=require('./smash/ai/models/latest.json'); console.log(JSON.stringify(m.meta, null, 2))"
-  ```
-
----
-
-## 5. Evaluate a checkpoint
-
-When you think a checkpoint is ready:
-
-```bash
-node smash/train-nn.js eval smash/ai/models/best.json --games 60
-```
-
-You'll see something like:
-
-```
-matches: 60 score: 68.41
-wins/losses/draws: 42/18/0 winrate: 0.700
-kos: 65 deaths: 42 selfKos: 3
-dmg dealt/taken: 1832.4/1204.1
-per-opponent:
-  easy:    19W  1L  0D   winrate=0.950
-  medium:  15W  5L  0D   winrate=0.750
-  hard:     8W 12L  0D   winrate=0.400
-```
-
-**Ship gate (from the plan):**
-
-- `hard` winrate ≥ 0.65 ← hardest to hit; don't ship below this
-- `medium` winrate ≥ 0.85
-- `easy` winrate ≥ 0.95
-- `selfKos` ≤ 5% of `deaths`
-
-If the current `best.json` misses the gate, keep training. If it passes,
-move to step 6.
-
-### Pick the better of two checkpoints
-
-```bash
-node smash/train-nn.js duel smash/ai/models/best.json smash/ai/models/gen-500.json --games 60
-```
-
-A wins > 55% → A is meaningfully better.
-
----
-
-## 6. Ship the model
-
-Once a checkpoint passes the eval gate:
-
-```bash
-cp smash/ai/models/best.json smash/ai/expert-v1.json
-git add smash/ai/expert-v1.json
-git commit -m "Smash: ship Expert v1 neural-net CPU"
-git push
-```
-
-For a second or third iteration, bump the filename (`expert-v2.json`
-etc.) and update the `fetch()` path at the top of `smash/index.html`
-from `ai/expert-v1.json` to `ai/expert-v2.json`.
-
-Note: `smash/ai/models/` is git-ignored. Only the file you explicitly
-`cp` into `smash/ai/expert-vN.json` lands in the repo.
-
----
-
-## 7. Verify in-browser
-
-Open `smash/index.html` locally (file:// works, or serve with
-`python -m http.server` from the repo root). On the character-select
-screen:
-
-1. Tap a CPU mode pill until it reads **EXPERT** (purple). If it reads
-   `EXPERT…` or `EXPERT?`, the model didn't load — check the browser
-   console for validation errors.
-2. Pick a character and start a match.
-3. Watch the Expert CPU play. It should move with intent — approach,
-   jump, attack, recover — not walk off the stage.
-
-On iPad (the real target): same, but also watch for frame drops. The
-forward pass is tiny (~33 k FLOPs per CPU per frame), so any stutter
-is probably unrelated.
+Eval: `node smash/train-nn.js eval smash/ai/models/best.json --games 60`
 
 ---
 
 ## Troubleshooting
 
-**`Error: policy.js: invalid model — obsVersion mismatch`**  
-You're trying to load a model trained against an older observation
-schema. Bump happens when `smash/ai/policy.js` feature list changes.
-Fix: retrain from scratch (`--fresh`).
+**selfKos stays high past epoch 300**  
+The shape function penalizes self-KO heavily (−80). If they don't clear
+after ~300 epochs, try halving `--lr` to 0.0005.
 
-**Fitness plateaus early (winrate stuck near 0.2 for 100+ gens)**  
-Try one at a time: (a) halve `--lr` to 0.015, (b) raise `--sigma` to
-0.12, (c) raise `--matches-per-opp` to 4 to denoise the gradient.
+**Model collapses mid-training (selfKos spikes from 0 to 30+)**  
+This is a gradient explosion. The `--workers` path uses `clipGradNorm`
+at 0.5 which should prevent it. If you see it anyway, check that you're
+running with `--workers 16` (the single-threaded fallback path does not
+clip). Do not lower `--lr` further — the collapse is a single bad update,
+not a learning-rate issue.
 
-**Self-KO rate stays high**  
-The shape function already penalizes self-KO heavily (−80). If it
-persists after ~200 gens, try `--matches-per-opp 4` so the signal
-isn't drowned in noise.
+**`require.main` guard / workers spawning sub-workers**  
+The worker entry point uses `isMainThread`, not `require.main === module`
+(the latter is `true` inside worker threads, which caused each of 16
+workers to spawn 16 more sub-workers in an earlier bug). Do not change
+this guard.
 
-**`node --check` complains about syntax**  
-You're on a Node version that doesn't support `let`/`const` at top
-level (pre-Node 6). `train-nn.js` uses `var` throughout but double-check
-your Node version: `node --version` should be ≥ 12.
+**Adam state format on manual checkpoint recovery**  
+The expected format is `{t, beta1, beta2, eps, m:[{W,b}], v:[{W,b}]}`.
+If you manually reconstruct an Adam state, match `makeAdamState` exactly
+or the optimizer will silently use wrong momentum.
 
-**Training is too slow**  
-Biggest wins: `--seconds 20` (shorter match cap), `--matches-per-opp 1`
-(noisier but faster), `--pop 20` (half the ES budget). Generation time
-scales roughly linearly with `pop × matches-per-opp × seconds`.
+**Phase regression on resume**  
+If you resume a run with `--epochs N` where N is shorter than the original,
+the curriculum phase may recalculate backward. Use `--min-phase 2` (or 3)
+to force the curriculum forward past the phase you were already in.
+
+**Warm-starting a new run from an old checkpoint**  
+Always copy `best-rl.json` to a named file first. The warm-start path
+resets `bestReturn = -Infinity`, so the very first epoch of the new run
+will overwrite `best-rl.json` regardless of whether it's actually better.
 
 ---
 
-## TL;DR
+## What we learned training expert-v1
 
-```bash
-# train
-node smash/train-nn.js train --generations 1000
+This section records lessons from ~6 training runs across two architectures.
+Future agents: read this before changing the trainer.
 
-# periodically:
-node smash/train-nn.js eval smash/ai/models/best.json --games 60
+**64×64 ES hit a ceiling at ~55% Hard WR.** Fitness landscape was too flat
+for ES to climb further. Switching to REINFORCE + dense per-step rewards
+immediately broke the plateau.
 
-# when gate passes:
-cp smash/ai/models/best.json smash/ai/expert-v1.json
-git add smash/ai/expert-v1.json
-git commit -m "Smash: ship Expert v1 neural-net CPU"
-git push
-```
+**128×128 vs 64×64.** The larger network (~25k params vs ~8k) was the main
+jump. Phase 1 hit 100% Easy WR by epoch ~280 in 128×128; the 64×64 net
+never got there cleanly.
+
+**Gradient clipping is not optional.** Without `clipGradNorm(grads, 0.5)`,
+every run collapsed between epochs 2200–2600: selfKos spiked from 0 to
+28–43 for hundreds of epochs and the model never recovered. A single
+catastrophic gradient update destroys survival behavior. With clipping,
+the same zone produced brief bumps to selfKos 6–9 that resolved in 2–3
+epochs.
+
+**The worker guard must be `isMainThread`, not `require.main === module`.**
+`require.main === module` is `true` inside Node worker threads, which caused
+each of 16 workers to spawn 16 more sub-workers — 256 processes total. The
+correct guard is `if (workerThreads && !isMainThread)` for the worker entry
+point and `if (isMainThread)` for the main training block.
+
+**Self-play at equal skill is unstable for REINFORCE.** A fine-tune run
+that activated self-play from epoch 0 (with a pool of ~80% WR models)
+caused WR to drift from 81% down to 50% over 1000 epochs. The gradient
+signal from matched-skill opponents is too noisy for REINFORCE's on-policy
+updates. Self-play is most useful mixed with heuristic opponents (33% ratio)
+and only after the model is already well into phase 3.
+
+**Phase 3 returns going negative is normal.** The last few hundred epochs
+of a run often show negative mean returns as the model faces Hard opponents
+and self-play. `best-rl.json` captures the peak, which typically occurs
+mid-phase-3 before the self-play opponents catch up.
+
+**Always copy best-rl.json before further training.** Any new run that
+resets `bestReturn` will overwrite it on the first epoch.

@@ -199,6 +199,29 @@
     return obs;
   }
 
+  // Forward pass storing all intermediate activations. Used by the RL
+  // trainer for backprop. Returns { logits, acts } where acts[l] is the
+  // output of layer l (acts[0] = input obs).
+  function policyForwardFull(model, obs) {
+    var x = obs;
+    var layers = model.layers;
+    var acts = new Array(layers.length + 1);
+    acts[0] = obs;
+    for (var l = 0; l < layers.length; l++) {
+      var layer = layers[l];
+      var y = new Array(layer.out);
+      for (var o = 0; o < layer.out; o++) {
+        var sum = layer.b[o];
+        var row = layer.W[o];
+        for (var k = 0; k < layer.in; k++) sum += row[k] * x[k];
+        y[o] = (layer.activation === 'tanh') ? tanh(sum) : sum;
+      }
+      acts[l + 1] = y;
+      x = y;
+    }
+    return { logits: x, acts: acts };
+  }
+
   // Forward pass through an MLP. model.layers is an array of
   //   { in, out, activation: 'tanh'|'linear', W: [out][in], b: [out] }
   // Returns a plain Array of OUT_DIM logits.
@@ -371,6 +394,7 @@
     CHAR_IDS: CHAR_IDS,
     buildObservation: buildObservation,
     policyForward: policyForward,
+    policyForwardFull: policyForwardFull,
     actionsToInput: actionsToInput,
     neuralDecide: neuralDecide,
     validateModel: validateModel,
