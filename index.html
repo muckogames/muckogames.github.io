@@ -303,9 +303,10 @@ h1 {
   const errorEl   = document.getElementById('pin-error');
   const pinInput  = document.getElementById('pin-input');
 
-  let mode    = storedHash ? 'enter' : 'create';  // 'create' | 'confirm' | 'enter'
-  let buf     = '';   // current digit buffer
-  let pending = '';   // first entry during 'create', waiting for confirm
+  let mode       = storedHash ? 'enter' : 'create';  // 'create' | 'confirm' | 'enter'
+  let buf        = '';   // current digit buffer
+  let pending    = '';   // first entry during 'create', waiting for confirm
+  let wrongCount = 0;    // consecutive wrong PIN attempts
 
   function renderDots(n) {
     dotsEl.innerHTML = '';
@@ -356,8 +357,10 @@ h1 {
     // mode === 'enter'
     const h = await sha256hex(buf);
     if (h === storedHash) {
+      wrongCount = 0;
       unlock();
     } else {
+      wrongCount++;
       shake('Wrong PIN');
     }
   }
@@ -373,10 +376,23 @@ h1 {
     buf = '';
     pinInput.value = '';
     renderDots(storedLen || 1);
-    errorEl.textContent = msg;
     const box = document.getElementById('pin-box');
     box.id = 'pin-shake';
     setTimeout(() => { box.id = 'pin-box'; }, 380);
+    if (wrongCount >= 5) {
+      errorEl.innerHTML = 'Wrong PIN &mdash; <a href="#" id="pin-reset-link" style="color:#ffd700">Reset PIN?</a>';
+      document.getElementById('pin-reset-link').addEventListener('click', function(e) {
+        e.preventDefault();
+        if (confirm('Reset PIN? You will need to create a new one.')) {
+          localStorage.removeItem(HASH_KEY);
+          localStorage.removeItem(LEN_KEY);
+          wrongCount = 0;
+          setMode('create');
+        }
+      });
+    } else {
+      errorEl.textContent = msg;
+    }
   }
 
   function pushDigit(d) {

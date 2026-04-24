@@ -1161,7 +1161,12 @@ function buildDriving(app, nextIdx) {
     showModal(`<span class="ev-big">${ev.emoji}</span>${ev.title}`, textStr, buttons);
   }
 
-  setTimeout(nextEvent, 900);
+  let skipTimer = setTimeout(nextEvent, 900);
+  canvas.addEventListener('click', function onSkip() {
+    clearTimeout(skipTimer);
+    canvas.removeEventListener('click', onSkip);
+    nextEvent();
+  }, { once: true });
 }
 
 // ── Ending Screen ─────────────────────────────────────────────────────────────

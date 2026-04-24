@@ -1630,8 +1630,13 @@ function drawEnding() {
   drawText(ctx, 'TOTAL', 236, y, '#ffe9aa', 20, 'left', 'bold');
   drawText(ctx, String(bd.total), 564, y, '#ffe9aa', 22, 'right', 'bold');
 
-  if (state.best && state.best.score === bd.total && state.endingSuccess) {
-    drawText(ctx, 'NEW BEST!', 400, y + 32, '#ff8e39', 18, 'center', 'bold');
+  if (state.best) {
+    var isNewBest = state.endingSuccess && state.best.score === bd.total;
+    if (isNewBest) {
+      drawText(ctx, 'NEW BEST!', 400, y + 32, '#ff8e39', 18, 'center', 'bold');
+    } else {
+      drawText(ctx, 'Personal best: ' + state.best.score + ' pts', 400, y + 32, '#ffe3a2', 14, 'center', 'bold');
+    }
   }
 
   drawText(ctx, 'Press Space or tap to play again', 400, 404, '#ffe9aa', 15 + pulse, 'center', 'bold');
