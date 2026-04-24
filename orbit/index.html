@@ -196,12 +196,15 @@ function sy(y) { return CY - y * SCALE; } // y-axis flip
 var R_LEO = 0.12;
 var V_LEO = Math.sqrt(GM_E / R_LEO); // circular velocity ≈ 18.1 DU/TU
 
-// Retrograde figure-8: r = 0.63 DU gives period exactly 0.5 TU
-// Synodic period with Moon = 1/(1/0.5 + 1/1) = 1/3 TU → 3 encounters per Moon orbit
-// Encounters at 120° intervals trace a symmetric figure-8 in the inertial frame
-var R_RET = 0.63;
-var V_RET = Math.sqrt(GM_E / R_RET); // ≈ 7.92 DU/TU, retrograde (negative vy)
-// Moon at angle π (opposite side) at t=0 so first encounter happens cleanly after ~1/6 TU
+// Figure-8 encounter: retrograde ellipse, peri=0.30 DU, apo=0.96 DU
+// Semi-major axis = 0.63 DU → period = 0.5 TU (2:1 retrograde resonance with Moon)
+// Apoapsis reaches near Moon's orbit; Moon phased so spacecraft sweeps past it ~every 0.25 TU
+var R_F8_PERI = 0.30;
+var R_F8_APO  = 0.96;
+var A_F8      = (R_F8_PERI + R_F8_APO) / 2;                          // 0.63 DU → T = 0.5 TU
+var V_F8_PERI = Math.sqrt(GM_E * (2 / R_F8_PERI - 1 / A_F8));        // ≈ 14.16 DU/TU
+// Moon phased so it is near apoapsis position on first pass (~0.25 TU); +0.05 for safe clearance
+var F8_MOON_ANGLE0 = Math.PI / 2 + 0.05;                              // ≈ 1.621 rad
 
 // Hohmann ellipse: periapsis 0.12 DU, apoapsis 0.55 DU — inside Moon's orbit
 var R_HOH_PERI = 0.12;
@@ -236,6 +239,15 @@ var FR_HALF_PERIOD = Math.PI * Math.sqrt(A_FR * A_FR * A_FR / GM_E);
 // +0.12 offset phases Moon ahead for a dramatic close flyby before the free return arc
 var FR_MOON_ANGLE0 = Math.PI - MOON_W * (0.003 + FR_HALF_PERIOD) + 0.12;
 
+// Gravity Assist: TLI ellipse with apoapsis 0.90 DU, Moon phased for a prograde slingshot flyby.
+// The Moon's gravity during close encounter boosts the spacecraft to a ~1.19 DU apoapsis orbit.
+var R_GA_APO       = 0.90;
+var A_GA           = (R_LEO + R_GA_APO) / 2;                         // 0.51 DU
+var GA_DV          = Math.sqrt(GM_E * (2 / R_LEO - 1 / A_GA)) - Math.sqrt(GM_E / R_LEO); // ≈ 5.96
+var GA_HALF_PERIOD = Math.PI * Math.sqrt(A_GA * A_GA * A_GA / GM_E); // ≈ 0.182 TU
+// +0.66 rad offset phases Moon for a prograde flyby (slingshot) at close approach
+var GA_MOON_ANGLE0 = Math.PI - MOON_W * (0.003 + GA_HALF_PERIOD) + 0.66; // ≈ 2.638 rad
+
 var ORBITS = [
   {
     name:  'Low Earth Orbit',
@@ -250,15 +262,15 @@ var ORBITS = [
   },
   {
     name:  'Figure-8 Encounter',
-    desc:  'Retrograde orbit meets Moon 3× per lunar month — traces a figure-8',
+    desc:  'Retrograde ellipse — apoapsis reaches near the Moon on every pass',
     color: '#fa4',
     trailRGB: [255, 170, 68],
-    // Start at (R_RET, 0), velocity DOWNWARD = clockwise on screen = retrograde
-    // Moon starts at (-1, 0) so first encounter ~1/6 TU in, once spacecraft rounds top
-    sx: R_RET, sy: 0, vx: 0, vy: -V_RET,
-    moonAngle0: Math.PI,
-    speed: 3,      // 3× = 0.03 TU/s so one encounter every ~11 real seconds
-    trailEvery: 3  // keep last ~100 seconds = 3 TU of trail
+    // Retrograde ellipse: peri 0.30 DU, apo 0.96 DU, period 0.5 TU
+    // Moon phased to be near (-0.96, 0) on the first apoapsis pass at t ≈ 0.25 TU
+    sx: R_F8_PERI, sy: 0, vx: 0, vy: -V_F8_PERI,
+    moonAngle0: F8_MOON_ANGLE0,
+    speed: 3,
+    trailEvery: 3
   },
   {
     name:  'Hohmann Ellipse',
@@ -334,6 +346,22 @@ var ORBITS = [
       { trigger: 'time', t: 0.003, dir: 'prograde', dv: FR_TLI_DV,
         label: 'TLI \u2014 single burn, coast home' }
     ]
+  },
+  {
+    name:    'Gravity Assist',
+    desc:    'Moon\'s gravity slingshots you into a much bigger orbit \u2014 no second burn',
+    color:   '#af8',
+    trailRGB: [170, 255, 136],
+    program: true,
+    story: "Lekan: 'No second burn. The Moon does the work. Let gravity be your engine.'",
+    sx: R_LEO, sy: 0, vx: 0, vy: Math.sqrt(GM_E / R_LEO),
+    moonAngle0: GA_MOON_ANGLE0,
+    speed: 3,
+    trailEvery: 2,
+    burns: [
+      { trigger: 'time', t: 0.003, dir: 'prograde', dv: GA_DV,
+        label: 'Transfer burn' }
+    ]
   }
 ];
 
@@ -350,7 +378,7 @@ var trailSkip     = 0;
 // ── Burn engine ───────────────────────────────────────────────────────────────
 // 1 DU/TU ≈ 0.163 km/s, so 18 DU/TU ≈ 2.9 km/s starting budget.
 var DV_START      = 18;
-var THRUST_MAG    = 3;    // DU/TU² main (prograde/retro)
+var THRUST_MAG    = 15;   // DU/TU² main (prograde/retro) — ×5 from original for responsive manual burns
 var DU_PER_TU_TO_KMPS = 0.1629; // 384400 km / (27.32*86400 s)
 var dvBudget      = DV_START;
 var thrustFwd     = 0;    // -1 retro, 0 off, +1 prograde — set per frame
@@ -403,10 +431,10 @@ var autoOrient = false;   // auto-rotate toward burn direction before firing
 // Physics multiplier presets — index 1 (earth) or 2 (moon) is the 1× default
 var EARTH_MASS_STEPS = [0.5, 1.0, 2.0, 4.0];
 var MOON_MASS_STEPS  = [0.0, 0.5, 1.0, 2.0, 4.0];
-var THRUST_STEPS     = [0.5, 1.0, 2.0, 4.0];
+var THRUST_STEPS     = [0.2, 0.5, 1.0, 2.0, 5.0];
 var earthMassIdx = 1;   // 1.0×
 var moonMassIdx  = 2;   // 1.0×
-var thrustIdx    = 1;   // 1.0×
+var thrustIdx    = 2;   // 1.0×
 var skinIdx      = 0;   // 0=capsule  1=saturn v
 
 // ── Narration (Phase 6) ───────────────────────────────────────────────────────
@@ -1475,24 +1503,24 @@ function drawSim() {
 }
 
 // ── Options panel ─────────────────────────────────────────────────────────────
+// Chip-list layout helper shared by draw and click.
+// Rows 2/3/4 (Earth/Moon mass, Thrust) show tappable chips for direct value selection.
+var OPT_PX = 0;
+var OPT_PW = 330, OPT_ROW_H = 38;
+function optChipLayout(N) {
+  var leftEdge = OPT_PX + 108;
+  var chipGap  = 3;
+  var chipW    = Math.floor((OPT_PW - 120 - (N - 1) * chipGap) / N);
+  var chipH    = OPT_ROW_H - 12;
+  return { leftEdge: leftEdge, chipW: chipW, chipH: chipH, chipGap: chipGap };
+}
+
 function drawOptionsPanel() {
-  var PX = W / 2 - 165, PY = 48, PW = 330, rowH = 36;
+  OPT_PX = W / 2 - 165;
+  var PX = OPT_PX, PY = 48, PW = OPT_PW, rowH = OPT_ROW_H;
   var skinNames = ['Capsule', 'Saturn V', 'Duck Dieb'];
-  var rows = [
-    { label: 'Auto-Orient', val: autoOrient ? 'ON' : 'OFF',
-      color: autoOrient ? '#8ef' : '#aaa' },
-    { label: 'Trajectory',  val: showPred ? 'ON' : 'OFF',
-      color: showPred ? '#8ef' : '#aaa' },
-    { label: 'Earth mass',  val: EARTH_MASS_STEPS[earthMassIdx] + '\u00d7',
-      color: earthMassIdx === 1 ? '#aaa' : '#fa8' },
-    { label: 'Moon mass',   val: MOON_MASS_STEPS[moonMassIdx] + '\u00d7',
-      color: moonMassIdx  === 2 ? '#aaa' : '#fa8' },
-    { label: 'Thrust',      val: THRUST_STEPS[thrustIdx] + '\u00d7',
-      color: thrustIdx    === 1 ? '#aaa' : '#fa8' },
-    { label: 'Spacecraft',  val: skinNames[skinIdx],
-      color: '#bdf' }
-  ];
-  var PH = 54 + rows.length * rowH;
+  var nRows = 6;
+  var PH = 54 + nRows * rowH;
 
   ctx.beginPath();
   ctx.roundRect(PX, PY, PW, PH, 12);
@@ -1508,50 +1536,103 @@ function drawOptionsPanel() {
   ctx.textBaseline = 'alphabetic';
   ctx.fillText('OPTIONS', W / 2, PY + 22);
 
-  for (var i = 0; i < rows.length; i++) {
+  var rowLabels  = ['Auto-Orient', 'Trajectory', 'Earth mass', 'Moon mass', 'Thrust', 'Spacecraft'];
+  var stepArrays = [null, null, EARTH_MASS_STEPS, MOON_MASS_STEPS, THRUST_STEPS, null];
+  var stepIdxs   = [0, 0, earthMassIdx, moonMassIdx, thrustIdx, 0];
+  var defIdxs    = [0, 0, 1, 2, 2, 0]; // index of the 1.0x default in each array
+
+  for (var i = 0; i < nRows; i++) {
     var ry = PY + 36 + i * rowH;
-    var rHov = hitRect(PX + 8, ry, PW - 16, rowH - 2);
-    if (rHov) {
-      ctx.beginPath();
-      ctx.roundRect(PX + 8, ry, PW - 16, rowH - 2, 6);
-      ctx.fillStyle = 'rgba(255,255,255,0.06)';
-      ctx.fill();
-    }
     ctx.fillStyle = 'rgba(255,255,255,0.45)';
     ctx.font = '13px sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText(rows[i].label, PX + 20, ry + (rowH - 2) / 2);
-    ctx.fillStyle = rows[i].color;
-    ctx.font = 'bold 13px sans-serif';
-    ctx.textAlign = 'right';
-    ctx.fillText(rows[i].val, PX + PW - 20, ry + (rowH - 2) / 2);
+    ctx.fillText(rowLabels[i], PX + 18, ry + (rowH - 2) / 2);
+
+    if (stepArrays[i] === null) {
+      var rHov = hitRect(PX + 8, ry, PW - 16, rowH - 2);
+      if (rHov) {
+        ctx.beginPath();
+        ctx.roundRect(PX + 8, ry, PW - 16, rowH - 2, 6);
+        ctx.fillStyle = 'rgba(255,255,255,0.06)';
+        ctx.fill();
+      }
+      var tval, tcol;
+      if (i === 0)      { tval = autoOrient ? 'ON' : 'OFF'; tcol = autoOrient ? '#8ef' : '#aaa'; }
+      else if (i === 1) { tval = showPred   ? 'ON' : 'OFF'; tcol = showPred   ? '#8ef' : '#aaa'; }
+      else              { tval = skinNames[skinIdx];         tcol = '#bdf'; }
+      ctx.fillStyle = tcol;
+      ctx.font = 'bold 13px sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText(tval, PX + PW - 18, ry + (rowH - 2) / 2);
+    } else {
+      var steps  = stepArrays[i];
+      var curIdx = stepIdxs[i];
+      var L = optChipLayout(steps.length);
+      for (var j = 0; j < steps.length; j++) {
+        var chipX = PX + L.leftEdge + j * (L.chipW + L.chipGap);
+        var chipY = ry + 5;
+        var active   = (j === curIdx);
+        var chipHov  = hitRect(chipX, chipY, L.chipW, L.chipH);
+        ctx.beginPath();
+        ctx.roundRect(chipX, chipY, L.chipW, L.chipH, 4);
+        if (active) {
+          var isDefault = (j === defIdxs[i]);
+          ctx.fillStyle = isDefault ? 'rgba(136,238,255,0.28)' : 'rgba(255,168,68,0.32)';
+          ctx.fill();
+          ctx.strokeStyle = isDefault ? 'rgba(136,238,255,0.75)' : 'rgba(255,168,68,0.75)';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        } else {
+          ctx.fillStyle = chipHov ? 'rgba(255,255,255,0.09)' : 'rgba(255,255,255,0.04)';
+          ctx.fill();
+        }
+        ctx.fillStyle = active ? '#fff' : 'rgba(255,255,255,0.42)';
+        ctx.font = (active ? 'bold ' : '') + '11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(steps[j] + '×', chipX + L.chipW / 2, chipY + L.chipH / 2);
+      }
+    }
   }
 
   ctx.fillStyle = 'rgba(255,255,255,0.22)';
   ctx.font = '10px sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'alphabetic';
-  ctx.fillText('tap a row to cycle value', W / 2, PY + PH - 8);
+  ctx.fillText('tap to select', W / 2, PY + PH - 8);
 }
 
 function handleOptsClick() {
-  var PX = W / 2 - 165, PY = 48, PW = 330, rowH = 36;
+  OPT_PX = W / 2 - 165;
+  var PX = OPT_PX, PY = 48, PW = OPT_PW, rowH = OPT_ROW_H;
   var nRows = 6;
+  var stepArrays = [null, null, EARTH_MASS_STEPS, MOON_MASS_STEPS, THRUST_STEPS, null];
+
   for (var i = 0; i < nRows; i++) {
     var ry = PY + 36 + i * rowH;
-    if (hitRect(PX + 8, ry, PW - 16, rowH - 2)) {
-      if      (i === 0) { autoOrient   = !autoOrient; }
-      else if (i === 1) { showPred     = !showPred; }
-      else if (i === 2) { earthMassIdx = (earthMassIdx + 1) % EARTH_MASS_STEPS.length; }
-      else if (i === 3) { moonMassIdx  = (moonMassIdx  + 1) % MOON_MASS_STEPS.length;  }
-      else if (i === 4) { thrustIdx    = (thrustIdx    + 1) % THRUST_STEPS.length;     }
-      else if (i === 5) { skinIdx      = (skinIdx      + 1) % 3; }
-      break;
+    if (!hitRect(PX + 8, ry, PW - 16, rowH - 2)) continue;
+
+    if (i === 0)      { autoOrient = !autoOrient; }
+    else if (i === 1) { showPred   = !showPred;   }
+    else if (i === 5) { skinIdx    = (skinIdx + 1) % 3; }
+    else if (stepArrays[i]) {
+      var steps = stepArrays[i];
+      var L = optChipLayout(steps.length);
+      for (var j = 0; j < steps.length; j++) {
+        var chipX = PX + L.leftEdge + j * (L.chipW + L.chipGap);
+        var chipY = ry + 5;
+        if (hitRect(chipX, chipY, L.chipW, L.chipH)) {
+          if      (i === 2) earthMassIdx = j;
+          else if (i === 3) moonMassIdx  = j;
+          else if (i === 4) thrustIdx    = j;
+          break;
+        }
+      }
     }
+    break;
   }
 }
-
 // ── Game loop ─────────────────────────────────────────────────────────────────
 var LOW_FPS = { select: true };
 var SIM_REAL_STEP = 1 / 60; // real seconds per simulation batch
