@@ -1551,11 +1551,17 @@ function hCopyRoom(d){
     startX:d.startX,startY:d.startY,timerSecs:d.timerSecs||0,
     complete:d.complete||false};
 }
+// Convert pixel start coords (r.startX,r.startY) into tile col/row
+function hPxToCol(px){return Math.floor((px-H_ROOM_X)/H_TILE);}
+function hPxToRow(py){return Math.floor((py-H_ROOM_Y)/H_TILE);}
+
 function initHeist(){
   cigarsFound=0;
   const rooms=H_ROOM_DEFS.map(hCopyRoom),r=rooms[0];
+  var pPlayer={dir:'down',vx:0,vy:0,facing:'up'};
+  MuckoGrid.init(pPlayer, hPxToCol(r.startX), hPxToRow(r.startY), H_TILE, H_ROOM_X, H_ROOM_Y);
   heist={rooms,roomIdx:0,room:r,
-    player:{x:r.startX,y:r.startY,dir:'down',vx:0,vy:0},
+    player:pPlayer,
     timer:r.timerSecs*(diff.timerMul||1),
     collected:{f:0,c:0,g:0},
     kInventory:{yellow:false},
@@ -1642,13 +1648,16 @@ const DIGORY_QUIPS_BACK=[
 function hEnterRoom(idx,entryDir){
   const r=heist.rooms[idx];
   heist.roomIdx=idx;heist.room=r;
+  var col, row;
   if(entryDir==='fromNorth'){
     // Backtracked from a higher room: drop in just below the north door
-    heist.player.x=hTX(9);heist.player.y=hTY(2);
+    col=9; row=2;
   } else {
-    heist.player.x=r.startX;heist.player.y=r.startY;
+    col=hPxToCol(r.startX); row=hPxToRow(r.startY);
   }
-  heist.player.vx=0;heist.player.vy=0;
+  MuckoGrid.init(heist.player, col, row, H_TILE, H_ROOM_X, H_ROOM_Y);
+  heist.player.vx=0; heist.player.vy=0;
+  heist.player.facing=entryDir==='fromNorth'?'down':'up';
   if(r.timerSecs>0)heist.timer=r.timerSecs*diff.timerMul;
   clearBackdropCache();
   const quip=entryDir==='fromNorth'?DIGORY_QUIPS_BACK[idx]:DIGORY_QUIPS_FWD[idx];
@@ -1724,34 +1733,44 @@ function updateHeist(dt){
   const p=h.player,r=h.room;
   // Guard update
   if(r.guard)hGuardUpdate(r.guard,dt,p);
-  // Movement
-  let rawDx=0,rawDy=0;
-  if(K['ArrowLeft']||touchState.dirs.has('left'))rawDx=-H_SPD;
-  if(K['ArrowRight']||touchState.dirs.has('right'))rawDx=H_SPD;
-  if(K['ArrowUp']||touchState.dirs.has('up'))rawDy=-H_SPD;
-  if(K['ArrowDown']||touchState.dirs.has('down'))rawDy=H_SPD;
-  if(rawDx&&rawDy){rawDx*=0.707;rawDy*=0.707;}
-  if(rawDx)p.dir=rawDx<0?'left':'right';
-  else if(rawDy)p.dir=rawDy<0?'up':'down';
-  let dx=rawDx,dy=rawDy;
-  // Conveyor push
-  const underTile=hTileUnder(p.x,p.y,r.map);
-  if(underTile===TCR)dx+=H_SPD*0.65;
-  else if(underTile===TCL)dx-=H_SPD*0.65;
-  else if(underTile===TCD)dy+=H_SPD*0.65;
-  else if(underTile===TCU)dy-=H_SPD*0.65;
-  // Ice: smooth velocity
-  const onIce=(underTile===TI);
-  if(onIce){p.vx+=(dx-p.vx)*3*dt;p.vy+=(dy-p.vy)*3*dt;}
-  else{p.vx=dx;p.vy=dy;}
-  // Apply movement with keycard door detection
-  const nx=p.x+p.vx*dt,ny=p.y+p.vy*dt;
-  hTryOpenKD(nx,p.y);
-  if(hCanMove(nx,p.y))p.x=nx; else p.vx=0;
-  hTryOpenKD(p.x,ny);
-  if(hCanMove(p.x,ny))p.y=ny; else p.vy=0;
-  p.x=Math.max(H_ROOM_X+H_HS+1,Math.min(H_HUD_X-H_HS-1,p.x));
-  p.y=Math.max(H_ROOM_Y+H_HS+1,Math.min(H_ROOM_Y+H_ROWS*H_TILE-H_HS-1,p.y));
+
+  // ── Grid movement (Pokémon-style discrete steps) ──────────────────────
+  // Tiles that block the duck's step. TKD is normally blocking — but if you
+  // have the yellow keycard, the side-effect in this callback unlocks it.
+  function heistBlocked(c,row){
+    if(c<0||row<0||c>=H_COLS||row>=H_ROWS)return true;
+    var t=r.map[row*H_COLS+c];
+    if(t===TKD&&h.kInventory.yellow){
+      h.kInventory.yellow=false;
+      r.map[row*H_COLS+c]=TO;
+      clearBackdropCache();
+      hShowMsg('Keycard used — sealed door unlocked!');
+      return false;
+    }
+    return t===TW||t===TN||t===TD||t===TL||t===TKD;
+  }
+  var dir=MuckoGrid.readDir(K,{
+    up:touchState.dirs.has('up'),    down:touchState.dirs.has('down'),
+    left:touchState.dirs.has('left'),right:touchState.dirs.has('right')
+  });
+  MuckoGrid.update(p,dt,dir,false,heistBlocked,H_TILE);
+  MuckoGrid.applyBumpRender(p,H_TILE);
+  p.dir=p.facing;
+
+  // ── Tile effects on idle: conveyor belts auto-step in their direction;
+  //    ice floor slides one more tile in your last direction. Player input
+  //    above takes precedence — these only kick in when the player isn't
+  //    actively committing a step.
+  if(!p.gridMoving&&p.bumpT<=0&&!dir){
+    var underT=r.map[p.gridRow*H_COLS+p.gridCol];
+    var autoDir=null;
+    if(underT===TCR)autoDir='right';
+    else if(underT===TCL)autoDir='left';
+    else if(underT===TCU)autoDir='up';
+    else if(underT===TCD)autoDir='down';
+    else if(underT===TI&&p.lastDir)autoDir=p.lastDir;
+    if(autoDir)MuckoGrid.startStep(p,autoDir,false,heistBlocked,H_TILE);
+  }
   // Item pickups
   for(const it of r.floppies){
     if(!it.got&&Math.hypot(p.x-it.x,p.y-it.y)<H_PICK){
@@ -1819,35 +1838,16 @@ function updateHeist(dt){
     if(h.timer<=0){h.timer=0;h.failed=true;h.failT=2.8;hShowMsg("Time's up!");}
   }
   if(h.msgT>0)h.msgT-=dt;
-  // Room transition: reach north wall
-  if(p.y<H_ROOM_Y+H_TILE*1.5){
+  // Room transition: stepped onto an open north door (row 0 TO tile)
+  if(!p.gridMoving&&p.gridRow===0&&hTileAt(r.map,p.gridCol,0)===TO){
     if(h.roomIdx===6){
-      // Vault: need 8+8 (kid-achievable; world has 11 of each)
       if(h.collected.f>=8&&h.collected.c>=8){hEnterRoom(7);return;}
-      else{
-        // Don't push-back into the wall — let the kid turn around and
-        // exit south through the back-door if they need more pickups.
-        hShowMsg('Need '+(8-h.collected.f)+' more disks and '+(8-h.collected.c)+' more crates! Try the back door.');
-      }
-    } else {
-      const pCol=Math.round((p.x-H_ROOM_X)/H_TILE);
-      for(let dc=-1;dc<=1;dc++){
-        const c=pCol+dc;
-        if(c>=0&&c<H_COLS&&hTileAt(r.map,c,0)===TO){
-          if(h.roomIdx<7){hEnterRoom(h.roomIdx+1);return;}
-        }
-      }
-    }
+      else if(h.msgT<=0)hShowMsg('Need '+(8-h.collected.f)+' more disks and '+(8-h.collected.c)+' more crates! Try the back door.');
+    } else if(h.roomIdx<7){hEnterRoom(h.roomIdx+1);return;}
   }
-  // Room transition: reach south wall (back-door, allows backtracking)
-  if(p.y>H_ROOM_Y+(H_ROWS-1)*H_TILE-H_HS){
-    const pCol=Math.round((p.x-H_ROOM_X)/H_TILE);
-    for(let dc=-1;dc<=1;dc++){
-      const c=pCol+dc;
-      if(c>=0&&c<H_COLS&&hTileAt(r.map,c,H_ROWS-1)===TBO){
-        if(h.roomIdx>0){hEnterRoom(h.roomIdx-1,'fromNorth');return;}
-      }
-    }
+  // Room transition: stepped onto a back door (row H_ROWS-1 TBO tile)
+  if(!p.gridMoving&&p.gridRow===H_ROWS-1&&hTileAt(r.map,p.gridCol,H_ROWS-1)===TBO){
+    if(h.roomIdx>0){hEnterRoom(h.roomIdx-1,'fromNorth');return;}
   }
 }
 
@@ -3181,6 +3181,7 @@ function loop(ts){
 }
 requestAnimationFrame(loop);
 </script>
+<script src="../mucko-grid.js"></script>
 <script src="../mucko-gamepad.js"></script>
 </body>
 </html>

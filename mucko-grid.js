@@ -47,11 +47,16 @@
     return DEFAULTS[key];
   }
 
-  function init(p, col, row, tile) {
+  // originX/Y are an optional pixel offset so games whose tile grid doesn't
+  // start at (0,0) (e.g. Kraken's heist with H_ROOM_Y=40) can keep using
+  // tile coordinates and have the helper handle the pixel translation.
+  function init(p, col, row, tile, originX, originY) {
     p.gridCol = col;
     p.gridRow = row;
-    p.x = col * tile + tile / 2;
-    p.y = row * tile + tile / 2;
+    p.gridOriginX = originX || 0;
+    p.gridOriginY = originY || 0;
+    p.x = p.gridOriginX + col * tile + tile / 2;
+    p.y = p.gridOriginY + row * tile + tile / 2;
     p.gridMoving = false;
     p.moveT = 0;
     p.moveDur = 0;
@@ -74,14 +79,16 @@
       return false;
     }
     p.targetCol = nc; p.targetRow = nr;
-    p.fromX = p.gridCol * tile + tile / 2;
-    p.fromY = p.gridRow * tile + tile / 2;
-    p.toX   = nc * tile + tile / 2;
-    p.toY   = nr * tile + tile / 2;
+    var ox = p.gridOriginX || 0, oy = p.gridOriginY || 0;
+    p.fromX = ox + p.gridCol * tile + tile / 2;
+    p.fromY = oy + p.gridRow * tile + tile / 2;
+    p.toX   = ox + nc * tile + tile / 2;
+    p.toY   = oy + nr * tile + tile / 2;
     p.moveDur = sprint ? getOpt(opts, 'sprintDur') : getOpt(opts, 'walkDur');
     p.moveT = 0;
     p.gridMoving = true;
     p.sprinting = !!sprint;
+    p.lastDir = dir;
     return true;
   }
 
@@ -138,8 +145,9 @@
     var nudge = Math.sin(bt * Math.PI) * bumpPx;
     var dc = p.bumpDir === 'left' ? -1 : p.bumpDir === 'right' ? 1 : 0;
     var dr = p.bumpDir === 'up'   ? -1 : p.bumpDir === 'down'  ? 1 : 0;
-    p.x = p.gridCol * tile + tile / 2 + dc * nudge;
-    p.y = p.gridRow * tile + tile / 2 + dr * nudge;
+    var ox = p.gridOriginX || 0, oy = p.gridOriginY || 0;
+    p.x = ox + p.gridCol * tile + tile / 2 + dc * nudge;
+    p.y = oy + p.gridRow * tile + tile / 2 + dr * nudge;
   }
 
   // 4-direction input read with vertical-wins-on-ties (no diagonals).
@@ -168,6 +176,10 @@
   window.MuckoGrid = {
     init: init,
     update: update,
+    // Force a step in `dir` immediately (skips the turn-tap delay). Use this
+    // for tile effects like conveyors and ice slides — call only when the
+    // player is idle (not p.gridMoving) and not bumping.
+    startStep: tryStartStep,
     applyBumpRender: applyBumpRender,
     readDir: readDir,
     dirToNum: dirToNum,
