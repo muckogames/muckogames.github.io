@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Don's Tower — Level Editor</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext x='50%25' y='50%25' dy='.35em' text-anchor='middle' font-size='82'%3E%F0%9F%97%9D%EF%B8%8F%3C/text%3E%3C/svg%3E">
+<style>
+  html, body { margin: 0; padding: 0; background: #1a1a24; color: #efe2c2; font-family: 'Courier New', monospace; height: 100%; overflow: hidden; }
+  body { display: flex; flex-direction: column; }
+  header { padding: 8px 14px; background: #0c0c14; border-bottom: 1px solid #383848; display: flex; align-items: center; }
+  header h1 { margin: 0; font-size: 18px; font-family: Georgia, serif; color: #f6d57a; }
+  header .right { margin-left: auto; font-size: 12px; color: #8a9ab8; }
+  header a { color: #c8a360; text-decoration: none; margin-left: 12px; }
+  header a:hover { color: #f6d57a; }
+  main { flex: 1; display: flex; min-height: 0; }
+  .left { display: flex; flex-direction: column; padding: 10px; min-width: 632px; }
+  .right { flex: 1; display: flex; flex-direction: column; padding: 10px; border-left: 1px solid #2a2a3a; min-width: 360px; }
+  .toolbar { display: flex; flex-wrap: wrap; align-items: center; margin-bottom: 6px; }
+  .toolbar > * { margin-right: 4px; margin-bottom: 4px; }
+  .toolbar > span { color: #8a9ab8; font-size: 11px; padding: 0 4px; }
+  button, select, input[type=text] { background: #1a1a28; color: #efe2c2; border: 1px solid #4a4a5e; padding: 4px 8px; font: inherit; font-size: 12px; cursor: pointer; }
+  button:hover, select:hover { background: #2a2a3a; }
+  button.sel { background: #4a3818; color: #f6d57a; border-color: #c8a360; }
+  canvas#ec { background: #0c0c14; border: 1px solid #2a2a3a; image-rendering: pixelated; cursor: crosshair; }
+  textarea#json { flex: 1; background: #0a0a14; color: #d8dce6; border: 1px solid #2a2a3a; padding: 8px; font: inherit; font-size: 12px; resize: none; min-height: 240px; }
+  textarea#json.bad { border-color: #c8403a; }
+  .actions { display: flex; flex-wrap: wrap; margin-top: 8px; }
+  .actions > * { margin-right: 6px; margin-bottom: 6px; }
+  .err { color: #ff8888; font-size: 11px; padding: 4px 0; min-height: 16px; }
+  .roomNav { display: flex; align-items: center; margin-top: 6px; }
+  .roomNav > * { margin-right: 6px; }
+  .roomNav .name { font-size: 12px; color: #8a9ab8; }
+  .badge { font-size: 10px; color: #8a9ab8; padding: 0 6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🗝️ The Don's Tower — Level Editor</h1>
+  <div class="right">
+    <a href="index.html">← Back to game</a>
+  </div>
+</header>
+<main>
+  <div class="left">
+    <div class="toolbar" id="paintToolbar">
+      <span>Paint tile:</span>
+      <button data-tile="." class="sel" title="floor">.</button>
+      <button data-tile="#" title="wall">#</button>
+      <button data-tile="N" title="niche">N</button>
+      <button data-tile="D" title="closed door">D</button>
+      <button data-tile="L" title="laser">L</button>
+      <button data-tile="O" title="open door">O</button>
+      <button data-tile="I" title="ice">I</button>
+      <button data-tile="&lt;" title="conveyor left">&lt;</button>
+      <button data-tile="&gt;" title="conveyor right">&gt;</button>
+      <button data-tile="^" title="conveyor up">^</button>
+      <button data-tile="v" title="conveyor down">v</button>
+      <button data-tile="K" title="keycard door">K</button>
+      <button data-tile="S" title="light switch">S</button>
+      <button data-tile="B" title="back door">B</button>
+    </div>
+    <canvas id="ec" width="608" height="480"></canvas>
+    <div class="roomNav">
+      <button id="roomPrev" title="previous room">◀</button>
+      <span class="name" id="roomLabel">Room 1 / 1</span>
+      <button id="roomNext" title="next room">▶</button>
+      <button id="roomAdd" title="add room">+ Room</button>
+      <button id="roomDel" title="delete room">– Room</button>
+      <span class="badge" id="hover">—</span>
+    </div>
+  </div>
+  <div class="right">
+    <div style="font-size:11px;color:#8a9ab8;margin-bottom:4px;">Level JSON (mucko-level/v1) — edit and click outside to apply</div>
+    <textarea id="json" spellcheck="false"></textarea>
+    <div class="err" id="err"></div>
+    <div class="actions">
+      <input type="text" id="saveName" placeholder="level name" size="14">
+      <button id="save">💾 Save to browser</button>
+      <select id="load"><option value="">— load saved —</option></select>
+      <button id="loadDel" title="delete loaded">×</button>
+    </div>
+    <div class="actions">
+      <button id="play" style="background:#1a3818;border-color:#3a8a5a;color:#9ce0a8;">▶ Play this level</button>
+      <button id="newLevel">New blank level</button>
+      <button id="copyJson">Copy JSON</button>
+    </div>
+  </div>
+</main>
+
+<script src="../mucko-grid.js"></script>
+<script src="mucko-npcs.js"></script>
+<script>
+'use strict';
+
+// ── Canvas + tile constants ─────────────────────────────────────────────────
+var H_TILE = 32, H_COLS = 19, H_ROWS = 15;
+var canvas = document.getElementById('ec');
+var ctx = canvas.getContext('2d');
+
+// Bind the ported sprites to this editor's context too. The game does this
+// auto-bind via MUCKO_NPCS when don/index.html loads; we don't have that
+// table here, but MuckoSprites still exposes the draw functions directly.
+var MUCKO_NPCS_LOCAL = {};
+if (window.MuckoSprites) MuckoSprites.bindToTable(ctx, MUCKO_NPCS_LOCAL);
+
+// ── Tile alphabet (must match parseLevel in don/index.html) ─────────────────
+var TILE_CHARS = ['.','#','N','D','L','O','I','<','>','^','v','K','S','B'];
+var TILE_INFO = {
+  '.': { name: 'floor',          fill: '#3a3a48' },
+  '#': { name: 'wall',           fill: '#1a1a26' },
+  'N': { name: 'niche',          fill: '#3a3050' },
+  'D': { name: 'closed door',    fill: '#7a4a20' },
+  'L': { name: 'laser',          fill: '#4a1010' },
+  'O': { name: 'open door',      fill: '#1a4830' },
+  'I': { name: 'ice',            fill: '#7a9ab8' },
+  '<': { name: 'conveyor left',  fill: '#1a2a48' },
+  '>': { name: 'conveyor right', fill: '#1a2a48' },
+  '^': { name: 'conveyor up',    fill: '#1a2a48' },
+  'v': { name: 'conveyor down',  fill: '#1a2a48' },
+  'K': { name: 'keycard door',   fill: '#4a3a10' },
+  'S': { name: 'light switch',   fill: '#3a3a18' },
+  'B': { name: 'back door',      fill: '#1a4830' }
+};
+
+// ── Default starter level ───────────────────────────────────────────────────
+function blankRoom(idx) {
+  var rows = [];
+  for (var r = 0; r < H_ROWS; r++) {
+    var s = '';
+    for (var c = 0; c < H_COLS; c++) {
+      if (r === 0 || r === H_ROWS - 1 || c === 0 || c === H_COLS - 1) s += '#';
+      else s += '.';
+    }
+    rows.push(s);
+  }
+  // Open north door at col 9 row 0
+  rows[0] = rows[0].substring(0, 9) + 'O' + rows[0].substring(10);
+  return {
+    name: 'Room ' + (idx + 1),
+    map: rows,
+    spawn: { col: 9, row: 13, facing: 'up' },
+    items: [],
+    npcs: []
+  };
+}
+function blankLevel() {
+  return {
+    format: 'mucko-level/v1',
+    name: 'My Level',
+    playerChar: 'digory',
+    rooms: [ blankRoom(0) ]
+  };
+}
+
+// ── State ───────────────────────────────────────────────────────────────────
+var level = blankLevel();
+var roomIdx = 0;
+var selectedTile = '.';
+
+// ── Rendering ───────────────────────────────────────────────────────────────
+function getRoom() { return level.rooms[roomIdx]; }
+function tileChar(col, row) {
+  var line = getRoom().map[row];
+  return line.charAt(col);
+}
+function setTileChar(col, row, ch) {
+  var room = getRoom();
+  var line = room.map[row];
+  room.map[row] = line.substring(0, col) + ch + line.substring(col + 1);
+}
+
+function drawTileBg(col, row, ch) {
+  var info = TILE_INFO[ch] || TILE_INFO['.'];
+  var x = col * H_TILE, y = row * H_TILE;
+  ctx.fillStyle = info.fill;
+  ctx.fillRect(x, y, H_TILE, H_TILE);
+  // checkerboard tint on floor for visual texture
+  if (ch === '.' && (col + row) % 2 === 0) {
+    ctx.fillStyle = 'rgba(255,255,255,0.025)';
+    ctx.fillRect(x, y, H_TILE, H_TILE);
+  }
+  // Conveyor arrows
+  if (ch === '<' || ch === '>' || ch === '^' || ch === 'v') {
+    ctx.fillStyle = '#6a8ad8';
+    ctx.beginPath();
+    var cx = x + H_TILE / 2, cy = y + H_TILE / 2;
+    if (ch === '>') { ctx.moveTo(cx + 7, cy); ctx.lineTo(cx - 7, cy - 5); ctx.lineTo(cx - 7, cy + 5); }
+    else if (ch === '<') { ctx.moveTo(cx - 7, cy); ctx.lineTo(cx + 7, cy - 5); ctx.lineTo(cx + 7, cy + 5); }
+    else if (ch === '^') { ctx.moveTo(cx, cy - 7); ctx.lineTo(cx - 5, cy + 7); ctx.lineTo(cx + 5, cy + 7); }
+    else                 { ctx.moveTo(cx, cy + 7); ctx.lineTo(cx - 5, cy - 7); ctx.lineTo(cx + 5, cy - 7); }
+    ctx.closePath(); ctx.fill();
+  }
+  // Letter for special non-conveyor tiles
+  if (ch === 'D' || ch === 'O' || ch === 'I' || ch === 'K' || ch === 'S' || ch === 'B' || ch === 'N' || ch === 'L') {
+    ctx.fillStyle = ch === 'D' ? '#c89870'
+                  : ch === 'O' ? '#9ce0a8'
+                  : ch === 'I' ? '#cce8ff'
+                  : ch === 'K' ? '#f6d57a'
+                  : ch === 'S' ? '#f6d57a'
+                  : ch === 'B' ? '#9ce0a8'
+                  : ch === 'L' ? '#ff8888'
+                  :              '#a899c8';
+    ctx.font = 'bold 14px monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(ch, x + H_TILE / 2, y + H_TILE / 2 + 1);
+  }
+}
+
+function drawSpawn(col, row, facing) {
+  var x = col * H_TILE + H_TILE / 2, y = row * H_TILE + H_TILE / 2;
+  ctx.save();
+  ctx.fillStyle = 'rgba(60,200,120,0.30)';
+  ctx.beginPath(); ctx.arc(x, y, 14, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#3a8a5a'; ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle = '#9ce0a8';
+  ctx.beginPath();
+  if (facing === 'up')        { ctx.moveTo(x, y - 8); ctx.lineTo(x - 5, y + 4); ctx.lineTo(x + 5, y + 4); }
+  else if (facing === 'down') { ctx.moveTo(x, y + 8); ctx.lineTo(x - 5, y - 4); ctx.lineTo(x + 5, y - 4); }
+  else if (facing === 'left') { ctx.moveTo(x - 8, y); ctx.lineTo(x + 4, y - 5); ctx.lineTo(x + 4, y + 5); }
+  else                         { ctx.moveTo(x + 8, y); ctx.lineTo(x - 4, y - 5); ctx.lineTo(x - 4, y + 5); }
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+function drawItem(it) {
+  var x = it.col * H_TILE + H_TILE / 2, y = it.row * H_TILE + H_TILE / 2;
+  ctx.save();
+  var fill, label;
+  if (it.type === 'floppy')         { fill = '#4466cc'; label = 'F'; }
+  else if (it.type === 'container') { fill = '#b08040'; label = 'C'; }
+  else if (it.type === 'cigar')     { fill = '#a07028'; label = 'G'; }
+  else if (it.type === 'keycard')   { fill = '#e0b820'; label = 'K'; }
+  else if (it.type === 'note')      { fill = '#c0a060'; label = 'N'; }
+  else if (it.type === 'keypad')    { fill = '#3a8a5a'; label = '#'; }
+  else                              { fill = '#888';    label = '?'; }
+  ctx.fillStyle = fill;
+  ctx.beginPath(); ctx.arc(x, y, 10, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#0a0a14'; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.fillStyle = '#0a0a14';
+  ctx.font = 'bold 11px monospace';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(label, x, y + 1);
+  ctx.restore();
+}
+
+function drawNpc(n) {
+  var x = n.col * H_TILE + H_TILE / 2, y = n.row * H_TILE + H_TILE / 2;
+  var entry = MUCKO_NPCS_LOCAL[n.char];
+  if (entry && entry.draw) {
+    entry.draw(x, y, n.dir || 'down', 0, n);
+  } else {
+    ctx.save();
+    ctx.fillStyle = '#c8a360';
+    ctx.beginPath(); ctx.arc(x, y, 11, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#0a0a14'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = '#0a0a14'; ctx.font = 'bold 9px monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText((n.char || '?').substring(0, 3), x, y + 1);
+    ctx.restore();
+  }
+  // Patrol path lines
+  if (n.patrol && n.patrol.length > 1) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(200,160,96,0.4)';
+    ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    for (var i = 0; i < n.patrol.length; i++) {
+      var p = n.patrol[i];
+      var px = p[0] * H_TILE + H_TILE / 2, py = p[1] * H_TILE + H_TILE / 2;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.lineTo(n.patrol[0][0] * H_TILE + H_TILE / 2, n.patrol[0][1] * H_TILE + H_TILE / 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+}
+
+function render() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  var room = getRoom();
+  for (var row = 0; row < H_ROWS; row++) {
+    for (var col = 0; col < H_COLS; col++) {
+      drawTileBg(col, row, tileChar(col, row));
+    }
+  }
+  // Grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  ctx.lineWidth = 1;
+  for (var c = 0; c <= H_COLS; c++) {
+    ctx.beginPath(); ctx.moveTo(c * H_TILE + 0.5, 0); ctx.lineTo(c * H_TILE + 0.5, H_ROWS * H_TILE); ctx.stroke();
+  }
+  for (var r = 0; r <= H_ROWS; r++) {
+    ctx.beginPath(); ctx.moveTo(0, r * H_TILE + 0.5); ctx.lineTo(H_COLS * H_TILE, r * H_TILE + 0.5); ctx.stroke();
+  }
+  // Items + NPCs + spawn
+  if (room.items) for (var i = 0; i < room.items.length; i++) drawItem(room.items[i]);
+  if (room.npcs)  for (var j = 0; j < room.npcs.length; j++)  drawNpc(room.npcs[j]);
+  if (room.spawn) drawSpawn(room.spawn.col, room.spawn.row, room.spawn.facing || 'up');
+  // Room label
+  ctx.fillStyle = 'rgba(246,213,122,0.7)';
+  ctx.font = 'bold 13px Georgia, serif';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.fillText(room.name || 'Untitled', 8, 6);
+}
+
+// ── Toolbar wiring ──────────────────────────────────────────────────────────
+function pickTile(ch) {
+  selectedTile = ch;
+  var btns = document.querySelectorAll('#paintToolbar button');
+  for (var i = 0; i < btns.length; i++) {
+    if (btns[i].getAttribute('data-tile') === ch) btns[i].classList.add('sel');
+    else btns[i].classList.remove('sel');
+  }
+}
+document.getElementById('paintToolbar').addEventListener('click', function(e) {
+  var t = e.target;
+  if (t.tagName === 'BUTTON' && t.hasAttribute('data-tile')) pickTile(t.getAttribute('data-tile'));
+});
+
+// ── Canvas painting ─────────────────────────────────────────────────────────
+var painting = false;
+function eventToTile(e) {
+  var r = canvas.getBoundingClientRect();
+  var sx = canvas.width / r.width, sy = canvas.height / r.height;
+  var x = (e.clientX - r.left) * sx, y = (e.clientY - r.top) * sy;
+  return { col: Math.floor(x / H_TILE), row: Math.floor(y / H_TILE) };
+}
+function inBounds(c, rr) {
+  return c >= 0 && rr >= 0 && c < H_COLS && rr < H_ROWS;
+}
+function paintAt(col, row) {
+  if (!inBounds(col, row)) return;
+  if (tileChar(col, row) === selectedTile) return;
+  setTileChar(col, row, selectedTile);
+  render(); regenerateJson();
+}
+canvas.addEventListener('mousedown', function(e) {
+  var p = eventToTile(e);
+  painting = true;
+  paintAt(p.col, p.row);
+});
+canvas.addEventListener('mousemove', function(e) {
+  var p = eventToTile(e);
+  document.getElementById('hover').textContent =
+    inBounds(p.col, p.row) ? ('col ' + p.col + ' row ' + p.row + ' (' + tileChar(p.col, p.row) + ')') : '—';
+  if (painting) paintAt(p.col, p.row);
+});
+window.addEventListener('mouseup', function() { painting = false; });
+canvas.addEventListener('mouseleave', function() { document.getElementById('hover').textContent = '—'; });
+
+// ── Two-way JSON sync ───────────────────────────────────────────────────────
+var jsonEl = document.getElementById('json');
+var errEl  = document.getElementById('err');
+function regenerateJson() {
+  jsonEl.value = JSON.stringify(level, null, 2);
+  jsonEl.classList.remove('bad');
+  errEl.textContent = '';
+}
+function tryParseFromJson() {
+  try {
+    var next = JSON.parse(jsonEl.value);
+    // Light validation: must have rooms[]
+    if (!next.rooms || !Array.isArray(next.rooms) || next.rooms.length === 0)
+      throw new Error('rooms[] must be a non-empty array');
+    level = next;
+    if (roomIdx >= level.rooms.length) roomIdx = 0;
+    jsonEl.classList.remove('bad');
+    errEl.textContent = '';
+    render(); updateRoomLabel();
+  } catch (e) {
+    jsonEl.classList.add('bad');
+    errEl.textContent = 'JSON: ' + e.message;
+  }
+}
+jsonEl.addEventListener('blur', tryParseFromJson);
+
+// ── Room nav ────────────────────────────────────────────────────────────────
+function updateRoomLabel() {
+  document.getElementById('roomLabel').textContent =
+    'Room ' + (roomIdx + 1) + ' / ' + level.rooms.length +
+    ' — ' + (level.rooms[roomIdx].name || '');
+}
+document.getElementById('roomPrev').onclick = function() {
+  if (roomIdx > 0) { roomIdx--; render(); updateRoomLabel(); }
+};
+document.getElementById('roomNext').onclick = function() {
+  if (roomIdx < level.rooms.length - 1) { roomIdx++; render(); updateRoomLabel(); }
+};
+document.getElementById('roomAdd').onclick = function() {
+  level.rooms.push(blankRoom(level.rooms.length));
+  roomIdx = level.rooms.length - 1;
+  render(); regenerateJson(); updateRoomLabel();
+};
+document.getElementById('roomDel').onclick = function() {
+  if (level.rooms.length <= 1) { errEl.textContent = 'Need at least one room.'; return; }
+  if (!confirm('Delete this room?')) return;
+  level.rooms.splice(roomIdx, 1);
+  if (roomIdx >= level.rooms.length) roomIdx = level.rooms.length - 1;
+  render(); regenerateJson(); updateRoomLabel();
+};
+
+// ── Save / load to localStorage ─────────────────────────────────────────────
+var INDEX_KEY = 'mucko_level_index';
+function getSavedNames() {
+  try { return JSON.parse(localStorage.getItem(INDEX_KEY) || '[]'); } catch(e) { return []; }
+}
+function setSavedNames(arr) {
+  try { localStorage.setItem(INDEX_KEY, JSON.stringify(arr)); } catch(e) {}
+}
+function refreshLoadDropdown() {
+  var sel = document.getElementById('load');
+  var names = getSavedNames();
+  sel.innerHTML = '<option value="">— load saved —</option>';
+  for (var i = 0; i < names.length; i++) {
+    var o = document.createElement('option');
+    o.value = names[i]; o.textContent = names[i];
+    sel.appendChild(o);
+  }
+}
+document.getElementById('save').onclick = function() {
+  var name = document.getElementById('saveName').value.trim();
+  if (!name) { errEl.textContent = 'Enter a name to save.'; return; }
+  if (name === 'play') { errEl.textContent = '"play" is reserved.'; return; }
+  try {
+    localStorage.setItem('mucko_level_' + name, JSON.stringify(level));
+  } catch(e) { errEl.textContent = 'Save failed: ' + e.message; return; }
+  var names = getSavedNames();
+  if (names.indexOf(name) < 0) { names.push(name); names.sort(); setSavedNames(names); }
+  refreshLoadDropdown();
+  errEl.style.color = '#9ce0a8'; errEl.textContent = 'Saved as "' + name + '".';
+  setTimeout(function() { errEl.style.color = ''; errEl.textContent = ''; }, 1800);
+};
+document.getElementById('load').onchange = function(e) {
+  var name = e.target.value;
+  if (!name) return;
+  var raw = localStorage.getItem('mucko_level_' + name);
+  if (!raw) { errEl.textContent = 'Not found.'; return; }
+  try {
+    level = JSON.parse(raw);
+    if (!level.rooms || !level.rooms.length) throw new Error('empty');
+  } catch(err) { errEl.textContent = 'Load failed: ' + err.message; return; }
+  roomIdx = 0;
+  document.getElementById('saveName').value = name;
+  render(); regenerateJson(); updateRoomLabel();
+};
+document.getElementById('loadDel').onclick = function() {
+  var name = document.getElementById('saveName').value.trim();
+  if (!name) return;
+  if (!confirm('Delete saved level "' + name + '"?')) return;
+  try { localStorage.removeItem('mucko_level_' + name); } catch(e) {}
+  var names = getSavedNames().filter(function(n) { return n !== name; });
+  setSavedNames(names);
+  refreshLoadDropdown();
+};
+
+// ── Play this level ─────────────────────────────────────────────────────────
+document.getElementById('play').onclick = function() {
+  try {
+    localStorage.setItem('mucko_level_play', JSON.stringify(level));
+  } catch(e) { errEl.textContent = 'Could not stage level: ' + e.message; return; }
+  window.location.href = 'index.html?level=play';
+};
+document.getElementById('newLevel').onclick = function() {
+  if (!confirm('Discard current level and start blank?')) return;
+  level = blankLevel(); roomIdx = 0;
+  render(); regenerateJson(); updateRoomLabel();
+};
+document.getElementById('copyJson').onclick = function() {
+  jsonEl.select(); document.execCommand('copy');
+  errEl.style.color = '#9ce0a8'; errEl.textContent = 'JSON copied.';
+  setTimeout(function() { errEl.style.color = ''; errEl.textContent = ''; }, 1500);
+};
+
+// ── Boot ────────────────────────────────────────────────────────────────────
+refreshLoadDropdown();
+render();
+regenerateJson();
+updateRoomLabel();
+</script>
+</body>
+</html>
