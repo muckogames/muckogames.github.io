@@ -2347,8 +2347,10 @@ function shortestPeriDelta(from,to){
 }
 
 function initHome(){
+  var hp={vx:0,vy:0,dir:'down',bobT:0,facing:'down'};
+  MuckoGrid.init(hp,9,7,H_TILE,H_ROOM_X,H_ROOM_Y);
   hm={
-    p:{x:hTX(9),y:hTY(7),vx:0,vy:0,dir:'down',bobT:0},
+    p:hp,
     locks:[
       {col:9, row:1, name:'North Window',dir:'n',locked:false,pressure:0,needKey:false},
       {col:17,row:6, name:'East Window', dir:'e',locked:false,pressure:0,needKey:false},
@@ -2378,29 +2380,24 @@ function updateHome(dt){
     return;
   }
 
-  var dx=0,dy=0;
-  if(K['ArrowLeft']||touchState.dirs.has('left'))dx-=1;
-  if(K['ArrowRight']||touchState.dirs.has('right'))dx+=1;
-  if(K['ArrowUp']||touchState.dirs.has('up'))dy-=1;
-  if(K['ArrowDown']||touchState.dirs.has('down'))dy+=1;
-  if(dx!==0&&dy!==0){dx*=0.707;dy*=0.707;}
-  if(dx!==0)p.dir=dx<0?'left':'right';
-  if(dy!==0)p.dir=dy<0?'up':'down';
-
-  var col=Math.floor((p.x-H_ROOM_X)/H_TILE),row=Math.floor((p.y-H_ROOM_Y)/H_TILE);
-  var onIce=(hmTileAt(col,row)===TI);
-  if(onIce){
-    p.vx+=(dx*HM_SPD-p.vx)*2.8*dt;
-    p.vy+=(dy*HM_SPD-p.vy)*2.8*dt;
-  } else {
-    p.vx=dx*HM_SPD;p.vy=dy*HM_SPD;
+  // Grid movement (Pokémon-style discrete steps)
+  function homeBlocked(c,r){
+    if(c<0||r<0||c>=H_COLS||r>=H_ROWS)return true;
+    return HOME_MAP[r][c]===TW;
   }
-  var nx=p.x+p.vx*dt;
-  if(hmCanMove(nx,p.y)){p.x=nx;}else p.vx=0;
-  var ny=p.y+p.vy*dt;
-  if(hmCanMove(p.x,ny)){p.y=ny;}else p.vy=0;
-  p.x=Math.max(H_ROOM_X+H_TILE+10,Math.min(H_ROOM_X+(H_COLS-1)*H_TILE-10,p.x));
-  p.y=Math.max(H_ROOM_Y+H_TILE+10,Math.min(H_ROOM_Y+(H_ROWS-1)*H_TILE-10,p.y));
+  var dir=MuckoGrid.readDir(K,{
+    up:touchState.dirs.has('up'),    down:touchState.dirs.has('down'),
+    left:touchState.dirs.has('left'),right:touchState.dirs.has('right')
+  });
+  MuckoGrid.update(p,dt,dir,false,homeBlocked,H_TILE);
+  MuckoGrid.applyBumpRender(p,H_TILE);
+  p.dir=p.facing;
+  // Ice slide: when idle on ice with no input, take one more step in last dir.
+  if(!p.gridMoving&&p.bumpT<=0&&!dir&&p.lastDir){
+    if(HOME_MAP[p.gridRow][p.gridCol]===TI){
+      MuckoGrid.startStep(p,p.lastDir,false,homeBlocked,H_TILE);
+    }
+  }
   p.bobT+=dt;
 
   // Keycard pickup
