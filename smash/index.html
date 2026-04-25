@@ -257,6 +257,70 @@ var CHARACTERS = {
 var CHAR_IDS = ['samster', 'duck', 'hippo', 'nik', 'lekan', 'basil', 'mandy', 'rocket', 'digory', 'jlong', 'pras', 'natasha'];
 var SLOT_COLORS = ['#2c7ae8', '#e8862c', '#3ab83a', '#9b4ce8'];
 
+// ── Hue-shift helpers ────────────────────────────────────────────────────────
+// When two slots pick the same character, we rotate the duplicates 90° around
+// the color wheel so they're visually distinct in match. Grayscale colors
+// (panda body, etc.) stay put because hue rotation on saturation 0 is a no-op.
+function shiftHue(hex, deg) {
+  if (!deg || !hex || hex.charAt(0) !== '#' || hex.length < 7) return hex;
+  var r = parseInt(hex.substr(1, 2), 16) / 255;
+  var g = parseInt(hex.substr(3, 2), 16) / 255;
+  var b = parseInt(hex.substr(5, 2), 16) / 255;
+  var max = Math.max(r, g, b), min = Math.min(r, g, b);
+  if (max === min) return hex;
+  var l = (max + min) / 2;
+  var d = max - min;
+  var s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  var h;
+  if (max === r) h = ((g - b) / d + (g < b ? 6 : 0));
+  else if (max === g) h = ((b - r) / d + 2);
+  else h = ((r - g) / d + 4);
+  h = ((h * 60 + deg) % 360 + 360) % 360;
+  var c = (1 - Math.abs(2 * l - 1)) * s;
+  var hp = h / 60;
+  var x = c * (1 - Math.abs((hp % 2) - 1));
+  var rr = 0, gg = 0, bb = 0;
+  if (hp < 1)      { rr = c; gg = x; }
+  else if (hp < 2) { rr = x; gg = c; }
+  else if (hp < 3) { gg = c; bb = x; }
+  else if (hp < 4) { gg = x; bb = c; }
+  else if (hp < 5) { rr = x; bb = c; }
+  else             { rr = c; bb = x; }
+  var m = l - c / 2;
+  function pad(v) {
+    var n = Math.max(0, Math.min(255, Math.round((v + m) * 255)));
+    var hx = n.toString(16);
+    return hx.length === 1 ? '0' + hx : hx;
+  }
+  return '#' + pad(rr) + pad(gg) + pad(bb);
+}
+
+var TINT_CACHE = {};
+function tintedChar(id, hue) {
+  if (!hue) return CHARACTERS[id];
+  var key = id + '|' + hue;
+  if (TINT_CACHE[key]) return TINT_CACHE[key];
+  var src = CHARACTERS[id];
+  var copy = {};
+  for (var k in src) copy[k] = src[k];
+  copy.color   = shiftHue(src.color,   hue);
+  copy.accent  = shiftHue(src.accent,  hue);
+  copy.outline = shiftHue(src.outline, hue);
+  TINT_CACHE[key] = copy;
+  return copy;
+}
+
+// 90° per earlier active slot already using this character
+function slotTintHue(slotIdx) {
+  var slots = state && state.slots;
+  if (!slots || !slots[slotIdx] || !slotActive(slots[slotIdx])) return 0;
+  var me = slots[slotIdx], dups = 0;
+  for (var i = 0; i < slotIdx; i++) {
+    if (slotActive(slots[i]) && slots[i].charIdx === me.charIdx) dups++;
+  }
+  return dups * 90;
+}
+
 var STOCK_OPTIONS = [1, 2, 3, 4, 5, 6, Infinity];
 var EASY_MODE_GENOME = {
   dwellMin: 0.45,
@@ -827,8 +891,8 @@ function drawCharacterSidescrollSprite(cx, ch, facing, bob, pose) {
   }
 }
 
-function drawCharacter(cx, id, x, y, facing, bob, shadowScale, variant, turnT, pose) {
-  var ch = CHARACTERS[id];
+function drawCharacter(cx, id, x, y, facing, bob, shadowScale, variant, turnT, pose, tintHue) {
+  var ch = tintedChar(id, tintHue || 0);
   var bounce = Math.sin(bob || 0) * 1.5;
   var mode = variant || 'portrait';
   cx.save();
@@ -1003,6 +1067,8 @@ function startPlay(seedOverride) {
     entity.initialStocks = s.stocks;
     entity.stockSetting = s.stocks;
     entity.stocks = s.stocks;
+    // Tint duplicates of the same character so they're tellable apart in match.
+    entity.tintHue = slotTintHue(state.slots.indexOf(s));
     state.entities.push(entity);
   }
   state.respawnFlash = 0;
@@ -1760,7 +1826,8 @@ function mobileLayout() {
         cx: rightBase - actionR - 6, cy: clusterY - actionR - 22, r: Math.round(actionR * 0.66),
         label: spec.label || 'SPEC',
         caption: spec.caption || '',
-        charId: p.charId
+        charId: p.charId,
+        tintHue: p.tintHue || 0
       };
     }
   }
@@ -2057,7 +2124,7 @@ function drawSelect() {
       ctx.save();
       ctx.translate(c.x + c.w / 2, c.y + 82);
       ctx.scale(0.72, 0.72);
-      drawCharacter(ctx, CHAR_IDS[slot.charIdx], 0, 0, previewFacing, state.phaseTime * 4 + i, 0.55, previewVariant, slot.previewTurnT);
+      drawCharacter(ctx, CHAR_IDS[slot.charIdx], 0, 0, previewFacing, state.phaseTime * 4 + i, 0.55, previewVariant, slot.previewTurnT, null, slotTintHue(i));
       ctx.restore();
       drawText(ctx, CHARACTERS[CHAR_IDS[slot.charIdx]].name,
         c.x + c.w / 2, c.y + 100, '#5a3d16', 11, 'center', 'bold');
@@ -2311,7 +2378,7 @@ function drawPlay() {
         var s = e.trail[k];
         var alpha = 0.12 + 0.32 * (k / Math.max(1, n - 1));
         ctx.globalAlpha = alpha;
-        drawCharacter(ctx, e.charId, s.x, s.y, s.facing, s.bob, 0, 'sidescroll', 0, null);
+        drawCharacter(ctx, e.charId, s.x, s.y, s.facing, s.bob, 0, 'sidescroll', 0, null, e.tintHue);
       }
       ctx.restore();
     }
@@ -2334,10 +2401,10 @@ function drawPlay() {
       ctx.translate(e.x, drawY + FEET_OFFSET);
       ctx.scale(sx, sy);
       ctx.translate(-e.x, -(drawY + FEET_OFFSET));
-      drawCharacter(ctx, e.charId, e.x, drawY, e.facing, e.bob, 1, 'sidescroll', e.turnT, pose);
+      drawCharacter(ctx, e.charId, e.x, drawY, e.facing, e.bob, 1, 'sidescroll', e.turnT, pose, e.tintHue);
       ctx.restore();
     } else {
-      drawCharacter(ctx, e.charId, e.x, drawY, e.facing, e.bob, 1, 'sidescroll', e.turnT, pose);
+      drawCharacter(ctx, e.charId, e.x, drawY, e.facing, e.bob, 1, 'sidescroll', e.turnT, pose, e.tintHue);
     }
   }
 
@@ -2455,7 +2522,7 @@ function drawMobileControls() {
 
   // Special — palette-styled per character, with caption above.
   if (L.special) {
-    var ch = CHARACTERS[L.special.charId];
+    var ch = tintedChar(L.special.charId, L.special.tintHue || 0);
     var specialActive = touchState.specialBtn;
     var ready = !p || p.specialCooldown == null || p.specialCooldown <= 0;
     var bodyFill = specialActive
@@ -2576,7 +2643,7 @@ function spawnConfetti(winner) {
   state.confetti = [];
   var palette = ['#ffd86f', '#f2c85a', '#e8f1e2', '#aaddff', '#ff9eb5'];
   if (winner) {
-    var ch = CHARACTERS[winner.charId];
+    var ch = tintedChar(winner.charId, winner.tintHue || 0);
     palette = [ch.color, ch.accent, '#ffd86f', '#fff4cf'];
   }
   for (var i = 0; i < 90; i++) {
@@ -2650,7 +2717,7 @@ function drawResults() {
     ctx.save();
     ctx.translate(W / 2, H / 2 - 20);
     ctx.scale(3.2, 3.2);
-    drawCharacter(ctx, winner.charId, 0, 0, 'right', state.phaseTime * 4, 1, 'portrait');
+    drawCharacter(ctx, winner.charId, 0, 0, 'right', state.phaseTime * 4, 1, 'portrait', 0, null, winner.tintHue);
     ctx.restore();
 
     drawText(ctx, 'WINNER!', W / 2, 128, '#ffd86f', 56, 'center', 'bold');
