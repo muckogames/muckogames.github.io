@@ -2279,6 +2279,73 @@ function hmCanMove(px,py){
 let hm=null;
 function hmMsg(s){hm.msg=s;hm.msgT=2.6;}
 
+// ── Fire particles (adapted from flametrail) ────────────────────────────────
+const fireParticles=[];
+function emitFlame(ox,oy,angle){
+  for(var i=0;i<6;i++){
+    const spread=(Math.random()-0.5)*0.65;
+    const spd=180+Math.random()*120;
+    fireParticles.push({
+      x:ox+Math.cos(angle)*12,
+      y:oy+Math.sin(angle)*12,
+      vx:Math.cos(angle+spread)*spd,
+      vy:Math.sin(angle+spread)*spd,
+      life:1.0, maxLife:0.32+Math.random()*0.18,
+      r:3+Math.random()*4
+    });
+  }
+  while(fireParticles.length>180)fireParticles.shift();
+}
+function updateFireParticles(dt){
+  for(var i=fireParticles.length-1;i>=0;i--){
+    const p=fireParticles[i];
+    p.x+=p.vx*dt; p.y+=p.vy*dt;
+    p.vy-=18*dt; p.vx*=Math.max(0,1-1.2*dt);
+    p.life-=dt/p.maxLife;
+    if(p.life<=0)fireParticles.splice(i,1);
+  }
+}
+function drawFireParticles(){
+  ctx.save();
+  ctx.globalCompositeOperation='lighter';
+  for(var i=0;i<fireParticles.length;i++){
+    const p=fireParticles[i],t=p.life;
+    var r,g,b;
+    if(t>0.7){r=255;g=Math.round(200+55*(t-0.7)/0.3);b=Math.round(80*(t-0.7)/0.3);}
+    else if(t>0.4){r=255;g=Math.round(100+(t-0.4)/0.3*100);b=0;}
+    else{r=Math.round(200+55*t/0.4);g=Math.round(50*t/0.4);b=0;}
+    ctx.globalAlpha=t*0.85;
+    ctx.fillStyle='rgb('+r+','+g+','+b+')';
+    ctx.beginPath();ctx.arc(p.x,p.y,Math.max(0.5,p.r*t),0,Math.PI*2);ctx.fill();
+  }
+  ctx.globalCompositeOperation='source-over';ctx.globalAlpha=1;
+  ctx.restore();
+}
+
+// ── Don / Firelight perimeter helpers ───────────────────────────────────────
+// The Don walks around the outside of the house (the wall tiles). Position is
+// parameterized as t in [0,4): top edge → right → bottom → left → wrap.
+const PERI_X0=16, PERI_X1=H_ROOM_X+(H_COLS-1)*H_TILE+H_TILE/2; // 16, 592
+const PERI_Y0=H_ROOM_Y+H_TILE/2, PERI_Y1=H_ROOM_Y+(H_ROWS-1)*H_TILE+H_TILE/2; // 56, 504
+const PERI_W=PERI_X1-PERI_X0, PERI_H=PERI_Y1-PERI_Y0;
+function periPos(t){
+  t=((t%4)+4)%4;
+  if(t<1)return {x:PERI_X0+t*PERI_W,       y:PERI_Y0,                  side:'n'};
+  if(t<2)return {x:PERI_X1,                 y:PERI_Y0+(t-1)*PERI_H,     side:'e'};
+  if(t<3)return {x:PERI_X1-(t-2)*PERI_W,    y:PERI_Y1,                  side:'s'};
+  return        {x:PERI_X0,                 y:PERI_Y1-(t-3)*PERI_H,     side:'w'};
+}
+// Door positions on the perimeter (matches initHome's lock list)
+const DOOR_T={n:0.5, e:1+(248-PERI_Y0)/PERI_H, s:2.5, w:3+(PERI_Y1-248)/PERI_H};
+
+function shortestPeriDelta(from,to){
+  // Move around the loop along the shorter arc
+  var d=to-from;
+  d=((d%4)+4)%4;
+  if(d>2)d-=4;
+  return d;
+}
+
 function initHome(){
   hm={
     p:{x:hTX(9),y:hTY(7),vx:0,vy:0,dir:'down',bobT:0},
@@ -2296,7 +2363,11 @@ function initHome(){
     failed:false,failTimer:0,
     msg:'',msgT:0,
     startScore:score,
+    don:{t:DOOR_T.s, x:0, y:0, dir:'left', bobT:0, inside:false,
+         ix:0, iy:0, burnT:0},
+    fg: {t:DOOR_T.s-0.6, x:0, y:0, dir:'right', bobT:0, fireT:0},
   };
+  fireParticles.length=0;
 }
 
 function updateHome(dt){
@@ -2357,8 +2428,10 @@ function updateHome(dt){
     if(!acted&&Math.hypot(p.x-hTX(9),p.y-hTY(5))<HM_IACT+H_TILE){
       if(!h.firelightCalled){
         h.firelightCalled=true;h.firelightActive=true;h.firelightTimer=18;
-        score+=30;hmMsg('Firelight Guy arrives! Front door pressure slowed. +30');
-      } else hmMsg("He's already on the south side.");
+        // Spawn FG at the next corner behind the Don so the chase reads.
+        h.fg.t=h.don.t-0.6;
+        score+=30;hmMsg('Firelight Guy arrives — chasing the Don! +30');
+      } else hmMsg("He's still on the perimeter.");
       acted=true;
     }
     // Crow computer (col 15, row 2)
@@ -2367,14 +2440,18 @@ function updateHome(dt){
       else hmMsg('The Sims is still loading.');
       acted=true;
     }
-    // Fireplace robot (col 2, row 7)
+    // Fireplace robot (col 2, row 7) — reusable: light again whenever the
+    // rug isn't currently on fire.
     if(!acted&&Math.hypot(p.x-hTX(2),p.y-hTY(7))<HM_IACT+H_TILE){
-      if(!h.fpUsed){
-        h.fpUsed=true;h.fpFire=true;h.fpFireT=4.0;
-        score+=8;hmMsg('Fireplace Robot lights a fire! The rug ignites! +8');
-      } else if(h.fpFire){
+      if(h.fpFire){
         h.fpFire=false;hmMsg('Fireplace Robot puts out the rug.');
-      } else hmMsg('Fireplace Robot bows.');
+      } else {
+        h.fpFire=true;h.fpFireT=4.0;
+        var first=!h.fpUsed; h.fpUsed=true;
+        score+=first?8:2;
+        hmMsg(first?'Fireplace Robot lights a fire! The rug ignites! +8'
+                   :'Fireplace Robot lights another fire! +2');
+      }
       acted=true;
     }
   }
@@ -2383,21 +2460,89 @@ function updateHome(dt){
   if(h.firelightActive){h.firelightTimer-=dt;if(h.firelightTimer<=0)h.firelightActive=false;}
   if(h.msgT>0)h.msgT-=dt;
   if(h.breachFlash>0)h.breachFlash=Math.max(0,h.breachFlash-dt);
+  if(h.don.burnT>0)h.don.burnT=Math.max(0,h.don.burnT-dt);
+  updateFireParticles(dt);
 
   // Don pressure
   var allLocked=true;
+  var hottestLock=null, hottestPressure=-1;
   for(var pi=0;pi<h.locks.length;pi++){
     var lck=h.locks[pi];
     if(!lck.locked){
       allLocked=false;
       var rate=0.028*diff.donRate;
-      if(lck.dir==='s'&&h.firelightActive)rate*=0.35;
+      // The Don only mounts pressure on the door he's actually standing at,
+      // so the perimeter chase actually means something.
+      var atDoor=h.don.t!=null&&Math.abs(shortestPeriDelta(h.don.t,DOOR_T[lck.dir]))<0.06;
+      if(!atDoor)rate*=0.25;       // background creep when he's elsewhere
+      if(h.firelightActive)rate*=0.35;     // FG slows ALL doors now (he chases)
+      if(h.don.burnT>0)rate*=0.0;          // can't push while on fire
       lck.pressure=Math.min(1,lck.pressure+rate*dt);
-      if(lck.pressure>=1){
+      if(lck.pressure>hottestPressure){hottestPressure=lck.pressure;hottestLock=lck;}
+      if(lck.pressure>=1&&!h.don.inside){
         lck.pressure=0;h.donInside++;h.breachFlash=0.9;
         hmMsg('The Don broke through the '+lck.name+'!');
-        if(h.donInside>=2){h.failed=true;h.failTimer=3.2;}
+        if(h.donInside>=2){
+          // Don walks IN toward Digory instead of an instant fail.
+          h.don.inside=true;
+          h.don.ix=hTX(lck.col);h.don.iy=hTY(lck.row);
+        }
       }
+    }
+  }
+
+  // ── Don movement ─────────────────────────────────────────────────────────
+  if(h.don.inside){
+    // Stalk Digory inside the house.
+    var ddx=p.x-h.don.ix, ddy=p.y-h.don.iy, dd=Math.hypot(ddx,ddy);
+    if(dd>1){h.don.ix+=ddx/dd*38*dt; h.don.iy+=ddy/dd*38*dt;}
+    h.don.dir=ddx<0?'left':'right';
+    h.don.x=h.don.ix; h.don.y=h.don.iy;
+    h.don.bobT+=dt;
+    if(dd<22&&!h.failed){h.failed=true;h.failTimer=3.2;}
+  } else {
+    // Walk along the perimeter toward whichever unlocked door is closest to
+    // breaking. If everything's locked, just amble around.
+    var targetT;
+    if(hottestLock)targetT=DOOR_T[hottestLock.dir];
+    else targetT=h.don.t+0.4*dt; // ambient pacing
+    var delta=shortestPeriDelta(h.don.t,targetT);
+    var spd=h.don.burnT>0?1.6:0.55; // sprints away when on fire
+    if(h.don.burnT>0)delta=-Math.sign(shortestPeriDelta(h.don.t,h.fg.t))||1;
+    if(Math.abs(delta)>0.005){
+      var step=Math.sign(delta)*Math.min(Math.abs(delta),spd*dt);
+      h.don.t+=step;
+    }
+    var dp=periPos(h.don.t);
+    h.don.x=dp.x; h.don.y=dp.y;
+    h.don.dir=(dp.side==='n'||dp.side==='s')?(Math.sign(delta)<0?'left':'right'):'right';
+    h.don.bobT+=dt;
+  }
+
+  // ── Firelight Guy ────────────────────────────────────────────────────────
+  if(h.firelightActive&&!h.don.inside){
+    // Trail the Don around the loop; close the gap and shoot.
+    var fgDelta=shortestPeriDelta(h.fg.t,h.don.t);
+    // Stay slightly behind so the chase reads as a chase.
+    var lead=Math.sign(fgDelta||1)*0.4;
+    var fgTarget=h.don.t-lead;
+    var fgD=shortestPeriDelta(h.fg.t,fgTarget);
+    var fgSpd=0.85;
+    if(Math.abs(fgD)>0.005){
+      h.fg.t+=Math.sign(fgD)*Math.min(Math.abs(fgD),fgSpd*dt);
+    }
+    var fp=periPos(h.fg.t);
+    h.fg.x=fp.x; h.fg.y=fp.y;
+    h.fg.dir=Math.sign(fgDelta)<0?'left':'right';
+    h.fg.bobT+=dt;
+    h.fg.fireT-=dt;
+    var fdx=h.don.x-h.fg.x, fdy=h.don.y-h.fg.y;
+    var fdist=Math.hypot(fdx,fdy);
+    if(fdist<260&&h.fg.fireT<=0){
+      var ang=Math.atan2(fdy,fdx);
+      emitFlame(h.fg.x,h.fg.y-4,ang);
+      if(fdist<140)h.don.burnT=Math.max(h.don.burnT,1.2);
+      h.fg.fireT=0.05;
     }
   }
 
@@ -2495,20 +2640,7 @@ function drawHomeLocks(){
         else rnd(bx,by,bthick,Math.round(blen*fill),2,pc,null,0);
         ctx.restore();
       }
-      // Don peeking through
-      var donPk=lk.pressure*0.7+0.1;
-      if(donPk>0.08){
-        ctx.save();ctx.globalAlpha=Math.min(1,donPk);
-        var dpx,dpy;
-        if(lk.dir==='n'){dpx=lx;dpy=H_ROOM_Y-4;}
-        else if(lk.dir==='s'){dpx=lx;dpy=H_ROOM_Y+H_ROWS*H_TILE+4;}
-        else if(lk.dir==='w'){dpx=H_ROOM_X-4;dpy=ly;}
-        else{dpx=H_ROOM_X+H_COLS*H_TILE+4;dpy=ly;}
-        circ(dpx,dpy,7,'#3a1010',null,0);
-        rnd(dpx-5,dpy+5,10,7,1,'#4a1818',null,0);
-        ctx.fillStyle='#2a0a0a';ctx.fillRect(dpx-6,dpy-8,12,3); // hat brim
-        ctx.restore();
-      }
+      // (Don is now drawn as a full sprite walking the perimeter — no peek here)
       // Proximity hint
       if(near){
         ctx.save();ctx.globalAlpha=0.8+0.2*Math.abs(Math.sin(h.p.bobT*4));
@@ -2586,6 +2718,99 @@ function drawHomeItems(){
   ctx.restore();
 }
 
+// ── Don sprite — gangster in a suit and fedora ─────────────────────────────
+function drawDon(x,y,dir,bobT,burning){
+  ctx.save();
+  if(dir==='left'){ctx.translate(x,y);ctx.scale(-1,1);ctx.translate(-x,-y);}
+  var bob=Math.sin(bobT*8)*1.2;
+  // Shadow
+  ctx.save();ctx.globalAlpha=0.28;
+  ctx.fillStyle='#000';ctx.beginPath();
+  ctx.ellipse(x,y+13,12,3.5,0,0,Math.PI*2);ctx.fill();
+  ctx.restore();
+  // Legs (charcoal slacks)
+  ctx.fillStyle='#1a1620';
+  ctx.fillRect(x-5,y+4+bob*0.3,3,9);
+  ctx.fillRect(x+2,y+4+bob*0.3,3,9);
+  // Suit jacket — torso
+  ctx.fillStyle='#26222e';
+  rnd(x-9,y-8+bob,18,14,3,'#26222e','#0c0a12',1);
+  // White shirt collar
+  ctx.fillStyle='#f0e8d0';
+  ctx.beginPath();
+  ctx.moveTo(x-3,y-7+bob);ctx.lineTo(x,y-2+bob);
+  ctx.lineTo(x+3,y-7+bob);ctx.closePath();ctx.fill();
+  // Red tie
+  ctx.fillStyle='#a8202a';
+  ctx.beginPath();
+  ctx.moveTo(x-1.5,y-3+bob);ctx.lineTo(x+1.5,y-3+bob);
+  ctx.lineTo(x+2.5,y+5+bob);ctx.lineTo(x,y+7+bob);ctx.lineTo(x-2.5,y+5+bob);
+  ctx.closePath();ctx.fill();
+  // Head — pale skin
+  circ(x,y-12+bob,5.5,'#e6c2a4','#3a2418',1.2);
+  // Stubble shadow
+  ctx.save();ctx.globalAlpha=0.35;
+  ctx.fillStyle='#3a2418';ctx.fillRect(x-4,y-10+bob,8,2);
+  ctx.restore();
+  // Fedora — wide brim + crown
+  ctx.fillStyle='#0a0810';
+  ctx.beginPath();
+  ctx.ellipse(x,y-15+bob,9.5,2.2,0,0,Math.PI*2);ctx.fill();   // brim
+  rnd(x-5,y-20+bob,10,6,1.5,'#0a0810','#000',0.8);             // crown
+  // Hat band
+  ctx.fillStyle='#444';ctx.fillRect(x-5,y-16+bob,10,1.2);
+  // Eye glint
+  circ(x-1.5,y-12+bob,0.8,'#fff');
+  // Burn overlay — flicker red while on fire
+  if(burning>0){
+    ctx.save();ctx.globalAlpha=Math.min(0.6,burning*0.5);
+    ctx.fillStyle='#ff5020';ctx.fillRect(x-10,y-22+bob,20,32);
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// ── Firelight Guy — human in a jacket with a flamethrower tank ─────────────
+function drawFirelightGuy(x,y,dir,bobT){
+  ctx.save();
+  if(dir==='left'){ctx.translate(x,y);ctx.scale(-1,1);ctx.translate(-x,-y);}
+  var bob=Math.sin(bobT*9)*1.4;
+  // Shadow
+  ctx.save();ctx.globalAlpha=0.28;
+  ctx.fillStyle='#000';ctx.beginPath();
+  ctx.ellipse(x,y+13,12,3.5,0,0,Math.PI*2);ctx.fill();
+  ctx.restore();
+  // Legs
+  ctx.fillStyle='#3a2818';
+  ctx.fillRect(x-5,y+4+bob*0.3,3,9);
+  ctx.fillRect(x+2,y+4+bob*0.3,3,9);
+  // Jacket (orange-brown)
+  ctx.fillStyle='#a85a26';
+  rnd(x-9,y-8+bob,18,14,3,'#a85a26','#5a2a10',1);
+  // Tank on back — green cylinder + nozzle hose
+  ctx.fillStyle='#3a6a3a';
+  rnd(x-12,y-6+bob,5,12,2,'#3a6a3a','#1a3d1a',1);
+  ctx.fillStyle='#5a8a4a';ctx.fillRect(x-11,y-4+bob,3,2);
+  // Hose snaking to nozzle in front
+  ctx.strokeStyle='#222';ctx.lineWidth=1.5;
+  ctx.beginPath();
+  ctx.moveTo(x-7,y-2+bob);ctx.quadraticCurveTo(x+2,y+2+bob,x+10,y-1+bob);
+  ctx.stroke();
+  // Nozzle — short metal barrel
+  ctx.fillStyle='#888';ctx.fillRect(x+9,y-3+bob,7,3);
+  ctx.fillStyle='#444';ctx.fillRect(x+15,y-3.5+bob,2,4);
+  // Head
+  circ(x,y-12+bob,5,'#d8a878','#3a2418',1);
+  // Helmet
+  ctx.fillStyle='#7a3010';
+  rnd(x-6,y-18+bob,12,5,2,'#7a3010','#3a1808',1);
+  // Goggles
+  ctx.fillStyle='#181818';ctx.fillRect(x-4,y-13+bob,8,2);
+  circ(x-2,y-12+bob,1.4,'#aaeaff');
+  circ(x+2,y-12+bob,1.4,'#aaeaff');
+  ctx.restore();
+}
+
 function drawHomeHUD(){
   var h=hm;
   ctx.fillStyle='#181428';ctx.fillRect(0,0,W,H_ROOM_Y);
@@ -2633,6 +2858,15 @@ function drawHome(){
 
   drawHomeLocks();
   drawHomeItems();
+
+  // Don — outside walking the perimeter, or inside stalking Digory
+  drawDon(hm.don.x,hm.don.y,hm.don.dir,hm.don.bobT,hm.don.burnT);
+  // Firelight Guy chases the Don when called
+  if(hm.firelightActive&&!hm.don.inside){
+    drawFirelightGuy(hm.fg.x,hm.fg.y,hm.fg.dir,hm.fg.bobT);
+  }
+  // Flame particles (above sprites)
+  drawFireParticles();
 
   // Digory
   var p=hm.p;
