@@ -481,126 +481,17 @@ function enterHousePhase() {
   for (var r = 0; r < ROWS; r++) for (var c = 0; c < COLS; c++) {
     if (MAP[r][c] === T_DOOR) { dcol = c; drow = r; }
   }
-  player.x = dcol * TILE + TILE/2;
-  player.y = drow * TILE + TILE/2;
   player.facing = 'up';
   player.sprinting = false;
-  // Grid-movement state (prototype — overhead phase only)
-  player.gridCol = dcol; player.gridRow = drow;
-  player.gridMoving = false;
-  player.moveT = 0; player.moveDur = 0;
-  player.fromX = player.x; player.fromY = player.y;
-  player.toX = player.x;   player.toY = player.y;
-  player.targetCol = dcol; player.targetRow = drow;
-  player.inputDir = null; player.inputT = 0;
-  player.bumpT = 0; player.bumpDir = 'down';
+  // Pokémon-style discrete grid movement (see mucko-grid.js)
+  MuckoGrid.init(player, dcol, drow, TILE);
   resetStealth();
   setPhase('house');
 }
 
-// ── Grid-movement prototype (Pokémon-style) ────────────────────────────────
-// Logical position = (gridCol, gridRow) on the TILE grid. Visual position
-// (player.x, player.y) lerps between tile centers over a fixed duration.
-//   • Tap a direction briefly → just turn to face it.
-//   • Hold past TURN_TAP_DELAY → commit a step.
-//   • At end of step, sample input and chain into next step if still held.
-//   • Blocked destination → short visual bump, no move.
-//   • No diagonals — pure 4-direction.
-var GRID_WALK_DUR   = 0.18;
-var GRID_SPRINT_DUR = 0.10;
-var TURN_TAP_DELAY  = 0.075;
-var GRID_BUMP_DUR   = 0.16;
-var GRID_BUMP_PX    = 6;
-
-function gridReadDir() {
-  // No diagonals: vertical wins over horizontal when both held (matches the
-  // user's natural last-press intent in most cases; if you want last-pressed
-  // wins, that's a separate state to track).
-  var u = isUp(), d = isDown(), l = isLeft(), r = isRight();
-  if (u && !d) return 'up';
-  if (d && !u) return 'down';
-  if (l && !r) return 'left';
-  if (r && !l) return 'right';
-  return null;
-}
-
-function gridDestBlocked(col, row) {
+function gridIsBlocked(col, row) {
   if (col < 0 || row < 0 || col >= COLS || row >= ROWS) return true;
   return isBlocking(MAP[row][col]);
-}
-
-function tryStartGridStep(p, dir, sprint) {
-  p.facing = dir;
-  var dc = dir === 'left' ? -1 : dir === 'right' ? 1 : 0;
-  var dr = dir === 'up'   ? -1 : dir === 'down'  ? 1 : 0;
-  var nc = p.gridCol + dc, nr = p.gridRow + dr;
-  if (gridDestBlocked(nc, nr)) {
-    p.bumpT = GRID_BUMP_DUR;
-    p.bumpDir = dir;
-    return false;
-  }
-  p.targetCol = nc; p.targetRow = nr;
-  p.fromX = p.gridCol * TILE + TILE/2;
-  p.fromY = p.gridRow * TILE + TILE/2;
-  p.toX   = nc * TILE + TILE/2;
-  p.toY   = nr * TILE + TILE/2;
-  p.moveDur = sprint ? GRID_SPRINT_DUR : GRID_WALK_DUR;
-  p.moveT = 0;
-  p.gridMoving = true;
-  p.sprinting = sprint;
-  return true;
-}
-
-// Returns true if a step started or is in progress this frame (for noise/sfx)
-function updateGridMovement(p, dt, sprint) {
-  if (p.bumpT > 0) p.bumpT = Math.max(0, p.bumpT - dt);
-
-  if (p.gridMoving) {
-    p.moveT += dt;
-    var t = p.moveT / p.moveDur;
-    if (t >= 1) {
-      // Snap to destination, then sample input for chaining.
-      p.gridCol = p.targetCol; p.gridRow = p.targetRow;
-      p.x = p.toX; p.y = p.toY;
-      p.gridMoving = false;
-      var nextDir = gridReadDir();
-      if (nextDir) tryStartGridStep(p, nextDir, sprint);
-    } else {
-      p.x = p.fromX + (p.toX - p.fromX) * t;
-      p.y = p.fromY + (p.toY - p.fromY) * t;
-    }
-    return true;
-  }
-
-  var dir = gridReadDir();
-  if (dir) {
-    if (p.inputDir === dir) {
-      p.inputT += dt;
-    } else {
-      p.inputDir = dir; p.inputT = dt;
-      p.facing = dir; // immediate face turn for feedback
-    }
-    if (p.inputT >= TURN_TAP_DELAY) {
-      // Don't re-bump every frame against a wall — wait for the previous
-      // bump animation to finish before trying again.
-      if (p.bumpT <= 0) tryStartGridStep(p, dir, sprint);
-      return p.gridMoving;
-    }
-  } else {
-    p.inputDir = null; p.inputT = 0;
-  }
-  return false;
-}
-
-// Apply the bump nudge to the rendered position (keeps logical pos at tile).
-function applyGridBumpRender(p) {
-  if (p.bumpT <= 0) return;
-  var bt = 1 - (p.bumpT / GRID_BUMP_DUR);
-  var nudge = Math.sin(bt * Math.PI) * GRID_BUMP_PX;
-  var dc = p.bumpDir === 'left' ? -1 : p.bumpDir === 'right' ? 1 : 0;
-  var dr = p.bumpDir === 'up'   ? -1 : p.bumpDir === 'down'  ? 1 : 0;
-  p.x = p.gridCol * TILE + TILE/2 + dc * nudge;
-  p.y = p.gridRow * TILE + TILE/2 + dr * nudge;
 }
 function startGame() {
   dailyMode = false;
@@ -1761,14 +1652,14 @@ function drawCameraSprite(cam) {
 
 function updateHouse(dt) {
   var sprint = !!(K.ShiftLeft || K.ShiftRight);
-  var pressedAny = isLeft() || isRight() || isUp() || isDown();
+  var dir = MuckoGrid.readDir(K, touchDirs);
   // While hiding, any movement press pops the duck back out.
-  if (player.hiding && pressedAny) { player.hiding = false; }
+  if (player.hiding && dir) { player.hiding = false; }
 
   var moving = false;
   if (!player.hiding) {
-    moving = updateGridMovement(player, dt, sprint);
-    applyGridBumpRender(player);
+    moving = MuckoGrid.update(player, dt, dir, sprint, gridIsBlocked, TILE);
+    MuckoGrid.applyBumpRender(player, TILE);
   }
   player.sprinting = sprint && moving;
 
@@ -2954,6 +2845,7 @@ function loop(ts) {
 }
 requestAnimationFrame(loop);
 </script>
+<script src="../mucko-grid.js"></script>
 <script src="../mucko-gamepad.js"></script>
 </body>
 </html>
