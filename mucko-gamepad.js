@@ -32,7 +32,7 @@
   if (window.__muckoGamepadInstalled) return; // idempotent
   window.__muckoGamepadInstalled = true;
 
-  var BTN_MAP = {
+  var DEFAULT_BTN_MAP = {
     0:  'Space',
     1:  'KeyE',
     2:  'KeyA',
@@ -46,6 +46,17 @@
     14: 'ArrowLeft',
     15: 'ArrowRight'
   };
+
+  // Per-game override: a page can set window.muckoGamepadMap before this
+  // script loads to remap buttons. Shape:
+  //   window.muckoGamepadMap = { buttons: { 0: 'Space', 1: 'KeyJ', ... } };
+  // Missing keys fall through to defaults.
+  var BTN_MAP = {};
+  for (var dk in DEFAULT_BTN_MAP) BTN_MAP[dk] = DEFAULT_BTN_MAP[dk];
+  if (window.muckoGamepadMap && window.muckoGamepadMap.buttons) {
+    var custom = window.muckoGamepadMap.buttons;
+    for (var ck in custom) BTN_MAP[ck] = custom[ck];
+  }
 
   var DEADZONE = 0.45;
   var prev = {}; // map of code → was-pressed

@@ -2692,6 +2692,29 @@ function draw() {
 
 MuckoEngine.makeLoop(update, draw, 60);
   </script>
+<script>
+// Smash-specific gamepad mapping (8BitDo SN30 Pro / X-input layout):
+//   D-pad / left stick → movement (arrow keys)
+//   A (bottom)  → Jump      (Space)
+//   B (right)   → Special   (KeyJ)
+//   X (left)    → Dash      (ShiftLeft)
+//   Y (top)     → Jump alt  (Space — mirrors A so two-finger jump works)
+//   Start       → Enter, Select → Escape
+window.muckoGamepadMap = {
+  buttons: {
+    0:  'Space',       // A
+    1:  'KeyJ',        // B
+    2:  'ShiftLeft',   // X
+    3:  'Space',       // Y
+    8:  'Escape',
+    9:  'Enter',
+    12: 'ArrowUp',
+    13: 'ArrowDown',
+    14: 'ArrowLeft',
+    15: 'ArrowRight'
+  }
+};
+</script>
 <script src="../mucko-gamepad.js"></script>
 </body>
 </html>
