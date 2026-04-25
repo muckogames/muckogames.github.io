@@ -1833,6 +1833,34 @@ function hGuardUpdate(g,dt,p){
     hShowMsg('Guard spotted you! Lay low. (-10 pts)');
   }
 }
+// Update editor-authored NPCs each frame: walk their patrol path (if any)
+// and emit a one-shot dialog when the player gets close. Non-guard NPCs
+// don't catch the player; they're decoration and dialog hooks for now.
+function hNpcsUpdate(npcs,dt,p){
+  for(var i=0;i<npcs.length;i++){
+    var n=npcs[i];
+    n.bobT=(n.bobT||0)+dt;
+    if(n.patrol&&n.patrol.length>1){
+      var wp=n.patrol[n.pathIdx%n.patrol.length];
+      var tx=hTX(wp[0]||wp.tx||0),ty=hTY(wp[1]||wp.ty||0);
+      // patrol entries from parseLevel are {tx,ty}; from raw JSON they may
+      // be [col,row] arrays — accept both shapes.
+      if(Array.isArray(wp)){tx=hTX(wp[0]);ty=hTY(wp[1]);}
+      var dx=tx-n.x,dy=ty-n.y,dist=Math.hypot(dx,dy);
+      if(dist<6){n.x=tx;n.y=ty;n.pathIdx=(n.pathIdx+1)%n.patrol.length;}
+      else{
+        n.x+=dx/dist*(n.speed||52)*dt;
+        n.y+=dy/dist*(n.speed||52)*dt;
+        if(Math.abs(dx)>Math.abs(dy))n.dir=dx>0?'right':'left';
+        else n.dir=dy>0?'down':'up';
+      }
+    }
+    if(n.dialog&&!n.spoken&&Math.hypot(n.x-p.x,n.y-p.y)<26){
+      n.spoken=true;
+      hShowMsg(n.dialog);
+    }
+  }
+}
 function hShowMsg(m){heist.msg=m;heist.msgT=3.0;}
 // Digory's room-entry quips — keep the kid-friendly story-bible tone
 const DIGORY_QUIPS_FWD=[
@@ -1942,6 +1970,7 @@ function updateHeist(dt){
   const p=h.player,r=h.room;
   // Guard update
   if(r.guard)hGuardUpdate(r.guard,dt,p);
+  if(r.npcs)hNpcsUpdate(r.npcs,dt,p);
 
   // ── Grid movement (Pokémon-style discrete steps) ──────────────────────
   // Tiles that block the duck's step. TKD is normally blocking — but if you
