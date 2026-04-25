@@ -190,6 +190,20 @@ function blankLevel() {
   };
 }
 
+function loadStagedLevel(name) {
+  try {
+    var raw = localStorage.getItem('mucko_level_' + name);
+    if (!raw) return false;
+    var parsed = JSON.parse(raw);
+    if (!parsed || !parsed.rooms || !parsed.rooms.length) return false;
+    level = parsed;
+    roomIdx = 0;
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 // ── State ───────────────────────────────────────────────────────────────────
 var level = blankLevel();
 var roomIdx = 0;
@@ -728,6 +742,11 @@ document.getElementById('copyJson').onclick = function() {
 };
 
 // ── Boot ────────────────────────────────────────────────────────────────────
+try {
+  var params = new URLSearchParams(window.location.search);
+  var resumeName = params.get('resume');
+  if (resumeName) loadStagedLevel(resumeName);
+} catch (e) {}
 refreshLoadDropdown();
 render();
 regenerateJson();

@@ -1755,6 +1755,15 @@ function hPxToRow(py){return Math.floor((py-H_ROOM_Y)/H_TILE);}
 let heistPlayerChar='digory';
 let editorLevel=null;        // active editor level (null = shipped rooms)
 
+function goToEditor(){
+  var levelName='play';
+  try{
+    var params=new URLSearchParams(window.location.search);
+    levelName=params.get('level')||'play';
+  }catch(e){}
+  window.location.href='editor.html?resume='+encodeURIComponent(levelName);
+}
+
 function initHeist(){
   cigarsFound=0;
   var sourceRooms;
@@ -1938,6 +1947,12 @@ function updateHeistKP(){
 
 function updateHeist(dt){
   const h=heist;
+  if(!h||!h.room)return;
+  if(editorLevel&&mclk&&inRect(mx,my,H_HUD_X+10,H-64,W-H_HUD_X-20,34)){
+    mclk=false;
+    goToEditor();
+    return;
+  }
   if(h.failed){
     h.failT-=dt;
     if(h.failT<=0){score=Math.max(0,score-50);stageScores.heist=0;initHeist();}
@@ -1962,9 +1977,16 @@ function updateHeist(dt){
     return;
   }
   if(h.kpOpen){updateHeistKP();return;}
+  if(editorLevel&&(eat('Escape')||eat('Backspace'))){
+    goToEditor();
+    return;
+  }
   if(h.room.complete){
     h.completeT+=dt;
-    if(h.completeT>1.4){stageScores.heist=score;startPhase('sub2');}
+    if(h.completeT>1.4){
+      stageScores.heist=score;
+      startPhase(editorLevel?'victory':'sub2');
+    }
     return;
   }
   const p=h.player,r=h.room;
@@ -2078,6 +2100,15 @@ function updateHeist(dt){
   if(h.msgT>0)h.msgT-=dt;
   // Room transition: stepped onto an open north door (row 0 TO tile)
   if(!p.gridMoving&&p.gridRow===0&&hTileAt(r.map,p.gridCol,0)===TO){
+    if(editorLevel){
+      if(h.roomIdx<h.rooms.length-1){hEnterRoom(h.roomIdx+1);return;}
+      if(!h.room.complete){
+        h.room.complete=true;
+        h.completeT=0;
+        hShowMsg('Exit reached!');
+      }
+      return;
+    }
     if(h.roomIdx===6){
       if(h.collected.f>=8&&h.collected.c>=8){hEnterRoom(7);return;}
       else if(h.msgT<=0)hShowMsg('Need '+(8-h.collected.f)+' more disks and '+(8-h.collected.c)+' more crates! Try the back door.');
@@ -2383,10 +2414,17 @@ function drawHeistHUD(){
   }
   ctx.strokeStyle='rgba(60,80,120,0.35)';ctx.lineWidth=1;
   ctx.beginPath();ctx.moveTo(hx+6,cy+6);ctx.lineTo(hx+hw-6,cy+6);ctx.stroke();
-  txt('Room '+(h.roomIdx+1)+' / 8',hx+hw/2,cy+20,C.dimTxt,10,'center');
+  txt('Room '+(h.roomIdx+1)+' / '+h.rooms.length,hx+hw/2,cy+20,C.dimTxt,10,'center');
   txt('Score',hx+8,H-30,C.dimTxt,11,'left');
   txt(Math.floor(score)+'',hx+hw-8,H-30,C.gold,15,'right','bold Georgia');
-  if(!TOUCH_UI)txt('Arrows + E',hx+hw/2,H-10,C.dimTxt,10,'center');
+  if(editorLevel){
+    var backY=H-64;
+    var backHover=inRect(mx,my,hx+10,backY,hw-20,34);
+    rnd(hx+10,backY,hw-20,34,7,backHover?'rgba(246,213,122,0.20)':'rgba(246,213,122,0.08)',C.gold,backHover?2:1.2);
+    txt('Back to editor',hx+hw/2,backY+22,C.gold,13,'center','bold Georgia');
+  } else if(!TOUCH_UI){
+    txt('Arrows + E',hx+hw/2,H-10,C.dimTxt,10,'center');
+  }
 }
 
 function drawHeistKP(){
@@ -2441,6 +2479,12 @@ function drawHeistNote(){
 }
 
 function drawHeist(){
+  if(!heist||!heist.room){
+    fillRect(0,0,W,H,C.deepBlue);
+    txt('Level preview could not start.',W/2,H/2-8,'#ffb0b0',22,'center','bold Georgia');
+    txt('Open the console for details, then return to the editor.',W/2,H/2+22,C.cream,13,'center');
+    return;
+  }
   const h=heist,r=h.room,p=h.player;
   // Background (cached)
   drawCachedBackdrop('hroom_'+h.roomIdx,drawHeistRoomBg);
@@ -3200,6 +3244,8 @@ function initVictory(){
 let vicT=0;
 function updateVictory(dt){
   vicT+=dt;
+  if(editorLevel&&(eat('Escape')||eat('Backspace'))){goToEditor();return;}
+  if(editorLevel&&mclk&&inRect(mx,my,W/2-120,H-146,240,46)){mclk=false;goToEditor();return;}
   if(eat('Enter')||eat('Space')){mclk=false;resetRun();phase='title';vicT=0;}
   if(mclk&&inRect(mx,my,W/2-120,H-82,240,54)){mclk=false;resetRun();phase='title';vicT=0;}
 }
@@ -3279,6 +3325,12 @@ function drawVictory(){
   }
 
   // Play again button
+  if(editorLevel){
+    var ex=W/2-120, ey=H-146;
+    var ehover=inRect(mx,my,ex,ey,240,46);
+    rnd(ex,ey,240,46,10,ehover?'rgba(160,210,255,0.18)':'rgba(160,210,255,0.08)','#8fc8ff',ehover?2.5:1.5);
+    txt('BACK TO EDITOR',W/2,ey+30,'#8fc8ff',18,'center','bold Georgia');
+  }
   var bx=W/2-120,by=H-82;
   var hover=inRect(mx,my,bx,by,240,54);
   rnd(bx,by,240,54,10,hover?'rgba(246,213,122,0.22)':'rgba(246,213,122,0.08)',C.gold,hover?2.5:1.5);
@@ -3459,18 +3511,17 @@ function loop(ts){
 }
 // ── Editor-level boot ────────────────────────────────────────────────────
 // If launched with ?level=<name>, look up the level in localStorage and jump
-// straight into the heist with it. Failure falls through to the title.
-//
-// Deferred to DOMContentLoaded because the URL-param boot calls
-// startPhase('heist') → initHeist() which depends on MuckoGrid (loaded by
-// the <script src="../mucko-grid.js"> tag at the bottom of <body>). Running
-// immediately at parse time would hit a "MuckoGrid is undefined" crash and
-// silently leave the page in a half-initialised state.
-window.addEventListener('DOMContentLoaded',function(){
+// into a self-contained heist preview. Wait for support scripts first.
+function bootEditorLevelFromQuery(){
   try{
     var params=new URLSearchParams(window.location.search);
     var name=params.get('level');
     if(!name)return;
+    if(typeof MuckoGrid==='undefined'){
+      console.warn('[level] MuckoGrid not ready; deferring editor boot until load.');
+      window.addEventListener('load',bootEditorLevelFromQuery,{once:true});
+      return;
+    }
     var raw=localStorage.getItem('mucko_level_'+name);
     if(!raw){console.warn('[level] not found in storage:',name);return;}
     var parsed=parseLevel(raw);
@@ -3484,7 +3535,9 @@ window.addEventListener('DOMContentLoaded',function(){
     score=0;
     startPhase('heist');
   }catch(e){console.warn('[level] boot error:',e);}
-});
+}
+
+bootEditorLevelFromQuery();
 
 requestAnimationFrame(loop);
 </script>
