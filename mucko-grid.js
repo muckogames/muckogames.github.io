@@ -39,7 +39,25 @@
     sprintDur: 0.10,
     turnTapDelay: 0.075,
     bumpDur: 0.16,
-    bumpPx: 6
+    bumpPx: 6,
+    allowDiagonals: false,
+    // When false (default), a diagonal step is refused if either of the two
+    // cardinal tiles flanking the corner is blocked — i.e. you can't squeeze
+    // past a wall corner. Roguelike-strict.
+    allowCornerCutting: false
+  };
+
+  // Direction encoding: dc/dr offsets, dominant axis for 4-dir sprite facing,
+  // and a diag flag so step duration knows to multiply by √2.
+  var DIR_VECTORS = {
+    up:        { dc:  0, dr: -1, facing: 'up',    diag: false },
+    down:      { dc:  0, dr:  1, facing: 'down',  diag: false },
+    left:      { dc: -1, dr:  0, facing: 'left',  diag: false },
+    right:     { dc:  1, dr:  0, facing: 'right', diag: false },
+    upLeft:    { dc: -1, dr: -1, facing: 'up',    diag: true  },
+    upRight:   { dc:  1, dr: -1, facing: 'up',    diag: true  },
+    downLeft:  { dc: -1, dr:  1, facing: 'down',  diag: true  },
+    downRight: { dc:  1, dr:  1, facing: 'down',  diag: true  }
   };
 
   function getOpt(opts, key) {
@@ -69,13 +87,24 @@
   }
 
   function tryStartStep(p, dir, sprint, isBlocked, tile, opts) {
-    p.facing = dir;
-    var dc = dir === 'left' ? -1 : dir === 'right' ? 1 : 0;
-    var dr = dir === 'up'   ? -1 : dir === 'down'  ? 1 : 0;
-    var nc = p.gridCol + dc, nr = p.gridRow + dr;
+    var v = DIR_VECTORS[dir];
+    if (!v) return false;
+    p.facing = v.facing;
+    var nc = p.gridCol + v.dc, nr = p.gridRow + v.dr;
+    // Diagonal corner-cutting check: by default a diagonal step requires
+    // BOTH flanking cardinal tiles to be open (NetHack-strict). Set
+    // allowCornerCutting:true to let the player squeeze past a wall corner.
+    if (v.diag && !getOpt(opts, 'allowCornerCutting')) {
+      if (isBlocked(p.gridCol + v.dc, p.gridRow) ||
+          isBlocked(p.gridCol,        p.gridRow + v.dr)) {
+        p.bumpT = getOpt(opts, 'bumpDur');
+        p.bumpDir = v.facing;
+        return false;
+      }
+    }
     if (isBlocked(nc, nr)) {
       p.bumpT = getOpt(opts, 'bumpDur');
-      p.bumpDir = dir;
+      p.bumpDir = v.facing;
       return false;
     }
     p.targetCol = nc; p.targetRow = nr;
@@ -84,7 +113,10 @@
     p.fromY = oy + p.gridRow * tile + tile / 2;
     p.toX   = ox + nc * tile + tile / 2;
     p.toY   = oy + nr * tile + tile / 2;
-    p.moveDur = sprint ? getOpt(opts, 'sprintDur') : getOpt(opts, 'walkDur');
+    var baseDur = sprint ? getOpt(opts, 'sprintDur') : getOpt(opts, 'walkDur');
+    // Diagonal traverses √2 tile-widths in pixel space — same per-pixel pace
+    // as a cardinal step, so the lerp duration grows by √2 too.
+    p.moveDur = v.diag ? baseDur * Math.SQRT2 : baseDur;
     p.moveT = 0;
     p.gridMoving = true;
     p.sprinting = !!sprint;
@@ -150,15 +182,31 @@
     p.y = oy + p.gridRow * tile + tile / 2 + dr * nudge;
   }
 
-  // 4-direction input read with vertical-wins-on-ties (no diagonals).
-  // Pass in the game's K[] dict; touch is an optional dict like
+  // Read input as a direction. By default 4-direction (no diagonals;
+  // vertical wins on ties). Pass { allowDiagonals: true } in opts to get the
+  // 8-direction set ('upLeft', 'upRight', 'downLeft', 'downRight' added).
+  // K is the game's K[] dict; touch is an optional dict like
   // { up, down, left, right } with truthy values when held.
-  function readDir(K, touch) {
+  function readDir(K, touch, opts) {
     touch = touch || {};
     var u = (K && (K.ArrowUp    || K.KeyW)) || touch.up;
     var d = (K && (K.ArrowDown  || K.KeyS)) || touch.down;
     var l = (K && (K.ArrowLeft  || K.KeyA)) || touch.left;
     var r = (K && (K.ArrowRight || K.KeyD)) || touch.right;
+    if (opts && opts.allowDiagonals) {
+      var v = u && !d ? -1 : (d && !u ? 1 : 0);
+      var h = l && !r ? -1 : (r && !l ? 1 : 0);
+      if (v ===  0 && h ===  0) return null;
+      if (v === -1 && h === -1) return 'upLeft';
+      if (v === -1 && h ===  1) return 'upRight';
+      if (v ===  1 && h === -1) return 'downLeft';
+      if (v ===  1 && h ===  1) return 'downRight';
+      if (v === -1) return 'up';
+      if (v ===  1) return 'down';
+      if (h === -1) return 'left';
+      if (h ===  1) return 'right';
+      return null;
+    }
     if (u && !d) return 'up';
     if (d && !u) return 'down';
     if (l && !r) return 'left';

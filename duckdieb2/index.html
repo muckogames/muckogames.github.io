@@ -1650,15 +1650,19 @@ function drawCameraSprite(cam) {
   circ(cam.x + 5, cam.y - 5, 1.8, blink ? '#ff4040' : '#601010');
 }
 
+// 8-direction grid movement opts for DD2's house phase. Corner-cutting off
+// (NetHack-strict) so the duck can't squeeze diagonally past a wall corner.
+var GRID_OPTS = { allowDiagonals: true, allowCornerCutting: false };
+
 function updateHouse(dt) {
   var sprint = !!(K.ShiftLeft || K.ShiftRight);
-  var dir = MuckoGrid.readDir(K, touchDirs);
+  var dir = MuckoGrid.readDir(K, touchDirs, GRID_OPTS);
   // While hiding, any movement press pops the duck back out.
   if (player.hiding && dir) { player.hiding = false; }
 
   var moving = false;
   if (!player.hiding) {
-    moving = MuckoGrid.update(player, dt, dir, sprint, gridIsBlocked, TILE);
+    moving = MuckoGrid.update(player, dt, dir, sprint, gridIsBlocked, TILE, GRID_OPTS);
     MuckoGrid.applyBumpRender(player, TILE);
   }
   player.sprinting = sprint && moving;
