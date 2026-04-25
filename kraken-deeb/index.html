@@ -2922,7 +2922,15 @@ function loop(ts){
   const elapsed=lastTs?Math.min((ts-lastTs)/1000,MAX_SIM_CATCHUP):0;
   lastTs=ts;
   simDebt=Math.min(simDebt+elapsed,MAX_SIM_CATCHUP);
-  while(simDebt>=SIM_STEP){stepSimulation(SIM_STEP);simDebt-=SIM_STEP;}
+  while(simDebt>=SIM_STEP){
+    stepSimulation(SIM_STEP);
+    simDebt-=SIM_STEP;
+    // Consume one-shot inputs only after a sim step actually ran.
+    // Resetting at end-of-frame instead would wipe keypresses on
+    // high-refresh displays where most frames render without simulating.
+    mclk=false;
+    for(const k in JP)JP[k]=false;
+  }
 
   const fps=targetFps();
   if(fps<60){
@@ -2935,9 +2943,6 @@ function loop(ts){
   renderPhase();
   drawMobileControls();
 
-  // consume input at end of frame
-  mclk=false;
-  for(const k in JP)JP[k]=false;
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);

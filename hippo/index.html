@@ -4760,6 +4760,10 @@ function loop(ts){
   while(simDebt>=SIM_STEP){
     stepSimulation(SIM_STEP);
     simDebt-=SIM_STEP;
+    // Consume one-shot inputs only after a sim step ran. Resetting at
+    // end-of-frame instead would wipe keypresses on high-refresh displays.
+    mclk=false;
+    Object.keys(JP).forEach(k=>JP[k]=false);
   }
   const fps=targetFps();
   if(fps<60){
@@ -4777,9 +4781,6 @@ function loop(ts){
   drawMobileControls();
   if(phase!=='title'&&phase!=='diff'&&phase!=='dialog_harness')drawSuspicionNotice();
   drawFade();
-  // Clear one-shot click
-  mclk=false;
-  Object.keys(JP).forEach(k=>JP[k]=false);
   requestAnimationFrame(loop);
 }
 if(DEBUG_HARNESS==='dialog'){
