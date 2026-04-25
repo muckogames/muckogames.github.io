@@ -164,8 +164,10 @@ function mobileLayout(){
       if(s2&&s2NearStation()){
         btns.push({id:'refuel',cx:90,cy:H-100,r:44,label:'E',sub:'Refuel'});
       }
+      return {dpad:null,buttons:btns};
     }
-    return {dpad:null,buttons:btns};
+    // Sub1 has a D-pad for 4-direction piloting (left, right, up, down)
+    return {dpad:{cx:90,cy:H-100,r:58},buttons:btns};
   }
   if(phase==='heist'||phase==='home'){
     btns.push({id:'act',cx:W-88,cy:H-100,r:46,label:'ACT',sub:'Use/Lock'});
@@ -386,17 +388,45 @@ function startPhase(p){
 }
 
 // ── Sub1 mechanics ────────────────────────────────────────────────────────
-const S1_DIST_TOTAL=10.0;
+const S1_DIST_TOTAL=10.0;       // sub2 goal (escape phase)
 const S1_FUEL_MAX=3.0;
-const S1_STATIONS=[2.0,4.2,6.5,8.8];
-const S1_NEAR_DIST=0.42;
+const S1_STATIONS=[1.6,4.0,6.5,9.0]; // station km positions (shared with sub2)
+const S1_NEAR_DIST=0.42;        // sub2 still uses the wide refuel radius
+
+// Sub1 (outbound) is now a 4-direction pilot section in a 12 km world.
+// Stations are small buoys at varying depths — must align in BOTH axes to dock.
+const SUB1_GOAL_KM=12.0;
+const SUB1_STATION_Y=[170,400,240,430];          // screen Y for each S1_STATIONS entry
+const SUB1_STATION_KIND=['surface','wreck','surface','kelp'];
+const SUB1_NEAR_X=0.12;
+const SUB1_NEAR_Y=60;
+const SUB1_DRIFT=0.30;          // baseline forward km/s (always-on)
+const SUB1_THRUST=1.55;         // extra forward km/s while GO held
+const SUB1_BRAKE=0.55;          // forward km/s subtracted while LEFT held
+const SUB1_FUEL_BURN=0.85;      // fuel/s while thrusting
+const SUB1_REFUEL_RATE=1.4;
+const SUB1_VY_ACCEL=520;        // px/s^2 vertical acceleration
+const SUB1_VY_MAX=200;
+const SUB1_DAMP=2.4;            // velocity damping per second when no input
+const SUB1_TOW_SPD=0.42;        // forward km/s while Johnny Mackerel tows you
+const SUB1_Y_MIN=80;
+const SUB1_Y_MAX=H-60;
 
 function s1NearStation(){
   if(!s1)return false;
+  const sub=s1.sub;
   for(var i=0;i<S1_STATIONS.length;i++){
-    if(Math.abs(s1.dist-S1_STATIONS[i])<S1_NEAR_DIST)return true;
+    if(Math.abs(s1.dist-S1_STATIONS[i])<SUB1_NEAR_X &&
+       Math.abs(sub.y-SUB1_STATION_Y[i])<SUB1_NEAR_Y)return true;
   }
   return false;
+}
+function s1NextStationIdx(){
+  if(!s1)return -1;
+  for(var i=0;i<S1_STATIONS.length;i++){
+    if(s1.dist<S1_STATIONS[i]+SUB1_NEAR_X)return i;
+  }
+  return -1;
 }
 function s2NearStation(){
   if(!s2)return false;
@@ -429,12 +459,55 @@ function makeS1Bubbles(){
   return bx.map((x,i)=>({x,y:by[i],r:3+(i%3)*1.5,vy:-spd[i],t:i*0.37}));
 }
 
+// Ocean currents — bands at fixed world positions that push the sub.
+// vx is in km/s added to s.dist progress; vy is in px/s added to sub.y.
+function makeSub1Currents(){
+  return [
+    {wd:2.5, wy:200, w:0.6, h:120, vx: 0.50, vy:  0,   tag:'east'},
+    {wd:3.6, wy:380, w:0.5, h:140, vx:-0.35, vy:  0,   tag:'west'},
+    {wd:5.4, wy:140, w:0.4, h:100, vx: 0,    vy: 70,   tag:'down'},
+    {wd:7.6, wy:300, w:0.6, h:140, vx: 0.55, vy:-30,   tag:'east'},
+    {wd:10.6,wy:260, w:0.5, h:160, vx:-0.40, vy:  0,   tag:'west'},
+  ];
+}
+
+// Wandering squid — drifts in a sine pattern at a world position
+function makeSub1Squids(){
+  return [
+    {wd:3.0,wy0:280,ampY:90, period:1.20,phase:0.0, bumpT:0},
+    {wd:8.2,wy0:330,ampY:110,period:0.90,phase:1.5, bumpT:0},
+  ];
+}
+
+// Bonus pearls — collectible breadcrumbs threaded between stations
+function makeSub1Pearls(){
+  const pts=[
+    {wd:0.7, wy:240},{wd:1.1, wy:200},
+    {wd:2.2, wy:260},{wd:2.9, wy:230},
+    {wd:3.5, wy:340},{wd:4.4, wy:380},
+    {wd:5.0, wy:300},{wd:5.7, wy:260},
+    {wd:6.2, wy:240},{wd:6.9, wy:220},
+    {wd:7.4, wy:280},{wd:8.0, wy:320},
+    {wd:8.6, wy:380},{wd:9.4, wy:420},
+    {wd:9.9, wy:380},{wd:10.6,wy:300},
+    {wd:11.2,wy:260},{wd:11.7,wy:230},
+  ];
+  return pts.map((p,i)=>({wd:p.wd,wy:p.wy,got:false,sparkle:(i*1.7)%6.283}));
+}
+
 function initSub1(){
   s1={
     dist:0,fuel:S1_FUEL_MAX,bobT:0,
     failed:false,failTimer:0,failMsg:'',
+    sub:{x:S1_SUB_X,y:H/2,vx:0,vy:0,rot:0,propT:0},
     bgObjs:makeS1BgObjects(),
     bubbles:makeS1Bubbles(),
+    currents:makeSub1Currents(),
+    squids:makeSub1Squids(),
+    pearls:makeSub1Pearls(),
+    tow:false,towMsgT:0,
+    shake:0,
+    pearlsGot:0,
   };
 }
 
@@ -449,32 +522,108 @@ function updateSub1(dt){
     return;
   }
 
-  const thrusting=K['Space']||K['ArrowRight']||touchState.buttons.has('thrust');
-  const refueling=(K['KeyE']||touchState.buttons.has('refuel'))&&s1NearStation();
+  const sub=s.sub;
+  const goBtn=K['Space']||touchState.buttons.has('thrust');
+  const upBtn=K['ArrowUp']||K['KeyW'];
+  const dnBtn=K['ArrowDown']||K['KeyS'];
+  const ltBtn=K['ArrowLeft']||K['KeyA'];
+  const rtBtn=K['ArrowRight']||K['KeyD'];
+  const refuelBtn=(K['KeyE']||touchState.buttons.has('refuel'))&&s1NearStation();
 
-  if(thrusting){
-    s.dist+=2.0*dt;
-    s.fuel=Math.max(0,s.fuel-1.0*dt);
-    score+=dt*2;
+  // ---- Vertical control (Up/Down) ----
+  if(upBtn)      sub.vy-=SUB1_VY_ACCEL*dt;
+  else if(dnBtn) sub.vy+=SUB1_VY_ACCEL*dt;
+  else           sub.vy*=Math.max(0,1-SUB1_DAMP*dt);
+  sub.vy=Math.max(-SUB1_VY_MAX,Math.min(SUB1_VY_MAX,sub.vy));
+  sub.y+=sub.vy*dt;
+  if(sub.y<SUB1_Y_MIN){sub.y=SUB1_Y_MIN;sub.vy=Math.max(0,sub.vy);}
+  if(sub.y>SUB1_Y_MAX){sub.y=SUB1_Y_MAX;sub.vy=Math.min(0,sub.vy);}
+
+  // ---- Forward control (always-on drift, GO thrusts, LEFT/RIGHT trim) ----
+  let fwd=SUB1_DRIFT;
+  let burning=false;
+  if(s.tow){
+    fwd=SUB1_TOW_SPD;
+  } else {
+    if(goBtn||rtBtn){
+      if(s.fuel>0){
+        fwd+=SUB1_THRUST;
+        s.fuel=Math.max(0,s.fuel-SUB1_FUEL_BURN*dt);
+        burning=true;
+      }
+    }
+    if(ltBtn) fwd=Math.max(0,fwd-SUB1_BRAKE);
   }
-  if(refueling){
-    s.fuel=Math.min(S1_FUEL_MAX,s.fuel+1.4*dt);
+  s.dist+=fwd*dt;
+  if(s.dist<0)s.dist=0;
+  if(burning)score+=dt*2;
+
+  // ---- Currents ----
+  for(const c of s.currents){
+    if(s.dist>c.wd-c.w/2&&s.dist<c.wd+c.w/2&&
+       sub.y>c.wy-c.h/2&&sub.y<c.wy+c.h/2){
+      s.dist+=c.vx*dt;
+      sub.vy+=c.vy*dt;
+    }
   }
 
+  // ---- Squids ----
+  for(const sq of s.squids){
+    sq.bumpT=Math.max(0,sq.bumpT-dt);
+    const sqY=sq.wy0+Math.sin(s.bobT*sq.period+sq.phase)*sq.ampY;
+    const sx=S1_SUB_X+(sq.wd-s.dist)*S1_WORLD_SCALE;
+    if(sq.bumpT<=0&&Math.abs(sx-S1_SUB_X)<28&&Math.abs(sqY-sub.y)<26){
+      sq.bumpT=0.6;
+      sub.vx=-180;sub.vy+=(sub.y<sqY?-160:160);
+      s.fuel=Math.max(0,s.fuel-0.15);
+      s.shake=0.25;
+      sfxAlert();
+    }
+  }
+
+  // ---- Pearls ----
+  for(const p of s.pearls){
+    if(p.got)continue;
+    const sx=S1_SUB_X+(p.wd-s.dist)*S1_WORLD_SCALE;
+    if(sx>-30&&sx<W+30&&Math.hypot(sx-S1_SUB_X,p.wy-sub.y)<18){
+      p.got=true;score+=10;s.pearlsGot++;sfxPickup();
+    }
+  }
+
+  // ---- Refuel (requires X+Y dock) ----
+  if(refuelBtn){
+    s.fuel=Math.min(S1_FUEL_MAX,s.fuel+SUB1_REFUEL_RATE*dt);
+    if(s.tow&&s.fuel>0.4){s.tow=false;s.towMsgT=2.0;}
+  } else if(s.tow&&s1NearStation()){
+    // Tow rescue auto-refuels at the buoy — no button-mash needed for kids
+    s.fuel=Math.min(S1_FUEL_MAX,s.fuel+SUB1_REFUEL_RATE*dt);
+    if(s.fuel>0.6){s.tow=false;s.towMsgT=2.0;}
+  }
+
+  // ---- Out of fuel: Johnny Mackerel rescue (no game-over) ----
+  if(!s.tow&&s.fuel<=0&&!s1NearStation()){
+    s.tow=true;s.towMsgT=2.5;
+    score=Math.max(0,score-15);
+  }
+
+  // ---- Cosmetic state ----
   s.bobT+=dt;
+  sub.propT+=(burning?14:6)*dt;
+  // Tilt sub toward velocity vector (mostly vy since vx is auxiliary)
+  const targetRot=Math.max(-0.28,Math.min(0.28,sub.vy*0.0014));
+  sub.rot+=(targetRot-sub.rot)*Math.min(1,dt*6);
+  if(sub.vx!==0)sub.vx*=Math.max(0,1-3*dt);
+  if(s.shake>0)s.shake=Math.max(0,s.shake-dt);
+  if(s.towMsgT>0)s.towMsgT=Math.max(0,s.towMsgT-dt);
+
   for(const b of s.bubbles){
     b.y+=b.vy*dt;
     if(b.y<60)b.y=490+(b.t%3)*20;
   }
 
-  if(s.fuel<=0&&thrusting){
-    s.fuel=0;s.failed=true;s.failTimer=2.6;
-    s.failMsg='Out of gas! Refuel at Kraken stations (hold E near a station).';
-    score=Math.max(0,score-50);
-    stageScores.sub1=0;
-  }
-  if(s.dist>=S1_DIST_TOTAL){
-    const bonus=Math.floor(s.fuel*30);
+  // ---- Win ----
+  if(s.dist>=SUB1_GOAL_KM){
+    const bonus=Math.floor(s.fuel*30)+s.pearlsGot*2;
     score+=bonus;
     stageScores.sub1=score;
     startPhase('heist');
@@ -506,33 +655,185 @@ function drawSubmarineSprite(x,y,label){
 }
 
 function drawS1Station(x,y){
+  // Sub2 still uses the bigger ship-station sprite. Keep this for sub2.
   ctx.save();
-  // Ship hull silhouette
   ctx.beginPath();
   ctx.moveTo(x-68,y+82);ctx.lineTo(x-68,y+18);ctx.lineTo(x-38,y-2);
   ctx.lineTo(x+38,y-2);ctx.lineTo(x+68,y+18);ctx.lineTo(x+68,y+82);
   ctx.closePath();ctx.fillStyle='#2e2445';ctx.fill();
   ctx.strokeStyle='#4a3860';ctx.lineWidth=1.5;ctx.stroke();
-  // Superstructure
   rnd(x-28,y-28,56,28,3,'#3e2e5a','#5e4a78',1);
   rnd(x-14,y-46,28,20,2,'#4a3868','#6a5888',1);
-  // Funnel
   rnd(x-5,y-62,10,18,2,'#382a50','#584070',1);
-  // Portholes
   const px=[x-46,x-24,x+2,x+24,x+46];
   for(const ox of px){
     circ(ox,y+44,4,'#ffe89a');
     circ(ox,y+44,7,'rgba(255,220,100,0.22)');
   }
-  // Fuel sign
   rnd(x-24,y-60,48,17,3,'#183820',C.krakGreen,1);
   ctx.fillStyle=C.cream;ctx.font='bold 8px monospace';ctx.textAlign='center';
   ctx.fillText('KRAKEN FUEL',x,y-48);
-  // Near-glow ring
-  if(s1&&Math.abs(s1.dist-S1_STATIONS[Math.round((x-S1_SUB_X)/(S1_WORLD_SCALE)+(s1?s1.dist:0))])
-     <0.01||s1NearStation()){
-    // glow handled separately below
+  ctx.restore();
+}
+
+// Small Kraken buoy for sub1 — about 52x44, with a chain to a wreck anchor.
+function drawSub1Buoy(x,y,kind,t){
+  ctx.save();
+  // Anchor chain hanging below
+  ctx.strokeStyle='rgba(140,160,200,0.35)';ctx.lineWidth=1;
+  ctx.beginPath();
+  for(let i=0;i<6;i++){
+    const cy=y+18+i*8;
+    ctx.moveTo(x-1,cy);ctx.lineTo(x+1,cy+4);
   }
+  ctx.stroke();
+  // Anchor block (varies by kind)
+  if(kind==='wreck'){
+    rnd(x-14,y+58,28,10,2,'#241830','#3a2a44',1);
+  } else if(kind==='kelp'){
+    ctx.strokeStyle='#3a6a48';ctx.lineWidth=2;
+    ctx.beginPath();
+    ctx.moveTo(x-10,y+70);ctx.lineTo(x-12,y+50);
+    ctx.moveTo(x,y+72);ctx.lineTo(x-2,y+44);
+    ctx.moveTo(x+10,y+68);ctx.lineTo(x+9,y+48);
+    ctx.stroke();
+  }
+  // Float — barnacled drum
+  rnd(x-22,y-8,44,28,6,'#2a3e22',C.krakGreen,1.5);
+  // Barnacle dots
+  ctx.fillStyle='#1a2818';
+  ctx.fillRect(x-16,y-2,3,3);ctx.fillRect(x-8,y+8,3,3);
+  ctx.fillRect(x+10,y-4,3,3);ctx.fillRect(x+4,y+10,3,3);
+  // Lantern on top
+  rnd(x-7,y-22,14,14,3,'#3a3010','#a07020',1);
+  const flick=0.7+0.3*Math.sin(t*6+x*0.01);
+  ctx.fillStyle='rgba(255,220,120,'+(0.55+flick*0.4)+')';
+  ctx.beginPath();ctx.arc(x,y-15,5,0,Math.PI*2);ctx.fill();
+  // Lantern halo
+  ctx.save();ctx.globalAlpha=0.18+flick*0.18;
+  circ(x,y-15,16,null,'#ffe080',2);
+  ctx.restore();
+  // Tag
+  ctx.fillStyle=C.cream;ctx.font='bold 7px monospace';ctx.textAlign='center';
+  ctx.fillText('FUEL',x,y+10);
+  ctx.restore();
+}
+
+// Drifting current band — visualized as parallel arrows + bubble streaks
+function drawSub1Current(c,sx){
+  if(sx<-180||sx>W+180)return;
+  ctx.save();
+  const w=c.w*S1_WORLD_SCALE;
+  // Faint band fill
+  ctx.fillStyle='rgba(120,170,220,0.06)';
+  ctx.fillRect(sx-w/2,c.wy-c.h/2,w,c.h);
+  ctx.strokeStyle='rgba(140,200,255,0.25)';ctx.lineWidth=1;
+  ctx.strokeRect(sx-w/2,c.wy-c.h/2,w,c.h);
+  // Arrows
+  const dirX=c.vx>=0?1:-1, hor=Math.abs(c.vx)>Math.abs(c.vy);
+  const phase=(s1?s1.bobT*Math.max(40,Math.abs(c.vx)*120+Math.abs(c.vy)*1.5):0)%24;
+  ctx.fillStyle='rgba(170,220,255,0.55)';
+  if(hor){
+    for(let row=0;row<3;row++){
+      const ay=c.wy-c.h/2+18+row*((c.h-36)/2);
+      for(let col=0;col<5;col++){
+        const ax=sx-w/2+12+col*(w-24)/4+(dirX>0?phase:-phase);
+        ctx.beginPath();
+        if(dirX>0){
+          ctx.moveTo(ax,ay-3);ctx.lineTo(ax+8,ay);ctx.lineTo(ax,ay+3);
+        } else {
+          ctx.moveTo(ax+8,ay-3);ctx.lineTo(ax,ay);ctx.lineTo(ax+8,ay+3);
+        }
+        ctx.closePath();ctx.fill();
+      }
+    }
+  } else {
+    const dirY=c.vy>=0?1:-1;
+    for(let col=0;col<3;col++){
+      const ax=sx-w/2+18+col*((w-36)/2);
+      for(let row=0;row<5;row++){
+        const ay=c.wy-c.h/2+12+row*(c.h-24)/4+(dirY>0?phase:-phase);
+        ctx.beginPath();
+        if(dirY>0){
+          ctx.moveTo(ax-3,ay);ctx.lineTo(ax,ay+8);ctx.lineTo(ax+3,ay);
+        } else {
+          ctx.moveTo(ax-3,ay+8);ctx.lineTo(ax,ay);ctx.lineTo(ax+3,ay+8);
+        }
+        ctx.closePath();ctx.fill();
+      }
+    }
+  }
+  ctx.restore();
+}
+
+function drawSub1Squid(x,y,bumpT){
+  ctx.save();
+  const wob=Math.sin((s1?s1.bobT:0)*5+x*0.02)*3;
+  const tint=bumpT>0?'#cc6080':C.krakGreen;
+  // Body
+  ctx.fillStyle=tint;
+  ctx.beginPath();ctx.ellipse(x,y,18,13,0,0,Math.PI*2);ctx.fill();
+  // Hood
+  ctx.fillStyle='#163050';
+  ctx.beginPath();ctx.moveTo(x-14,y);ctx.quadraticCurveTo(x,y-22,x+14,y);
+  ctx.closePath();ctx.fill();
+  // Eyes
+  circ(x-5,y-2,2.4,'#fff');circ(x+5,y-2,2.4,'#fff');
+  circ(x-5,y-2,1.2,'#0a1420');circ(x+5,y-2,1.2,'#0a1420');
+  // Tentacles
+  ctx.strokeStyle=tint;ctx.lineWidth=2;
+  for(let i=-3;i<=3;i++){
+    const tx=x+i*4, ty=y+10;
+    ctx.beginPath();
+    ctx.moveTo(tx,ty);
+    ctx.quadraticCurveTo(tx+wob*0.4*Math.sign(i||1),ty+10,tx+i*1.5+wob*0.6,ty+18);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawSub1Pearl(x,y,sparkle){
+  const t=(s1?s1.bobT:0)+sparkle;
+  const pulse=0.55+0.45*Math.sin(t*4);
+  ctx.save();
+  ctx.globalAlpha=0.25+pulse*0.35;
+  circ(x,y,9+pulse*3,null,'#ffe6c8',1.5);
+  ctx.globalAlpha=1;
+  circ(x,y,4,'#fff8e0','#e0c890',1);
+  // 4-point sparkle
+  ctx.globalAlpha=0.7+pulse*0.3;
+  ctx.strokeStyle='#fff';ctx.lineWidth=1;
+  const sr=3+pulse*1.5;
+  ctx.beginPath();ctx.moveTo(x-sr,y);ctx.lineTo(x+sr,y);
+  ctx.moveTo(x,y-sr);ctx.lineTo(x,y+sr);ctx.stroke();
+  ctx.restore();
+}
+
+// Friendly Johnny Mackerel — appears behind the sub during a tow rescue
+function drawJohnnyMackerel(x,y){
+  ctx.save();
+  const t=(s1?s1.bobT:0);
+  const wob=Math.sin(t*8)*4;
+  const fy=y+wob;
+  // Body
+  ctx.fillStyle='#5a90c8';
+  ctx.beginPath();ctx.ellipse(x,fy,22,9,0,0,Math.PI*2);ctx.fill();
+  // Tail
+  ctx.beginPath();
+  ctx.moveTo(x-22,fy);ctx.lineTo(x-32,fy-7);ctx.lineTo(x-32,fy+7);
+  ctx.closePath();ctx.fill();
+  // Stripes
+  ctx.strokeStyle='rgba(20,40,70,0.55)';ctx.lineWidth=1;
+  ctx.beginPath();
+  ctx.moveTo(x-12,fy-7);ctx.lineTo(x-8,fy+7);
+  ctx.moveTo(x-2,fy-8);ctx.lineTo(x+2,fy+8);
+  ctx.moveTo(x+8,fy-7);ctx.lineTo(x+12,fy+7);
+  ctx.stroke();
+  // Eye
+  circ(x+12,fy-2,1.8,'#0a1420');
+  // Smile
+  ctx.beginPath();ctx.arc(x+15,fy+2,3,0,Math.PI);
+  ctx.strokeStyle='#0a1420';ctx.lineWidth=1;ctx.stroke();
   ctx.restore();
 }
 
@@ -558,24 +859,40 @@ function drawS1Coral(x,y){
 
 function drawSub1(){
   const s=s1;
+  const sub=s.sub;
 
-  // Ocean gradient background
+  // Optional camera shake (squid bump)
+  const shakeX=s.shake>0?(Math.sin(s.bobT*40)*4*s.shake):0;
+  const shakeY=s.shake>0?(Math.cos(s.bobT*48)*3*s.shake):0;
+  ctx.save();ctx.translate(shakeX,shakeY);
+
+  // Depth-banded ocean gradient (surface light → mid → deep)
   const grad=ctx.createLinearGradient(0,0,0,H);
-  grad.addColorStop(0,'#040e1e');grad.addColorStop(0.45,'#0c2240');grad.addColorStop(1,'#040e18');
+  grad.addColorStop(0,'#0a2244');grad.addColorStop(0.30,'#0c2848');
+  grad.addColorStop(0.65,'#0a1c38');grad.addColorStop(1,'#040e18');
   ctx.fillStyle=grad;ctx.fillRect(0,0,W,H);
 
-  // Light ray bands
+  // Light ray bands (concentrated near the surface)
   for(let i=0;i<7;i++){
-    ctx.fillStyle=i%2===0?'rgba(255,255,255,0.022)':'rgba(90,160,255,0.016)';
-    ctx.fillRect(0,70+i*56,W,28);
+    ctx.fillStyle=i%2===0?'rgba(255,255,255,0.028)':'rgba(90,160,255,0.020)';
+    ctx.fillRect(0,40+i*56,W,28);
   }
+
+  // Surface ripple
+  ctx.strokeStyle='rgba(180,220,255,0.20)';ctx.lineWidth=1;
+  ctx.beginPath();
+  for(let x=0;x<W;x+=8){
+    const yy=44+Math.sin((x+s.dist*40)*0.06)*2;
+    if(x===0)ctx.moveTo(x,yy);else ctx.lineTo(x,yy);
+  }
+  ctx.stroke();
 
   // Seabed hint
   const sedGrad=ctx.createLinearGradient(0,H-40,0,H);
-  sedGrad.addColorStop(0,'transparent');sedGrad.addColorStop(1,'rgba(20,12,8,0.5)');
+  sedGrad.addColorStop(0,'transparent');sedGrad.addColorStop(1,'rgba(20,12,8,0.55)');
   ctx.fillStyle=sedGrad;ctx.fillRect(0,H-40,W,40);
 
-  // Parallax bg objects
+  // Parallax bg objects (wrecks, corals)
   for(const obj of s.bgObjs){
     const sx=S1_SUB_X+(obj.wd-s.dist)*S1_WORLD_SCALE*obj.layer;
     if(sx<-90||sx>W+90)continue;
@@ -583,23 +900,46 @@ function drawSub1(){
     else drawS1Coral(sx,obj.y);
   }
 
-  // Kraken stations
+  // Currents (drawn behind everything but bg objects)
+  for(const c of s.currents){
+    const sx=S1_SUB_X+(c.wd-s.dist)*S1_WORLD_SCALE;
+    drawSub1Current(c,sx);
+  }
+
+  // Kraken fuel buoys (small, depth-varying)
   for(let i=0;i<S1_STATIONS.length;i++){
     const sx=S1_SUB_X+(S1_STATIONS[i]-s.dist)*S1_WORLD_SCALE;
-    if(sx<-150||sx>W+150)continue;
-    drawS1Station(sx,230);
-    // Near-glow ring
-    if(Math.abs(s.dist-S1_STATIONS[i])<S1_NEAR_DIST){
-      const pulse=0.5+0.5*Math.abs(Math.sin(s.bobT*2.8));
-      ctx.save();ctx.globalAlpha=pulse*0.5;
-      circ(sx,230,80,null,'#3a8a5a',3);
+    if(sx<-90||sx>W+90)continue;
+    const sy=SUB1_STATION_Y[i];
+    drawSub1Buoy(sx,sy,SUB1_STATION_KIND[i],s.bobT);
+    if(Math.abs(s.dist-S1_STATIONS[i])<SUB1_NEAR_X &&
+       Math.abs(sub.y-sy)<SUB1_NEAR_Y){
+      const pulse=0.5+0.5*Math.abs(Math.sin(s.bobT*3.2));
+      ctx.save();ctx.globalAlpha=pulse*0.55;
+      circ(sx,sy,38,null,C.krakGreen,2.5);
       ctx.restore();
     }
   }
 
-  // Destination marker at dist=10
-  const destX=S1_SUB_X+(S1_DIST_TOTAL-s.dist)*S1_WORLD_SCALE;
-  if(destX>=0&&destX<=W){
+  // Pearls
+  for(const p of s.pearls){
+    if(p.got)continue;
+    const sx=S1_SUB_X+(p.wd-s.dist)*S1_WORLD_SCALE;
+    if(sx<-30||sx>W+30)continue;
+    drawSub1Pearl(sx,p.wy,p.sparkle);
+  }
+
+  // Squids
+  for(const sq of s.squids){
+    const sx=S1_SUB_X+(sq.wd-s.dist)*S1_WORLD_SCALE;
+    if(sx<-60||sx>W+60)continue;
+    const sqY=sq.wy0+Math.sin(s.bobT*sq.period+sq.phase)*sq.ampY;
+    drawSub1Squid(sx,sqY,sq.bumpT);
+  }
+
+  // Destination marker at SUB1_GOAL_KM
+  const destX=S1_SUB_X+(SUB1_GOAL_KM-s.dist)*S1_WORLD_SCALE;
+  if(destX>=-44&&destX<=W+44){
     ctx.save();
     rnd(destX-22,160,44,140,4,'rgba(50,30,80,0.7)','#8a60b0',1.5);
     ctx.fillStyle='#c8a0e8';ctx.font='bold 10px monospace';ctx.textAlign='center';
@@ -613,56 +953,109 @@ function drawSub1(){
     circ(b.x,b.y,b.r,null,'rgba(160,220,255,0.28)',1);
   }
 
-  // Submarine with bob
+  // Submarine
   if(!s.failed){
-    const bobY=Math.sin(s.bobT*1.3)*5;
-    drawSubmarineSprite(S1_SUB_X,H/2-8+bobY,'SAMSTER');
+    const bobY=Math.sin(s.bobT*1.3)*3;
+    ctx.save();
+    ctx.translate(sub.x+sub.vx*0.05,sub.y+bobY);
+    ctx.rotate(sub.rot);
+    drawSubmarineSprite(0,0,'SAMSTER');
+    ctx.restore();
+    // Tow companion
+    if(s.tow){
+      drawJohnnyMackerel(sub.x-58,sub.y+8);
+    }
   }
+
+  ctx.restore(); // end shake
+
+  // Compass chevron toward next station
+  drawSub1Compass(s);
 
   // HUD
   drawSub1HUD(s);
 
-  // Fail overlay
-  if(s.failed){
-    const alpha=Math.min(1,(2.6-s.failTimer)/0.45);
-    ctx.save();ctx.globalAlpha=alpha;
-    rnd(W/2-230,H/2-62,460,124,14,'rgba(70,8,8,0.94)',C.donRed,2.5);
-    txt('Out of Gas!',W/2,H/2-18,'#ffaaaa',32,'center','bold Georgia');
-    txt(s.failMsg,W/2,H/2+22,C.cream,13,'center');
+  // Tow flavor banner
+  if(s.tow){
+    const a=0.82;
+    ctx.save();ctx.globalAlpha=a;
+    rnd(W/2-180,H-78,360,34,8,'rgba(20,40,80,0.92)','#5a90c8',1.5);
+    txt("Johnny Mackerel is towing you to the next buoy!",W/2,H-54,C.cream,12,'center');
     ctx.restore();
-  }
-
-  // Refuel prompt
-  if(!s.failed&&s1NearStation()){
+  } else if(s.towMsgT>0){
+    ctx.save();ctx.globalAlpha=Math.min(1,s.towMsgT);
+    rnd(W/2-180,H-78,360,34,8,'rgba(20,40,80,0.92)','#5a90c8',1.5);
+    txt('Refueled — Johnny waves goodbye!',W/2,H-54,C.cream,12,'center');
+    ctx.restore();
+  } else if(s1NearStation()){
     const pulse=0.65+0.35*Math.abs(Math.sin(s.bobT*3));
     ctx.save();ctx.globalAlpha=pulse;
-    rnd(W/2-136,H-76,272,34,8,'rgba(28,62,38,0.88)',C.krakGreen,1.5);
-    txt('Hold E (or Refuel button) to fill up',W/2,H-52,C.cream,13,'center');
+    rnd(W/2-152,H-78,304,34,8,'rgba(28,62,38,0.92)',C.krakGreen,1.5);
+    txt('Hold E (or Refuel button) to fill up',W/2,H-54,C.cream,13,'center');
     ctx.restore();
   }
+}
+
+function drawSub1Compass(s){
+  const idx=s1NextStationIdx();
+  if(idx<0)return;
+  const sub=s.sub;
+  const sx=S1_SUB_X+(S1_STATIONS[idx]-s.dist)*S1_WORLD_SCALE;
+  const sy=SUB1_STATION_Y[idx];
+  ctx.save();
+  if(sx>W-40){
+    // Right-edge horizontal chevron
+    const cx=W-22,cy=H/2;
+    ctx.fillStyle=C.krakGreen;
+    ctx.beginPath();
+    ctx.moveTo(cx-8,cy-10);ctx.lineTo(cx+4,cy);ctx.lineTo(cx-8,cy+10);
+    ctx.closePath();ctx.fill();
+    txt('FUEL',cx-26,cy-16,C.krakGreen,10,'right','bold monospace');
+  } else if(sy<sub.y-40){
+    // Up chevron — station is above the sub
+    const cx=W-30,cy=Math.max(60,sub.y-90);
+    ctx.fillStyle=C.krakGreen;
+    ctx.beginPath();
+    ctx.moveTo(cx-9,cy+5);ctx.lineTo(cx,cy-5);ctx.lineTo(cx+9,cy+5);
+    ctx.closePath();ctx.fill();
+  } else if(sy>sub.y+40){
+    // Down chevron — station is below the sub
+    const cx=W-30,cy=Math.min(H-60,sub.y+90);
+    ctx.fillStyle=C.krakGreen;
+    ctx.beginPath();
+    ctx.moveTo(cx-9,cy-5);ctx.lineTo(cx,cy+5);ctx.lineTo(cx+9,cy-5);
+    ctx.closePath();ctx.fill();
+  }
+  ctx.restore();
 }
 
 function drawSub1HUD(s){
   // Progress bar
   rnd(18,8,W-36,26,5,'rgba(0,0,0,0.6)','rgba(90,140,210,0.4)',1);
-  const prog=Math.min(1,s.dist/S1_DIST_TOTAL);
+  const prog=Math.min(1,s.dist/SUB1_GOAL_KM);
   if(prog>0)rnd(20,10,Math.round((W-40)*prog),22,4,'rgba(55,120,190,0.75)',null,0);
   // Station dots on progress bar
-  for(const st of S1_STATIONS){
-    const sx=20+(st/S1_DIST_TOTAL)*(W-40);
-    const near=Math.abs(s.dist-st)<S1_NEAR_DIST;
+  for(let i=0;i<S1_STATIONS.length;i++){
+    const st=S1_STATIONS[i];
+    const sx=20+(st/SUB1_GOAL_KM)*(W-40);
+    const near=Math.abs(s.dist-st)<SUB1_NEAR_X;
     circ(sx,21,near?6:4,near?C.krakGreen:'#2a6a40');
   }
   txt('Submarine Outbound',28,26,C.dimTxt,11,'left');
-  txt(s.dist.toFixed(1)+' / 10.0 km',W-24,26,C.cream,11,'right');
+  txt(s.dist.toFixed(1)+' / '+SUB1_GOAL_KM.toFixed(1)+' km',W-24,26,C.cream,11,'right');
 
   // Fuel gauge
   rnd(18,H-40,164,24,5,'rgba(0,0,0,0.6)','rgba(80,140,100,0.4)',1);
   const fp=s.fuel/S1_FUEL_MAX;
-  const fc=fp>0.45?'#3a9a52':fp>0.2?'#cca030':'#cc3322';
+  const fc=s.tow?'#5a90c8':(fp>0.45?'#3a9a52':fp>0.2?'#cca030':'#cc3322');
   if(fp>0)rnd(20,H-38,Math.round(160*fp),20,4,fc,null,0);
-  txt('Fuel',28,H-22,C.dimTxt,11,'left');
+  txt(s.tow?'TOWED':'Fuel',28,H-22,C.dimTxt,11,'left');
   txt((fp*100).toFixed(0)+'%',170,H-22,C.cream,11,'right');
+
+  // Pearls collected
+  if(s.pearlsGot>0){
+    txt('Pearls: '+s.pearlsGot,W/2,H-22,'#ffe6c8',11,'center');
+  }
 
   // Score
   txt('Score: '+Math.floor(score),W-18,H-22,C.gold,13,'right','bold Georgia');
@@ -996,7 +1389,7 @@ function drawSub2HUD(s){
 // ── Heist Engine ─────────────────────────────────────────────────────────────
 const H_TILE=32,H_COLS=19,H_ROWS=15,H_ROOM_X=0,H_ROOM_Y=40,H_HUD_X=H_COLS*H_TILE;
 const H_SPD=110,H_HS=10,H_PICK=16,H_IACT=38;
-const TF=0,TW=1,TN=2,TD=3,TL=4,TO=5,TI=6,TCL=7,TCR=8,TCU=9,TCD=10,TKD=11,TLS=12;
+const TF=0,TW=1,TN=2,TD=3,TL=4,TO=5,TI=6,TCL=7,TCR=8,TCU=9,TCD=10,TKD=11,TLS=12,TBO=13;
 
 function hTX(c){return H_ROOM_X+c*H_TILE+H_TILE/2;}
 function hTY(r){return H_ROOM_Y+r*H_TILE+H_TILE/2;}
@@ -1012,12 +1405,13 @@ function hKpBtns(){
 }
 
 const H_ROOM_DEFS=(function(){
-  const W=TW,F=TF,N=TN,D=TD,L=TL,O=TO,I=TI,CR=TCR,CL=TCL,KD=TKD,LS=TLS;
+  const W=TW,F=TF,N=TN,D=TD,L=TL,O=TO,I=TI,CR=TCR,CL=TCL,KD=TKD,LS=TLS,BO=TBO;
   function flat(rws){let a=[];for(let i=0;i<rws.length;i++)a=a.concat(rws[i]);return a;}
   const so=[W,W,W,W,W,W,W,W,W,W,W,W,W,W,W,W,W,W,W];
   const fl=[W,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,W];
   function lk(c){const r=so.slice();r[c]=L;return r;}
   function op(c){const r=so.slice();r[c]=O;return r;}
+  function bk(c){const r=so.slice();r[c]=BO;return r;}
   const cvRow=[W,F,F,CR,CR,CR,CR,CR,CR,CR,CR,CR,CR,CR,CR,CR,F,F,W];
   const cvWall=[W,W,W,F,F,F,F,F,F,F,F,F,F,F,F,F,W,W,W];
   const iceRow=[W,F,I,I,I,I,I,I,I,I,I,I,I,I,I,I,I,F,W];
@@ -1038,37 +1432,37 @@ const H_ROOM_DEFS=(function(){
     fl,fl,fl,fl,fl,fl,fl,
     [W,F,F,N,N,N,F,F,F,F,F,F,F,N,N,N,F,F,W],
     [W,F,F,N,N,N,F,F,F,F,F,F,F,N,N,N,F,F,W],
-    fl,so]);
+    fl,bk(9)]);
 
   // Room 2: Conveyor Belt
   const map2=flat([lk(9),fl,fl,fl,cvWall,cvRow,cvRow,cvRow,cvWall,fl,fl,
     [W,F,F,D,D,F,F,F,F,F,F,F,F,F,F,F,F,F,W],
     [W,F,F,D,D,F,F,F,F,F,F,F,F,F,F,F,F,F,W],
-    fl,so]);
+    fl,bk(9)]);
 
   // Room 3: Security Wing — keycard wall at row 4
   const kdWall=[W,W,W,W,W,W,W,W,W,KD,W,W,W,W,W,W,W,W,W];
   const map3=flat([lk(9),fl,fl,fl,kdWall,fl,fl,fl,fl,fl,fl,fl,
     [W,F,F,F,F,F,F,F,F,F,F,F,F,F,N,N,N,F,W],
-    fl,so]);
+    fl,bk(9)]);
 
   // Room 4: Guard Patrol
   const map4=flat([lk(9),fl,fl,fl,fl,fl,
     [W,F,F,D,D,D,F,F,F,F,F,F,F,F,F,F,F,F,W],
     [W,F,F,D,D,D,F,F,F,F,F,F,F,F,F,F,F,F,W],
-    fl,fl,fl,fl,fl,fl,so]);
+    fl,fl,fl,fl,fl,fl,bk(9)]);
 
   // Room 5: Dark Archive
   const map5=flat([lk(9),fl,fl,
     [W,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,LS,F,W],
     fl,fl,fl,fl,fl,fl,fl,fl,
     [W,F,F,F,F,F,F,F,F,F,F,F,F,F,D,D,D,F,W],
-    fl,so]);
+    fl,bk(9)]);
 
-  // Room 6: The Vault — ice floor, exit gated by 12+12 items
+  // Room 6: The Vault — ice floor, exit gated by 8+8 items
   const map6=flat([op(9),fl,iceRow,iceRow,iceRow,iceRow,iceRow,iceRow,iceRow,iceRow,fl,fl,
     [W,F,F,D,D,F,F,F,F,F,F,F,F,F,F,F,F,F,W],
-    fl,so]);
+    fl,bk(9)]);
 
   // Room 7: Exit (complete)
   const map7=flat([so,fl,fl,fl,fl,fl,fl,fl,fl,fl,fl,fl,fl,fl,so]);
@@ -1078,7 +1472,7 @@ const H_ROOM_DEFS=(function(){
      floppies:[{x:hTX(9),y:hTY(6)},{x:hTX(14),y:hTY(4)}],
      containers:[{x:hTX(5),y:hTY(8)},{x:hTX(14),y:hTY(9)}],
      cigars:[],keycards:[],
-     notes:[{x:hTX(4),y:hTY(11),code:'4819',text:"Memo on desk: Don's access code is 4-8-1-9"}],
+     notes:[{x:hTX(4),y:hTY(11),code:'4819',text:"Memo on desk: Don's access code is 4-8-1-9. Vault opens with 8 disks and 8 crates."}],
      keypads:[{tx:9,ty:0,code:'4819'}],
      guardDef:null,dark:false,
      startX:hTX(2),startY:hTY(13),timerSecs:120},
@@ -1215,18 +1609,48 @@ function hGuardUpdate(g,dt,p){
     else g.dir=dy>0?'down':'up';
   }
   if(!heist.guardStunned&&Math.hypot(g.x-p.x,g.y-p.y)<22){
-    heist.guardStunned=true;heist.guardStunT=2.0;
-    score=Math.max(0,score-20);
-    hShowMsg('Guard spotted you! (-20 pts)');
+    // Softened: stun the player in place for 1s, -10 pts, no teleport.
+    // The guard is "looking the other way" briefly so the kid can recover.
+    heist.guardStunned=true;heist.guardStunT=1.0;
+    score=Math.max(0,score-10);
+    hShowMsg('Guard spotted you! Lay low. (-10 pts)');
   }
 }
 function hShowMsg(m){heist.msg=m;heist.msgT=3.0;}
-function hEnterRoom(idx){
+// Digory's room-entry quips — keep the kid-friendly story-bible tone
+const DIGORY_QUIPS_FWD=[
+  "A nice yellow welcome mat. I might come back for a nap.",
+  "Storage room! Who hides crates next to disks? Don, that's who.",
+  "Mind the conveyors, Digory. Mind them.",
+  "Security wing. Sniff out a yellow keycard.",
+  "Guard up ahead. Tail down, paws light.",
+  "It's dark. Find the switch, then the secrets.",
+  "The Vault! Slippy floor, big prize.",
+  "Mission accomplished. Time to swim home."
+];
+const DIGORY_QUIPS_BACK=[
+  "Backtracking. Don't tell Duckdee.",
+  "Forgot something? It happens.",
+  "Conveyors again. Hop hop hop.",
+  "Back to the security wing. Quietly.",
+  "Patrol zone, take two.",
+  "Dark again. Where was that switch?"
+];
+
+function hEnterRoom(idx,entryDir){
   const r=heist.rooms[idx];
   heist.roomIdx=idx;heist.room=r;
-  heist.player.x=r.startX;heist.player.y=r.startY;
+  if(entryDir==='fromNorth'){
+    // Backtracked from a higher room: drop in just below the north door
+    heist.player.x=hTX(9);heist.player.y=hTY(2);
+  } else {
+    heist.player.x=r.startX;heist.player.y=r.startY;
+  }
+  heist.player.vx=0;heist.player.vy=0;
   if(r.timerSecs>0)heist.timer=r.timerSecs*diff.timerMul;
   clearBackdropCache();
+  const quip=entryDir==='fromNorth'?DIGORY_QUIPS_BACK[idx]:DIGORY_QUIPS_FWD[idx];
+  if(quip)hShowMsg(quip);
 }
 
 function hKpTryConfirm(){
@@ -1273,10 +1697,12 @@ function updateHeist(dt){
   }
   if(h.guardStunned){
     h.guardStunT-=dt;
+    // Pass a far-away position so the guard doesn't keep "spotting" the player
+    // during the stun window, but resume its patrol normally.
     if(h.room.guard)hGuardUpdate(h.room.guard,dt,{x:-999,y:-999});
     if(h.guardStunT<=0){
       h.guardStunned=false;
-      h.player.x=h.room.startX;h.player.y=h.room.startY;
+      // Don't teleport; the player stays where they were caught.
       h.player.vx=0;h.player.vy=0;
     }
     if(h.msgT>0)h.msgT-=dt;
@@ -1327,12 +1753,12 @@ function updateHeist(dt){
   // Item pickups
   for(const it of r.floppies){
     if(!it.got&&Math.hypot(p.x-it.x,p.y-it.y)<H_PICK){
-      it.got=true;h.collected.f++;score+=15;sfxPickup();hShowMsg('Floppy disk! ('+h.collected.f+'/12)');
+      it.got=true;h.collected.f++;score+=15;sfxPickup();hShowMsg('Floppy disk! ('+h.collected.f+'/8)');
     }
   }
   for(const it of r.containers){
     if(!it.got&&Math.hypot(p.x-it.x,p.y-it.y)<H_PICK){
-      it.got=true;h.collected.c++;score+=15;sfxPickup();hShowMsg('Container! ('+h.collected.c+'/12)');
+      it.got=true;h.collected.c++;score+=15;sfxPickup();hShowMsg('Container! ('+h.collected.c+'/8)');
     }
   }
   for(const it of r.cigars){
@@ -1394,11 +1820,12 @@ function updateHeist(dt){
   // Room transition: reach north wall
   if(p.y<H_ROOM_Y+H_TILE*1.5){
     if(h.roomIdx===6){
-      // Vault: need 12+12
-      if(h.collected.f>=12&&h.collected.c>=12){hEnterRoom(7);return;}
+      // Vault: need 8+8 (kid-achievable; world has 11 of each)
+      if(h.collected.f>=8&&h.collected.c>=8){hEnterRoom(7);return;}
       else{
-        p.y=H_ROOM_Y+H_TILE*1.5;p.vy=0;
-        hShowMsg('Need '+(12-h.collected.f)+' more disks and '+(12-h.collected.c)+' more crates!');
+        // Don't push-back into the wall — let the kid turn around and
+        // exit south through the back-door if they need more pickups.
+        hShowMsg('Need '+(8-h.collected.f)+' more disks and '+(8-h.collected.c)+' more crates! Try the back door.');
       }
     } else {
       const pCol=Math.round((p.x-H_ROOM_X)/H_TILE);
@@ -1407,6 +1834,16 @@ function updateHeist(dt){
         if(c>=0&&c<H_COLS&&hTileAt(r.map,c,0)===TO){
           if(h.roomIdx<7){hEnterRoom(h.roomIdx+1);return;}
         }
+      }
+    }
+  }
+  // Room transition: reach south wall (back-door, allows backtracking)
+  if(p.y>H_ROOM_Y+(H_ROWS-1)*H_TILE-H_HS){
+    const pCol=Math.round((p.x-H_ROOM_X)/H_TILE);
+    for(let dc=-1;dc<=1;dc++){
+      const c=pCol+dc;
+      if(c>=0&&c<H_COLS&&hTileAt(r.map,c,H_ROWS-1)===TBO){
+        if(h.roomIdx>0){hEnterRoom(h.roomIdx-1,'fromNorth');return;}
       }
     }
   }
@@ -1501,6 +1938,18 @@ function drawHeistRoomBg(){
         ctx.fillStyle=lsOn?'#e8e840':'#606060';
         ctx.font='bold 6px sans-serif';ctx.textAlign='center';
         ctx.fillText(lsOn?'ON':'OFF',tx+H_TILE/2,ty+H_TILE/2+3);
+      } else if(t===TBO){
+        // Back door — open archway in the south wall (passable)
+        ctx.fillStyle='#0a1c12';ctx.fillRect(tx,ty,H_TILE,H_TILE);
+        ctx.strokeStyle='#3a8a5a';ctx.lineWidth=1.5;ctx.strokeRect(tx+1,ty+1,H_TILE-2,H_TILE-2);
+        ctx.fillStyle='#3a8a5a';ctx.font='bold 7px sans-serif';ctx.textAlign='center';
+        ctx.fillText('BACK',tx+H_TILE/2,ty+H_TILE/2-2);
+        // Down-arrow chevron (drawn, not unicode — iOS 12 safe)
+        ctx.beginPath();
+        ctx.moveTo(tx+H_TILE/2-4,ty+H_TILE/2+4);
+        ctx.lineTo(tx+H_TILE/2+4,ty+H_TILE/2+4);
+        ctx.lineTo(tx+H_TILE/2,ty+H_TILE/2+9);
+        ctx.closePath();ctx.fill();
       }
     }
   }
@@ -1528,13 +1977,23 @@ function drawHeistItems(){
     ctx.moveTo(it.x,it.y-8);ctx.lineTo(it.x,it.y+8);ctx.stroke();
     ctx.save();ctx.globalAlpha=0.22;circ(it.x,it.y,13,null,'#c09050',2);ctx.restore();
   }
+  const cigT=performance.now()/1000;
   for(const it of r.cigars){
     if(it.got)continue;
     ctx.save();ctx.fillStyle='#a07028';
     ctx.beginPath();ctx.ellipse(it.x,it.y,11,4,0,0,Math.PI*2);ctx.fill();
     ctx.strokeStyle='#c09040';ctx.lineWidth=1;ctx.stroke();
     ctx.fillStyle='#cc2200';ctx.beginPath();ctx.arc(it.x+11,it.y,2.5,0,Math.PI*2);ctx.fill();
-    ctx.globalAlpha=0.22;circ(it.x,it.y,15,null,'#ffa040',2);ctx.restore();
+    const pulse=0.5+0.5*Math.sin(cigT*3+it.x*0.05);
+    ctx.globalAlpha=0.22+pulse*0.25;
+    circ(it.x,it.y,15+pulse*3,null,'#ffa040',2);
+    // Sparkle cross — twinkles at the tip of the cigar
+    ctx.globalAlpha=0.6+pulse*0.4;
+    ctx.strokeStyle='#fff0c0';ctx.lineWidth=1;
+    const sx=it.x+11,sy=it.y-1,sr=3+pulse*2;
+    ctx.beginPath();ctx.moveTo(sx-sr,sy);ctx.lineTo(sx+sr,sy);
+    ctx.moveTo(sx,sy-sr);ctx.lineTo(sx,sy+sr);ctx.stroke();
+    ctx.restore();
   }
   for(const n of r.notes){
     if(n.read)continue;
@@ -1551,6 +2010,21 @@ function drawHeistItems(){
     ctx.fillStyle='#e0b820';ctx.fillRect(it.x+4,it.y-1,3,2);ctx.fillRect(it.x+4,it.y+3,2,2);
     ctx.globalAlpha=0.28;circ(it.x,it.y,14,null,'#ffd060',2);
     ctx.restore();
+  }
+  // Light-switch glow — pulses when the dark room is unlit, to draw a kid's eye to it.
+  if(r.dark&&!r.lightsOn){
+    for(let row=0;row<H_ROWS;row++){
+      for(let col=0;col<H_COLS;col++){
+        if(hTileAt(r.map,col,row)===TLS){
+          const lx=hTX(col),ly=hTY(row);
+          const pulse=0.5+0.5*Math.sin(performance.now()/250);
+          ctx.save();
+          ctx.globalAlpha=0.18+pulse*0.32;
+          circ(lx,ly,18+pulse*6,null,'#ffe060',2.5);
+          ctx.restore();
+        }
+      }
+    }
   }
 }
 
@@ -1616,18 +2090,21 @@ function drawHeistHUD(){
   ctx.fillStyle=h.room.timerSecs>0?(t<30?C.donRed:t<60?C.orange:C.cream):C.dimTxt;
   ctx.font='bold 19px Courier New,monospace';ctx.textAlign='right';
   ctx.fillText(tStr,hx+hw-8,50);
-  let totalF=0,totalC=0,totalG=0;
-  for(const r2 of h.rooms){totalF+=r2.floppies.length;totalC+=r2.containers.length;totalG+=r2.cigars.length;}
+  // Show vault-gate requirement (8) for disks/crates so the kid knows the
+  // target. Cigars are bonus loot — show world total.
+  let totalG=0;
+  for(const r2 of h.rooms)totalG+=r2.cigars.length;
   const rows=[
-    {lbl:'Disks:',   v:h.collected.f,tot:totalF,  col:'#6699ff'},
-    {lbl:'Crates:',  v:h.collected.c,tot:totalC,  col:C.orange},
-    {lbl:'Cigars:',  v:h.collected.g,tot:totalG,  col:'#ffcc44'},
+    {lbl:'Disks:',   v:h.collected.f,tot:8,      col:'#6699ff'},
+    {lbl:'Crates:',  v:h.collected.c,tot:8,      col:C.orange},
+    {lbl:'Cigars:',  v:h.collected.g,tot:totalG, col:'#ffcc44'},
   ];
   let cy=64;
   for(const row of rows){
-    rnd(hx+6,cy,hw-12,22,4,'rgba(16,22,44,0.8)','rgba(50,70,110,0.5)',1);
+    const done=row.tot>0&&row.v>=row.tot;
+    rnd(hx+6,cy,hw-12,22,4,done?'rgba(20,52,32,0.85)':'rgba(16,22,44,0.8)',done?'rgba(80,200,120,0.7)':'rgba(50,70,110,0.5)',1);
     txt(row.lbl,hx+12,cy+15,C.dimTxt,11,'left');
-    txt(row.v+'/'+(row.tot||'?'),hx+hw-14,cy+15,row.v>0?row.col:C.dimTxt,12,'right');
+    txt(row.v+'/'+(row.tot||'?')+(done?' OK':''),hx+hw-14,cy+15,done?'#9ce0a8':(row.v>0?row.col:C.dimTxt),12,'right');
     cy+=28;
   }
   let codesRead=0;
