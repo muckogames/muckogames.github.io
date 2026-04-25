@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Kraken Deeb Run</title>
+<title>The Don's Tower</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext x='50%25' y='50%25' dy='.35em' text-anchor='middle' font-size='82'%3E%F0%9F%90%B9%3C/text%3E%3C/svg%3E">
 <style>
 /* iOS 12 safe: no inset:, no flex gap:, no aspect-ratio */
@@ -369,7 +369,7 @@ function sfxVictory(){
 function sfxAlert(){beep(880,0.3,0.12,'square');setTimeout(function(){beep(880,0.3,0.12,'square');},160);}
 
 // ── High scores ───────────────────────────────────────────────────────────
-const HS_KEY='mucko_hs_krakendeeb';
+const HS_KEY='mucko_hs_donstower';
 function getHS(){try{return JSON.parse(localStorage.getItem(HS_KEY)||'[]');}catch(e){return[];}}
 function saveHS(entry){
   const sc=getHS();sc.push(entry);
@@ -957,7 +957,7 @@ function drawSub1(){
     ctx.save();
     rnd(destX-22,160,44,140,4,'rgba(50,30,80,0.7)','#8a60b0',1.5);
     ctx.fillStyle='#c8a0e8';ctx.font='bold 10px monospace';ctx.textAlign='center';
-    ctx.fillText("DON'S",destX,208);ctx.fillText("HIDEOUT",destX,222);
+    ctx.fillText("DON'S",destX,208);ctx.fillText("TOWER",destX,222);
     ln(destX,158,destX,300,'rgba(160,120,220,0.3)',1);
     ctx.restore();
   }
@@ -3040,11 +3040,11 @@ function drawTitle(){
   // Title glow
   const glow=0.72+0.28*Math.abs(Math.sin(titleT*0.75));
   ctx.save();ctx.globalAlpha=glow;
-  txt('KRAKEN DEEB RUN',W/2,100,C.gold,46,'center','bold Georgia');
+  txt("THE DON'S TOWER",W/2,100,C.gold,46,'center','bold Georgia');
   ctx.restore();
   // shadow pass
   ctx.save();ctx.globalAlpha=0.25;
-  txt('KRAKEN DEEB RUN',W/2,104,'rgba(246,213,122,0.8)',46,'center','bold Georgia');
+  txt("THE DON'S TOWER",W/2,104,'rgba(246,213,122,0.8)',46,'center','bold Georgia');
   ctx.restore();
 
   txt('A Samster & Digory Mission',W/2,138,C.dimTxt,17,'center','Georgia');
@@ -3056,8 +3056,8 @@ function drawTitle(){
 
   // Step list
   const steps=[
-    '1.  Drive the sub through Kraken’s city to the Don’s hideout',
-    '2.  Deeb his floppy disks and containers from 8 rooms',
+    '1.  Drive the sub through Kraken’s city to the Don’s Tower',
+    '2.  Deeb his floppy disks and containers from 8 floors',
     '3.  Escape through sonar pings and destroyer charges',
     '4.  Lock down home before the Don gets inside',
     '5.  Find the yellow blanket',

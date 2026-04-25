@@ -66,8 +66,8 @@
   }
 
   // originX/Y are an optional pixel offset so games whose tile grid doesn't
-  // start at (0,0) (e.g. Kraken's heist with H_ROOM_Y=40) can keep using
-  // tile coordinates and have the helper handle the pixel translation.
+  // start at (0,0) (e.g. The Don's Tower heist with H_ROOM_Y=40) can keep
+  // using tile coordinates and have the helper handle the pixel translation.
   function init(p, col, row, tile, originX, originY) {
     p.gridCol = col;
     p.gridRow = row;
