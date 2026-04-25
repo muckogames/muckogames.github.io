@@ -429,11 +429,11 @@ function closeNumpad() {
 function advanceRoom() {
   currentRoom++;
   if (currentRoom >= numRooms) {
-    player.x = 120; player.y = H / 2;
+    ddInitGridAt(2, 7); player.facing = 'right';
     phase = 'jackpot';
   } else {
     // Reset to left side of new room
-    player.x = 90; player.y = H / 2; player.facing = 'right';
+    ddInitGridAt(1, 7); player.facing = 'right';
   }
 }
 
@@ -504,7 +504,7 @@ function initHouse() {
     }
     rooms.push({ papers: papers, seeds: seeds, code: code });
   }
-  player.x = 90; player.y = H / 2; player.facing = 'right';
+  ddInitGridAt(1, 7); player.facing = 'right';
   popup.open = false;
   houseTimer = easyMode ? 90 : 50;
 }
@@ -944,7 +944,8 @@ function updateHouse(dt) {
     showPopup('THE OWNERS CAME HOME!', 2);
     return;
   }
-  movePlayer(dt, 68, W - 68, 68, H - 68);
+  if (player.gridCol == null) ddInitGridAt(0, 7); // first frame after entering
+  ddUpdateGrid(dt);
 
   // Collect seeds
   var rm = rooms[currentRoom];
@@ -1024,7 +1025,8 @@ function renderHouse() {
 
 // ── JACKPOT phase ──────────────────────────────────────────────────────────
 function updateJackpot(dt) {
-  movePlayer(dt, 68, W - 68, 68, H - 68);
+  if (player.gridCol == null) ddInitGridAt(0, 7);
+  ddUpdateGrid(dt);
   if (eatAction() && dist(player, {x: W/2, y: H/2}) < 80) {
     initEscape();
     phase = 'escape';
@@ -1071,7 +1073,7 @@ function updateChase(dt) {
       player.x = 60; player.y = 390; player.facing = 'right';
       phase = 'alley';
     } else {
-      player.x = 90; player.y = H / 2; player.facing = 'right';
+      ddInitGridAt(1, 7); player.facing = 'right';
       phase = 'house';
     }
     return;
@@ -1254,7 +1256,7 @@ function updateJail(dt) {
             popup.open = false;
             phase = 'alley';
           } else {
-            player.x = 90; player.y = H / 2; player.facing = 'right';
+            ddInitGridAt(1, 7); player.facing = 'right';
             popup.open = false;
             phase = 'house';
           }
@@ -1523,6 +1525,7 @@ function renderHighScores() {
 }
 
 // ── Shared player movement ─────────────────────────────────────────────────
+// Free-form sidescroller movement (alley, chase, escape). Bounded box.
 function movePlayer(dt, xmin, xmax, ymin, ymax) {
   var dx = 0, dy = 0;
   if (isLeft())  dx = -1;
@@ -1536,6 +1539,27 @@ function movePlayer(dt, xmin, xmax, ymin, ymax) {
   else if (dx < 0)  player.facing = 'left';
   else if (dy > 0)  player.facing = 'down';
   else if (dy < 0)  player.facing = 'up';
+}
+
+// Pokémon-style grid movement for the overhead room phases (house, jackpot).
+// Room is bounded by walls at 68 px on all four sides; no internal blockers.
+var DD_TILE = 32;
+var DD_ORIGIN_X = 68, DD_ORIGIN_Y = 68;
+var DD_GRID_COLS = 20, DD_GRID_ROWS = 13;
+function ddRoomBlocked(c, r) {
+  return c < 0 || r < 0 || c >= DD_GRID_COLS || r >= DD_GRID_ROWS;
+}
+function ddInitGridAt(col, row) {
+  MuckoGrid.init(player, col, row, DD_TILE, DD_ORIGIN_X, DD_ORIGIN_Y);
+}
+function ddTouchDirs() {
+  return { up: touchDirs && touchDirs.up, down: touchDirs && touchDirs.down,
+           left: touchDirs && touchDirs.left, right: touchDirs && touchDirs.right };
+}
+function ddUpdateGrid(dt) {
+  var dir = MuckoGrid.readDir(K, ddTouchDirs());
+  MuckoGrid.update(player, dt, dir, false, ddRoomBlocked, DD_TILE);
+  MuckoGrid.applyBumpRender(player, DD_TILE);
 }
 
 // ── Utility ────────────────────────────────────────────────────────────────
@@ -1589,6 +1613,7 @@ function loop(ts) {
 
 requestAnimationFrame(function(ts) { lastTs = ts; requestAnimationFrame(loop); });
 </script>
+<script src="../mucko-grid.js"></script>
 <script src="../mucko-gamepad.js"></script>
 </body>
 </html>
