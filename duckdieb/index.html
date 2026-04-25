@@ -1559,6 +1559,7 @@ function movePlayer(dt, xmin, xmax, ymin, ymax) {
 var DD_TILE = 32;
 var DD_ORIGIN_X = 68, DD_ORIGIN_Y = 68;
 var DD_GRID_COLS = 20, DD_GRID_ROWS = 13;
+var DD_GRID_OPTS = { allowDiagonals: true };
 function ddRoomBlocked(c, r) {
   return c < 0 || r < 0 || c >= DD_GRID_COLS || r >= DD_GRID_ROWS;
 }
@@ -1570,8 +1571,8 @@ function ddTouchDirs() {
            left: touchDirs && touchDirs.left, right: touchDirs && touchDirs.right };
 }
 function ddUpdateGrid(dt) {
-  var dir = MuckoGrid.readDir(K, ddTouchDirs());
-  MuckoGrid.update(player, dt, dir, false, ddRoomBlocked, DD_TILE);
+  var dir = MuckoGrid.readDir(K, ddTouchDirs(), DD_GRID_OPTS);
+  MuckoGrid.update(player, dt, dir, false, ddRoomBlocked, DD_TILE, DD_GRID_OPTS);
   MuckoGrid.applyBumpRender(player, DD_TILE);
 }
 

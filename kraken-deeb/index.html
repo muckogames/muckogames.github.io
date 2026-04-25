@@ -2393,22 +2393,23 @@ function updateHome(dt){
     return;
   }
 
-  // Grid movement (Pokémon-style discrete steps)
+  // Grid movement (Pokémon-style discrete steps, 8-direction)
   function homeBlocked(c,r){
     if(c<0||r<0||c>=H_COLS||r>=H_ROWS)return true;
     return HOME_MAP[r][c]===TW;
   }
+  var homeOpts={allowDiagonals:true};
   var dir=MuckoGrid.readDir(K,{
     up:touchState.dirs.has('up'),    down:touchState.dirs.has('down'),
     left:touchState.dirs.has('left'),right:touchState.dirs.has('right')
-  });
-  MuckoGrid.update(p,dt,dir,false,homeBlocked,H_TILE);
+  },homeOpts);
+  MuckoGrid.update(p,dt,dir,false,homeBlocked,H_TILE,homeOpts);
   MuckoGrid.applyBumpRender(p,H_TILE);
   p.dir=p.facing;
   // Ice slide: when idle on ice with no input, take one more step in last dir.
   if(!p.gridMoving&&p.bumpT<=0&&!dir&&p.lastDir){
     if(HOME_MAP[p.gridRow][p.gridCol]===TI){
-      MuckoGrid.startStep(p,p.lastDir,false,homeBlocked,H_TILE);
+      MuckoGrid.startStep(p,p.lastDir,false,homeBlocked,H_TILE,homeOpts);
     }
   }
   p.bobT+=dt;

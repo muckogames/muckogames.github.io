@@ -2440,9 +2440,10 @@ function updateStealth(dt){
   // Player movement (Pokémon-style discrete grid via mucko-grid.js).
   // Per-difficulty speed shifts the step duration: easier = faster steps.
   const stepDur=(diff.id==='easy'?0.15:diff.id==='medium'?0.18:0.22);
-  const dir=MuckoGrid.readDir(K);
+  const opts={walkDur:stepDur,allowDiagonals:true};
+  const dir=MuckoGrid.readDir(K,null,opts);
   const moving=MuckoGrid.update(s.player,dt,dir,false,
-    function(c,r){return hippoStealthBlocked(map,c,r);},TILE,{walkDur:stepDur});
+    function(c,r){return hippoStealthBlocked(map,c,r);},TILE,opts);
   MuckoGrid.applyBumpRender(s.player,TILE);
   s.player.dir=MuckoGrid.dirToNum(s.player.facing);
   s.player.moving=moving;

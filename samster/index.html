@@ -712,6 +712,7 @@ function initStealth(){
     hint:true,hintTimer:180,moving:false,
   };
 }
+const SAMSTER_GRID_OPTS={allowDiagonals:true};
 function stealthIsBlocked(col,row){
   if(row<0||row>=BED_MAP.length||col<0||col>=BED_MAP[0].length)return true;
   const t=BED_MAP[row][col];
@@ -727,8 +728,8 @@ function updateStealth(dt){
     }
     return;
   }
-  const dir=MuckoGrid.readDir(K);
-  const moving=MuckoGrid.update(s.player,dt,dir,false,stealthIsBlocked,TILE);
+  const dir=MuckoGrid.readDir(K,null,SAMSTER_GRID_OPTS);
+  const moving=MuckoGrid.update(s.player,dt,dir,false,stealthIsBlocked,TILE,SAMSTER_GRID_OPTS);
   MuckoGrid.applyBumpRender(s.player,TILE);
   s.player.dir=MuckoGrid.dirToNum(s.player.facing);
   s.moving=moving;
@@ -1086,8 +1087,8 @@ function updateHideout(dt){
     const t=map[row][col];
     return t===TT.WALL||t===TT.FURNITURE||t===TT.BED;
   }
-  const dir=MuckoGrid.readDir(K);
-  const moving=MuckoGrid.update(h.player,dt,dir,false,hideoutBlocked,TILE);
+  const dir=MuckoGrid.readDir(K,null,SAMSTER_GRID_OPTS);
+  const moving=MuckoGrid.update(h.player,dt,dir,false,hideoutBlocked,TILE,SAMSTER_GRID_OPTS);
   MuckoGrid.applyBumpRender(h.player,TILE);
   h.player.dir=MuckoGrid.dirToNum(h.player.facing);
   if(moving)h.player.anim++;
@@ -1096,10 +1097,14 @@ function updateHideout(dt){
   if(!h.player.gridMoving){
     const t=tileAt(h.player.x,h.player.y,map);
     if(t===TT.DOOR){
-      if(h.player.gridRow<=1&&dir==='up'){
+      // With diagonals on, dir can be 'upLeft'/'upRight' etc. — any
+      // northward intent should still trip the door transition.
+      const goesUp=dir==='up'||dir==='upLeft'||dir==='upRight';
+      const goesDown=dir==='down'||dir==='downLeft'||dir==='downRight';
+      if(h.player.gridRow<=1&&goesUp){
         if(h.room>0){h.room--;MuckoGrid.init(h.player,h.player.gridCol,13,TILE);h.player.dir=1;h.player.facing='down';showHideoutMsg(HIDEOUT_ROOMS[h.room].name);clearBackdropCache();}
         else if(h.foundCount>=h.totalCount){startPhase('cart');return;}
-      } else if(h.player.gridRow>=13&&dir==='down'&&h.room<HIDEOUT_ROOMS.length-1){
+      } else if(h.player.gridRow>=13&&goesDown&&h.room<HIDEOUT_ROOMS.length-1){
         h.room++;MuckoGrid.init(h.player,h.player.gridCol,1,TILE);h.player.dir=0;h.player.facing='up';showHideoutMsg(HIDEOUT_ROOMS[h.room].name);clearBackdropCache();
       }
     }
