@@ -597,6 +597,7 @@ function initHeist() {
       returnTarget:{x:g.x, y:g.y},
       waypoints: g.waypoints.map(function(wp){return{x:wp.x,y:wp.y};}),
       wpIdx:0, wpT:0,
+      onFire:false, onFireT:0, panicAng:0, panicChangeT:0, emberT:0
     };
   });
   var ignPts = hdTemplate.ignPts.map(function(p) {
@@ -760,6 +761,26 @@ function updateHeist(dt) {
         }
       }
     }
+    // Light guards on fire if they're in the cone — they panic for ~60s.
+    for (var gi3=0; gi3<heist.guards.length; gi3++) {
+      var gd = heist.guards[gi3];
+      if (gd.onFire) continue;
+      var toGX = gd.x - heist.px, toGY = gd.y - heist.py;
+      var gdist = Math.hypot(toGX, toGY);
+      if (gdist < IGN_RANGE) {
+        var gAng = Math.atan2(toGY, toGX);
+        var gda = gAng - heist.pFacing;
+        while (gda >  Math.PI) gda -= TAU;
+        while (gda < -Math.PI) gda += TAU;
+        if (Math.abs(gda) < FIRE_ANGLE_TOL) {
+          gd.onFire = true;
+          gd.onFireT = 60;
+          gd.panicAng = Math.random() * TAU;
+          gd.panicChangeT = 0;
+          gd.alertLevel = 0;
+        }
+      }
+    }
   } else {
     // cool off ignition when not actively heating a can
     for (var ii2=0; ii2<heist.ignPts.length; ii2++) {
@@ -893,6 +914,48 @@ function drawPinKeypad() {
 }
 
 function updateGuard(g, dt) {
+  // ── Burning guard ────────────────────────────────────────────────
+  // Panicked, can't see the player; sprints in random directions.
+  // When the burn ends:
+  //   easy   → forgets and walks back to patrol (the OP cheese)
+  //   medium → returns at full alert in chase mode (escape window)
+  //   hard   → triggers caught/loss (you can't burn your way out)
+  if (g.onFire) {
+    g.onFireT -= dt;
+    g.alertLevel = 0;
+    g.state = 'panic';
+    g.panicChangeT -= dt;
+    if (g.panicChangeT <= 0) {
+      g.panicAng = Math.random() * TAU;
+      g.panicChangeT = 0.35 + Math.random() * 0.55;
+    }
+    var pSpd = diff.guardSpd * 1.45;
+    var nx = g.x + Math.cos(g.panicAng) * pSpd * dt;
+    var ny = g.y + Math.sin(g.panicAng) * pSpd * dt;
+    if (nx < 16 || nx > W - 16) g.panicAng = Math.PI - g.panicAng;
+    if (ny < HUD_H + 16 || ny > H - 16) g.panicAng = -g.panicAng;
+    g.x = Math.max(16, Math.min(W - 16, nx));
+    g.y = Math.max(HUD_H + 16, Math.min(H - 16, ny));
+    g.facing = g.panicAng;
+    g.emberT -= dt;
+    if (g.emberT <= 0) {
+      emitEmber(g.x, g.y);
+      g.emberT = 0.045;
+    }
+    if (g.onFireT <= 0) {
+      g.onFire = false;
+      if (diff.id === 'hard') {
+        heist.caught = true;
+      } else if (diff.id === 'medium') {
+        g.alertLevel = 1; g.state = 'chase';
+      } else {
+        g.alertLevel = 0; g.state = 'patrol';
+        g.returnTarget = { x: g.x, y: g.y };
+      }
+    }
+    return;
+  }
+
   const px=heist.px, py=heist.py;
   const dist = Math.hypot(px-g.x, py-g.y);
 
@@ -1049,8 +1112,22 @@ function drawHeist() {
   }
   for (var gi=0; gi<heist.guards.length; gi++) {
     var g=heist.guards[gi];
-    drawVisionCone(g.x, g.y, g.facing, diff.visionR, g.alertLevel);
+    if (!g.onFire) drawVisionCone(g.x, g.y, g.facing, diff.visionR, g.alertLevel);
     drawGuard(g.x, g.y, g.facing, g.alertLevel);
+    if (g.onFire) {
+      // Burning halo + countdown badge
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = 0.55;
+      var rPulse = 14 + Math.sin(g.onFireT * 18) * 3;
+      ctx.fillStyle = '#ff5a14';
+      ctx.beginPath(); ctx.arc(g.x, g.y - 2, rPulse, 0, TAU); ctx.fill();
+      ctx.restore();
+      var label = Math.ceil(g.onFireT) + 's';
+      txt(label, g.x, g.y - 26,
+          diff.id==='easy' ? '#9be0a8' : diff.id==='medium' ? '#ffd060' : '#ff7060',
+          11, 'center', 'bold monospace');
+    }
     // alert indicator
     if (g.alertLevel > 0.15) {
       const excl = g.alertLevel>0.7?'!!':'!';
