@@ -98,14 +98,8 @@ function resize(){
   configureCtx(bgCtx); configureCtx(ctx);
   clearBackdropCache();
 }
-window.addEventListener('resize',resize);
-if(window.visualViewport){
-  window.visualViewport.addEventListener('resize',resize);
-  window.visualViewport.addEventListener('scroll',resize);
-}
-resize();
-
 // ── Backdrop cache ────────────────────────────────────────────────────────
+// Must be initialized before resize() is called (resize calls clearBackdropCache)
 const backdropCache=new Map();
 let activeBackdropKey=null;
 function clearBackdropLayer(){bgCtx.clearRect(0,0,W,H);activeBackdropKey=null;}
@@ -122,6 +116,13 @@ function drawCachedBackdrop(key,fn){
   if(!c){fn();c=snapshotBackdrop();backdropCache.set(key,c);ctx.clearRect(0,0,W,H);}
   if(activeBackdropKey!==key){presentBackdrop(c);activeBackdropKey=key;}
 }
+
+window.addEventListener('resize',resize);
+if(window.visualViewport){
+  window.visualViewport.addEventListener('resize',resize);
+  window.visualViewport.addEventListener('scroll',resize);
+}
+resize();
 
 // ── Input ─────────────────────────────────────────────────────────────────
 const K={}, JP={};
