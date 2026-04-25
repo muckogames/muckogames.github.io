@@ -416,7 +416,7 @@ const SUB1_NEAR_X=0.12;
 const SUB1_NEAR_Y=60;
 const SUB1_DRIFT=0.30;          // baseline forward km/s (always-on)
 const SUB1_THRUST=1.55;         // extra forward km/s while GO held
-const SUB1_BRAKE=0.55;          // forward km/s subtracted while LEFT held
+const SUB1_REVERSE=0.95;        // km/s subtracted while LEFT held (enough to reverse past drift)
 const SUB1_FUEL_BURN=0.85;      // fuel/s while thrusting
 const SUB1_REFUEL_RATE=1.4;
 const SUB1_VY_ACCEL=520;        // px/s^2 vertical acceleration
@@ -425,6 +425,7 @@ const SUB1_DAMP=2.4;            // velocity damping per second when no input
 const SUB1_TOW_SPD=0.42;        // forward km/s while Johnny Mackerel tows you
 const SUB1_Y_MIN=80;
 const SUB1_Y_MAX=H-60;
+const SUB1_SURFACE_Y=104;       // when sub.y <= this, conning tower hatch is above water
 
 function s1NearStation(){
   if(!s1)return false;
@@ -522,6 +523,7 @@ function initSub1(){
     tow:false,towMsgT:0,
     shake:0,
     pearlsGot:0,
+    surfaced:false,popLerp:0,freshAirT:0,surfaceCount:0,
   };
 }
 
@@ -553,7 +555,7 @@ function updateSub1(dt){
   if(sub.y<SUB1_Y_MIN){sub.y=SUB1_Y_MIN;sub.vy=Math.max(0,sub.vy);}
   if(sub.y>SUB1_Y_MAX){sub.y=SUB1_Y_MAX;sub.vy=Math.min(0,sub.vy);}
 
-  // ---- Forward control (always-on drift, GO thrusts, LEFT/RIGHT trim) ----
+  // ---- Forward control (always-on drift, GO thrusts, LEFT reverses) ----
   let fwd=SUB1_DRIFT;
   let burning=false;
   if(s.tow){
@@ -566,7 +568,7 @@ function updateSub1(dt){
         burning=true;
       }
     }
-    if(ltBtn) fwd=Math.max(0,fwd-SUB1_BRAKE);
+    if(ltBtn) fwd-=SUB1_REVERSE;     // negative fwd → sub drives backward
   }
   s.dist+=fwd*dt;
   if(s.dist<0)s.dist=0;
@@ -629,6 +631,18 @@ function updateSub1(dt){
   if(sub.vx!==0)sub.vx*=Math.max(0,1-3*dt);
   if(s.shake>0)s.shake=Math.max(0,s.shake-dt);
   if(s.towMsgT>0)s.towMsgT=Math.max(0,s.towMsgT-dt);
+
+  // ---- Surface for fresh air ----
+  const wasSurfaced=s.surfaced;
+  s.surfaced=(sub.y<=SUB1_SURFACE_Y);
+  if(s.surfaced&&!wasSurfaced){
+    s.freshAirT=2.4;
+    s.surfaceCount++;
+    sfxPickup();
+  }
+  const popTarget=s.surfaced?1:0;
+  s.popLerp+=(popTarget-s.popLerp)*Math.min(1,dt*5);
+  if(s.freshAirT>0)s.freshAirT=Math.max(0,s.freshAirT-dt);
 
   for(const b of s.bubbles){
     b.y+=b.vy*dt;
@@ -871,6 +885,54 @@ function drawS1Coral(x,y){
   ctx.restore();
 }
 
+// Tiny Samster head — peeks out of the conning tower hatch when surfaced.
+function drawSamsterPopHead(x,y){
+  ctx.save();
+  // Ears
+  circ(x-5,y-7,3,'#d4a070','#7a4828',1);
+  circ(x+5,y-7,3,'#d4a070','#7a4828',1);
+  circ(x-5,y-7,1.4,'#f4b890');
+  circ(x+5,y-7,1.4,'#f4b890');
+  // Head
+  circ(x,y,7,'#e8b07a','#7a4828',1);
+  // Eyes + nose
+  circ(x-2.4,y-1,1.2,'#1a1018');
+  circ(x+2.4,y-1,1.2,'#1a1018');
+  circ(x,y+2.4,0.9,'#ee5060');
+  // Whiskers
+  ctx.strokeStyle='rgba(40,30,40,0.55)';ctx.lineWidth=0.6;
+  ctx.beginPath();
+  ctx.moveTo(x-2,y+3);ctx.lineTo(x-7,y+2);
+  ctx.moveTo(x-2,y+4);ctx.lineTo(x-7,y+5);
+  ctx.moveTo(x+2,y+3);ctx.lineTo(x+7,y+2);
+  ctx.moveTo(x+2,y+4);ctx.lineTo(x+7,y+5);
+  ctx.stroke();
+  ctx.restore();
+}
+// Tiny Digory head — peeks out of the conning tower hatch when surfaced.
+function drawDigoryPopHead(x,y){
+  ctx.save();
+  // Triangle ears
+  ctx.fillStyle='#1a1a1a';
+  ctx.beginPath();ctx.moveTo(x-5,y-4);ctx.lineTo(x-7,y-12);ctx.lineTo(x-1,y-7);ctx.closePath();ctx.fill();
+  ctx.beginPath();ctx.moveTo(x+5,y-4);ctx.lineTo(x+7,y-12);ctx.lineTo(x+1,y-7);ctx.closePath();ctx.fill();
+  // Head (black)
+  circ(x,y,7,'#1a1a1a','#080808',1);
+  // White on/off button spot
+  circ(x-3.5,y+2,1.6,'#f4f4f0');
+  // Brown muzzle hint
+  ctx.fillStyle='#6a4830';
+  ctx.beginPath();ctx.ellipse(x+1,y+3,3,2,0,0,Math.PI*2);ctx.fill();
+  // Eyes
+  circ(x-2.2,y-1,1.0,'#fff8d8');
+  circ(x+2.2,y-1,1.0,'#fff8d8');
+  circ(x-2.2,y-1,0.5,'#0a0a0a');
+  circ(x+2.2,y-1,0.5,'#0a0a0a');
+  // Nose
+  circ(x+0.6,y+1.8,0.8,'#0a0a0a');
+  ctx.restore();
+}
+
 function drawSub1(){
   const s=s1;
   const sub=s.sub;
@@ -974,10 +1036,28 @@ function drawSub1(){
     ctx.translate(sub.x+sub.vx*0.05,sub.y+bobY);
     ctx.rotate(sub.rot);
     drawSubmarineSprite(0,0,'SAMSTER');
+    // Samster + Digory pop out of the hatch when surfaced.
+    if(s.popLerp>0.02){
+      const popH=s.popLerp*14;
+      // Hatch lip lifts a touch when they pop
+      circ(0,-56-s.popLerp*4,4.5,'#9999bb','#666688',0.8);
+      // Wiggle so they look excited
+      const wig=Math.sin(s.bobT*5)*1.2*s.popLerp;
+      drawSamsterPopHead(-8+wig,-58-popH);
+      drawDigoryPopHead(8-wig,-58-popH);
+    }
     ctx.restore();
     // Tow companion
     if(s.tow){
       drawJohnnyMackerel(sub.x-58,sub.y+8);
+    }
+    // Surface splash ring around the sub when surfaced.
+    if(s.popLerp>0.05){
+      ctx.save();
+      ctx.globalAlpha=0.35*s.popLerp;
+      ctx.strokeStyle='rgba(220,240,255,0.9)';ctx.lineWidth=2;
+      ctx.beginPath();ctx.ellipse(sub.x,sub.y-6+bobY,90+Math.sin(s.bobT*4)*4,8,0,0,Math.PI*2);ctx.stroke();
+      ctx.restore();
     }
   }
 
@@ -1006,6 +1086,12 @@ function drawSub1(){
     ctx.save();ctx.globalAlpha=pulse;
     rnd(W/2-152,H-78,304,34,8,'rgba(28,62,38,0.92)',C.krakGreen,1.5);
     txt('Hold E (or Refuel button) to fill up',W/2,H-54,C.cream,13,'center');
+    ctx.restore();
+  } else if(s.freshAirT>0){
+    const a=Math.min(1,s.freshAirT*1.4);
+    ctx.save();ctx.globalAlpha=a;
+    rnd(W/2-180,H-78,360,34,8,'rgba(20,50,80,0.92)','rgba(180,220,255,0.7)',1.5);
+    txt('Fresh air for Samster & Digory!',W/2,H-54,C.cream,13,'center');
     ctx.restore();
   }
 }
