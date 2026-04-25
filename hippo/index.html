@@ -173,11 +173,20 @@ function mobileLayout(){
     buttons,
   };
 }
-function getMobileDpadDir(tx,ty,dpad){
+function getMobileDpadDirs(tx,ty,dpad){
   const dx=tx-dpad.cx,dy=ty-dpad.cy;
   if(Math.hypot(dx,dy)>dpad.r*2.15)return null;
-  if(Math.abs(dx)>=Math.abs(dy))return dx<0?'left':'right';
-  return dy<0?'up':'down';
+  // Wedge between two arrows registers BOTH so diagonal walking is
+  // ergonomic on mobile.
+  const axisDz=dpad.r*0.30;
+  const out=[];
+  if(Math.abs(dx)>axisDz)out.push(dx<0?'left':'right');
+  if(Math.abs(dy)>axisDz)out.push(dy<0?'up':'down');
+  if(out.length===0){
+    if(Math.abs(dx)>=Math.abs(dy))out.push(dx<0?'left':'right');
+    else out.push(dy<0?'up':'down');
+  }
+  return out;
 }
 function hitMobileControl(tx,ty){
   if(!mobileControlsOn())return null;
@@ -186,8 +195,8 @@ function hitMobileControl(tx,ty){
     if(Math.hypot(tx-btn.cx,ty-btn.cy)<=btn.r)return{kind:'button',id:btn.id};
   }
   if(layout.dpad){
-    const dir=getMobileDpadDir(tx,ty,layout.dpad);
-    if(dir)return{kind:'dpad',dir};
+    const dirs=getMobileDpadDirs(tx,ty,layout.dpad);
+    if(dirs)return{kind:'dpad',dirs};
   }
   return null;
 }
@@ -220,7 +229,7 @@ function syncTouchControls(e){
     const tx=(tch.clientX-rect.left)*sx,ty=(tch.clientY-rect.top)*sy;
     const hit=hitMobileControl(tx,ty);
     if(!hit)return;
-    if(hit.kind==='dpad')dirs.add(hit.dir);
+    if(hit.kind==='dpad'){for(const d of hit.dirs)dirs.add(d);}
     else buttons.add(hit.id);
   });
   buttons.forEach(id=>{if(!touchState.buttons.has(id))fireMobileButton(id);});

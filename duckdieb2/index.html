@@ -172,12 +172,21 @@ function inMovablePhase() {
       || phase === 'jail' || phase === 'safedial';
 }
 
-function getDpadDir(px, py) {
+function getDpadDirs(px, py) {
   var dx = px - DPAD_CX, dy = py - DPAD_CY;
   var d = Math.sqrt(dx*dx + dy*dy);
   if (d < 14 || d > DPAD_R * 2.4) return null;
-  if (Math.abs(dx) >= Math.abs(dy)) return dx < 0 ? 'left' : 'right';
-  return dy < 0 ? 'up' : 'down';
+  // Per-axis deadzone — touch in the wedge between two arrows registers
+  // BOTH directions, so diagonals are ergonomic on mobile.
+  var axisDz = DPAD_R * 0.30;
+  var out = { up:false, down:false, left:false, right:false };
+  if (Math.abs(dx) > axisDz) out[dx<0?'left':'right'] = true;
+  if (Math.abs(dy) > axisDz) out[dy<0?'up':'down']    = true;
+  if (!out.up && !out.down && !out.left && !out.right) {
+    if (Math.abs(dx) >= Math.abs(dy)) out[dx<0?'left':'right'] = true;
+    else out[dy<0?'up':'down']                                 = true;
+  }
+  return out;
 }
 
 function syncTouch(e) {
@@ -193,8 +202,13 @@ function syncTouch(e) {
     var t = e.touches[i];
     var px = (t.clientX - r.left) * sx;
     var py = (t.clientY - r.top)  * sy;
-    var dir = getDpadDir(px, py);
-    if (dir) dirs[dir] = true;
+    var d8 = getDpadDirs(px, py);
+    if (d8) {
+      if (d8.up)    dirs.up    = true;
+      if (d8.down)  dirs.down  = true;
+      if (d8.left)  dirs.left  = true;
+      if (d8.right) dirs.right = true;
+    }
     var adx = px - ACT_CX, ady = py - ACT_CY;
     if (Math.sqrt(adx*adx + ady*ady) < ACT_R * 1.2) actHit = true;
   }

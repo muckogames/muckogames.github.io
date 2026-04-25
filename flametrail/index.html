@@ -127,11 +127,20 @@ const BTN_ACT  = {cx:W-80, cy:H-178, r:34, id:'action', label:'A'};
 
 function mobileControlsOn() { return TOUCH_UI && phase==='heist'; }
 
-function getMobileDpadDir(tx, ty) {
+function getMobileDpadDirs(tx, ty) {
   const dx=tx-DPAD_CX, dy=ty-DPAD_CY;
   if (Math.hypot(dx,dy) > DPAD_R*2.5) return null;
-  if (Math.abs(dx) >= Math.abs(dy)) return dx<0?'left':'right';
-  return dy<0?'up':'down';
+  // Wedge between two arrows registers BOTH so diagonal movement
+  // (which Flametrail relies on for flame-aiming) is ergonomic on mobile.
+  const axisDz = DPAD_R * 0.30;
+  const out = [];
+  if (Math.abs(dx) > axisDz) out.push(dx<0?'left':'right');
+  if (Math.abs(dy) > axisDz) out.push(dy<0?'up':'down');
+  if (out.length === 0) {
+    if (Math.abs(dx) >= Math.abs(dy)) out.push(dx<0?'left':'right');
+    else out.push(dy<0?'up':'down');
+  }
+  return out;
 }
 
 const touchState = { dirs: new Set(), fire: false, action: false };
@@ -146,8 +155,8 @@ function syncTouchControls(e) {
     if (mobileControlsOn()) {
       if (Math.hypot(tx-BTN_FIRE.cx, ty-BTN_FIRE.cy) < BTN_FIRE.r) { fire=true; continue; }
       if (Math.hypot(tx-BTN_ACT.cx,  ty-BTN_ACT.cy)  < BTN_ACT.r)  { action=true; continue; }
-      const dir = getMobileDpadDir(tx, ty);
-      if (dir) { dirs.add(dir); continue; }
+      const dpadDirs = getMobileDpadDirs(tx, ty);
+      if (dpadDirs) { for (const d of dpadDirs) dirs.add(d); continue; }
     }
     // not hitting any control — treat first such touch as cursor/click
   }
