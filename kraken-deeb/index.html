@@ -1102,7 +1102,7 @@ const H_ROOM_DEFS=(function(){
      floppies:[{x:hTX(4),y:hTY(2)},{x:hTX(4),y:hTY(7)}],
      containers:[{x:hTX(14),y:hTY(2)},{x:hTX(14),y:hTY(7)}],
      cigars:[],keycards:[{x:hTX(6),y:hTY(12),color:'yellow'}],
-     notes:[{x:hTX(9),y:hTY(2),code:'2847',text:"Sealed memo: security override code 2-8-4-7"}],
+     notes:[{x:hTX(3),y:hTY(8),code:'2847',text:"Sealed memo: security override code 2-8-4-7"}],
      keypads:[{tx:9,ty:0,code:'2847'}],
      guardDef:null,dark:false,
      startX:hTX(9),startY:hTY(12),timerSecs:120},
@@ -1243,12 +1243,14 @@ function hKpTryConfirm(){
 
 function updateHeistKP(){
   const h=heist;
-  for(let d=0;d<=9;d++){
-    if((eat('Digit'+d)||eat('Numpad'+d))&&h.kpInput.length<4)h.kpInput+=''+d;
+  if(h.kpInput.length<4){
+    for(let d=0;d<=9;d++){
+      if(eat('Digit'+d)||eat('Numpad'+d)){h.kpInput+=''+d;break;}
+    }
   }
   if(eat('Backspace'))h.kpInput=h.kpInput.slice(0,-1);
   if(eat('Escape')){h.kpOpen=false;h.kpInput='';h.kpIdx=-1;return;}
-  if((eat('Enter')||eat('KeyE'))&&h.kpInput.length===4){hKpTryConfirm();return;}
+  if(h.kpInput.length===4&&(eat('Enter')||eat('KeyE'))){hKpTryConfirm();return;}
   if(mclk){
     mclk=false;
     const btns=hKpBtns();
@@ -1361,10 +1363,10 @@ function updateHeist(dt){
         }
       }
     }
-    // Notes
+    // Notes (unread only — skip already-read to prevent blocking keypad access)
     if(!acted){
       for(const n of r.notes){
-        if(Math.hypot(p.x-n.x,p.y-n.y)<H_IACT){
+        if(!n.read&&Math.hypot(p.x-n.x,p.y-n.y)<H_IACT){
           if(r.dark&&!r.lightsOn){hShowMsg('Too dark to read — find the light switch!');acted=true;break;}
           h.noteOpen=true;h.noteText=n.text;h.noteCode=n.code;n.read=true;score+=5;acted=true;break;
         }
