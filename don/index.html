@@ -3460,13 +3460,19 @@ function loop(ts){
 // ── Editor-level boot ────────────────────────────────────────────────────
 // If launched with ?level=<name>, look up the level in localStorage and jump
 // straight into the heist with it. Failure falls through to the title.
-(function(){
+//
+// Deferred to DOMContentLoaded because the URL-param boot calls
+// startPhase('heist') → initHeist() which depends on MuckoGrid (loaded by
+// the <script src="../mucko-grid.js"> tag at the bottom of <body>). Running
+// immediately at parse time would hit a "MuckoGrid is undefined" crash and
+// silently leave the page in a half-initialised state.
+window.addEventListener('DOMContentLoaded',function(){
   try{
     var params=new URLSearchParams(window.location.search);
     var name=params.get('level');
     if(!name)return;
     var raw=localStorage.getItem('mucko_level_'+name);
-    if(!raw)return;
+    if(!raw){console.warn('[level] not found in storage:',name);return;}
     var parsed=parseLevel(raw);
     if(parsed.error){
       console.warn('[level] parse failed:',parsed.error);
@@ -3478,7 +3484,7 @@ function loop(ts){
     score=0;
     startPhase('heist');
   }catch(e){console.warn('[level] boot error:',e);}
-})();
+});
 
 requestAnimationFrame(loop);
 </script>
