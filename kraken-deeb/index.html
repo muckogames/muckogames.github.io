@@ -170,7 +170,8 @@ function mobileLayout(){
     return {dpad:{cx:90,cy:H-100,r:58},buttons:btns};
   }
   if(phase==='heist'||phase==='home'){
-    btns.push({id:'act',cx:W-88,cy:H-100,r:46,label:'ACT',sub:'Use/Lock'});
+    const sub=phase==='heist'?'Use / Read':'Lock door';
+    btns.push({id:'act',cx:W-88,cy:H-100,r:46,label:'USE',sub});
     return {dpad:{cx:90,cy:H-100,r:58},buttons:btns};
   }
   return {dpad:null,buttons:[]};
@@ -1030,7 +1031,7 @@ function drawSub1Compass(s){
 }
 
 function drawSub1HUD(s){
-  // Progress bar
+  // Row 1: Progress bar (full width)
   rnd(18,8,W-36,26,5,'rgba(0,0,0,0.6)','rgba(90,140,210,0.4)',1);
   const prog=Math.min(1,s.dist/SUB1_GOAL_KM);
   if(prog>0)rnd(20,10,Math.round((W-40)*prog),22,4,'rgba(55,120,190,0.75)',null,0);
@@ -1044,21 +1045,20 @@ function drawSub1HUD(s){
   txt('Submarine Outbound',28,26,C.dimTxt,11,'left');
   txt(s.dist.toFixed(1)+' / '+SUB1_GOAL_KM.toFixed(1)+' km',W-24,26,C.cream,11,'right');
 
-  // Fuel gauge
-  rnd(18,H-40,164,24,5,'rgba(0,0,0,0.6)','rgba(80,140,100,0.4)',1);
+  // Row 2: Fuel gauge (left) + Pearls (center) + Score (right)
+  // Kept up here so the D-pad / GO button at the bottom don't cover them.
+  rnd(18,42,164,22,5,'rgba(0,0,0,0.6)','rgba(80,140,100,0.4)',1);
   const fp=s.fuel/S1_FUEL_MAX;
   const fc=s.tow?'#5a90c8':(fp>0.45?'#3a9a52':fp>0.2?'#cca030':'#cc3322');
-  if(fp>0)rnd(20,H-38,Math.round(160*fp),20,4,fc,null,0);
-  txt(s.tow?'TOWED':'Fuel',28,H-22,C.dimTxt,11,'left');
-  txt((fp*100).toFixed(0)+'%',170,H-22,C.cream,11,'right');
+  if(fp>0)rnd(20,44,Math.round(160*fp),18,4,fc,null,0);
+  txt(s.tow?'TOWED':'Fuel',28,57,C.dimTxt,11,'left');
+  txt((fp*100).toFixed(0)+'%',170,57,C.cream,11,'right');
 
-  // Pearls collected
   if(s.pearlsGot>0){
-    txt('Pearls: '+s.pearlsGot,W/2,H-22,'#ffe6c8',11,'center');
+    txt('Pearls: '+s.pearlsGot,W/2,58,'#ffe6c8',12,'center');
   }
 
-  // Score
-  txt('Score: '+Math.floor(score),W-18,H-22,C.gold,13,'right','bold Georgia');
+  txt('Score: '+Math.floor(score),W-18,58,C.gold,13,'right','bold Georgia');
 }
 
 // ── Sub2: Submarine Escape ─────────────────────────────────────────────────
@@ -1355,6 +1355,7 @@ function drawSub2(){
 }
 
 function drawSub2HUD(s){
+  // Row 1: progress bar
   rnd(18,8,W-36,26,5,'rgba(0,0,0,0.6)','rgba(90,140,210,0.4)',1);
   var prog=Math.min(1,s.dist/S1_DIST_TOTAL);
   if(prog>0)rnd(20,10,Math.round((W-40)*prog),22,4,'rgba(55,120,190,0.75)',null,0);
@@ -1366,24 +1367,25 @@ function drawSub2HUD(s){
   txt('Submarine Escape',28,26,C.dimTxt,11,'left');
   txt(s.dist.toFixed(1)+' / 10.0 km',W-24,26,C.cream,11,'right');
 
-  rnd(18,H-40,164,24,5,'rgba(0,0,0,0.6)','rgba(80,140,100,0.4)',1);
+  // Row 2: fuel + status + cigars + score (kept above the touch buttons)
+  rnd(18,42,164,22,5,'rgba(0,0,0,0.6)','rgba(80,140,100,0.4)',1);
   var fp=s.fuel/S1_FUEL_MAX;
   var fc=fp>0.45?'#3a9a52':fp>0.2?'#cca030':'#cc3322';
-  if(fp>0)rnd(20,H-38,Math.round(160*fp),20,4,fc,null,0);
-  txt('Fuel',28,H-22,C.dimTxt,11,'left');
-  txt((fp*100).toFixed(0)+'%',170,H-22,C.cream,11,'right');
+  if(fp>0)rnd(20,44,Math.round(160*fp),18,4,fc,null,0);
+  txt('Fuel',28,57,C.dimTxt,11,'left');
+  txt((fp*100).toFixed(0)+'%',170,57,C.cream,11,'right');
 
   var nAlive=s2ActiveCount();
   if(nAlive>0){
-    txt(nAlive+' destroyer'+(nAlive!==1?'s':''),W/2,H-22,C.donRed,12,'center','bold monospace');
+    txt(nAlive+' destroyer'+(nAlive!==1?'s':''),W/2,58,C.donRed,12,'center','bold monospace');
   } else {
-    txt('All clear!',W/2,H-22,C.krakGreen,12,'center','bold monospace');
+    txt('All clear!',W/2,58,C.krakGreen,12,'center','bold monospace');
   }
   if(cigarsFound>0){
-    txt('Cigars (C): '+cigarsFound,W/2,H-38,C.gold,11,'center','monospace');
+    txt('Cigars: '+cigarsFound,W/2,76,C.gold,11,'center','monospace');
   }
 
-  txt('Score: '+Math.floor(score),W-18,H-22,C.gold,13,'right','bold Georgia');
+  txt('Score: '+Math.floor(score),W-18,58,C.gold,13,'right','bold Georgia');
 }
 
 // ── Heist Engine ─────────────────────────────────────────────────────────────
@@ -2838,6 +2840,8 @@ function updateDiff(dt){
     }
     if(eat('Digit'+(i+1))){diff=d;startPhase('sub1');return;}
   }
+  // Mobile back: a tappable chevron in the bottom-left corner
+  if(mclk&&inRect(mx,my,18,H-58,140,44)){mclk=false;phase='title';return;}
   if(eat('Escape')||eat('Backspace')){phase='title';}
 }
 function drawDiff(){
@@ -2871,6 +2875,17 @@ function drawDiff(){
   txt('•  Timer length in the Don’s mansion heist',W/2,230,C.cream,13,'center');
   txt('•  Star thresholds (harder difficulty is easier to 3-star)',W/2,250,C.cream,13,'center');
 
+  // Back button (visible on every device, also doubles as the touch target)
+  const bbHover=inRect(mx,my,18,H-58,140,44);
+  rnd(18,H-58,140,44,8,bbHover?'rgba(246,213,122,0.18)':'rgba(20,16,30,0.55)',
+    bbHover?C.gold:'rgba(200,160,96,0.5)',1.5);
+  // Drawn chevron (iOS 12 safe — never use Unicode arrows)
+  ctx.save();ctx.fillStyle=bbHover?C.gold:'rgba(220,200,150,0.85)';
+  ctx.beginPath();
+  ctx.moveTo(40,H-36);ctx.lineTo(54,H-44);ctx.lineTo(54,H-28);
+  ctx.closePath();ctx.fill();
+  ctx.restore();
+  txt('Back',104,H-30,bbHover?C.gold:C.cream,15,'center','bold Georgia');
   txt('Esc — back',W/2,H-14,C.dimTxt,12,'center');
 }
 
