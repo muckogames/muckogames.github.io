@@ -645,7 +645,7 @@ function drawSub2(){
 // ── Heist Engine ─────────────────────────────────────────────────────────────
 const H_TILE=32,H_COLS=19,H_ROWS=15,H_ROOM_X=0,H_ROOM_Y=40,H_HUD_X=H_COLS*H_TILE;
 const H_SPD=110,H_HS=10,H_PICK=16,H_IACT=38;
-const TF=0,TW=1,TN=2,TD=3,TL=4,TO=5;
+const TF=0,TW=1,TN=2,TD=3,TL=4,TO=5,TI=6,TCL=7,TCR=8,TCU=9,TCD=10,TKD=11,TLS=12;
 
 function hTX(c){return H_ROOM_X+c*H_TILE+H_TILE/2;}
 function hTY(r){return H_ROOM_Y+r*H_TILE+H_TILE/2;}
@@ -661,61 +661,161 @@ function hKpBtns(){
 }
 
 const H_ROOM_DEFS=(function(){
-  const W=TW,F=TF,N=TN,D=TD,L=TL;
-  const map1=[
-    W,W,W,W,W,W,W,W,W,L,W,W,W,W,W,W,W,W,W,
-    W,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,W,
-    W,N,N,F,F,F,F,F,F,F,F,F,F,F,F,N,N,F,W,
-    W,N,N,F,F,F,F,F,F,F,F,F,F,F,F,N,N,F,W,
-    W,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,W,
-    W,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,W,
-    W,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,W,
-    W,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,W,
-    W,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,W,
-    W,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,W,
-    W,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,W,
-    W,F,D,D,D,F,F,F,F,F,F,F,F,F,F,F,F,F,W,
-    W,F,D,D,D,F,F,F,F,F,F,F,F,F,F,F,F,F,W,
-    W,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,W,
-    W,W,W,W,W,W,W,W,W,W,W,W,W,W,W,W,W,W,W,
-  ];
-  const map2=[];
-  for(let r=0;r<H_ROWS;r++)
-    for(let c=0;c<H_COLS;c++)
-      map2.push(r===0||r===H_ROWS-1||c===0||c===H_COLS-1?TW:TF);
+  const W=TW,F=TF,N=TN,D=TD,L=TL,O=TO,I=TI,CR=TCR,CL=TCL,KD=TKD,LS=TLS;
+  function flat(rws){let a=[];for(let i=0;i<rws.length;i++)a=a.concat(rws[i]);return a;}
+  const so=[W,W,W,W,W,W,W,W,W,W,W,W,W,W,W,W,W,W,W];
+  const fl=[W,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,W];
+  function lk(c){const r=so.slice();r[c]=L;return r;}
+  function op(c){const r=so.slice();r[c]=O;return r;}
+  const cvRow=[W,F,F,CR,CR,CR,CR,CR,CR,CR,CR,CR,CR,CR,CR,CR,F,F,W];
+  const cvWall=[W,W,W,F,F,F,F,F,F,F,F,F,F,F,F,F,W,W,W];
+  const iceRow=[W,F,I,I,I,I,I,I,I,I,I,I,I,I,I,I,I,F,W];
+
+  // Room 0: Entry Hall
+  const map0=flat([lk(9),fl,
+    [W,N,N,F,F,F,F,F,F,F,F,F,F,F,F,N,N,F,W],
+    [W,N,N,F,F,F,F,F,F,F,F,F,F,F,F,N,N,F,W],
+    fl,fl,fl,fl,fl,fl,fl,
+    [W,F,D,D,D,F,F,F,F,F,F,F,F,F,F,F,F,F,W],
+    [W,F,D,D,D,F,F,F,F,F,F,F,F,F,F,F,F,F,W],
+    fl,so]);
+
+  // Room 1: Storage Room
+  const map1=flat([lk(9),fl,
+    [W,N,N,N,F,F,F,F,F,F,F,F,F,F,F,N,N,N,W],
+    [W,N,N,N,F,F,F,F,F,F,F,F,F,F,F,N,N,N,W],
+    fl,fl,fl,fl,fl,fl,fl,
+    [W,F,F,N,N,N,F,F,F,F,F,F,F,N,N,N,F,F,W],
+    [W,F,F,N,N,N,F,F,F,F,F,F,F,N,N,N,F,F,W],
+    fl,so]);
+
+  // Room 2: Conveyor Belt
+  const map2=flat([lk(9),fl,fl,fl,cvWall,cvRow,cvRow,cvRow,cvWall,fl,fl,
+    [W,F,F,D,D,F,F,F,F,F,F,F,F,F,F,F,F,F,W],
+    [W,F,F,D,D,F,F,F,F,F,F,F,F,F,F,F,F,F,W],
+    fl,so]);
+
+  // Room 3: Security Wing — keycard wall at row 4
+  const kdWall=[W,W,W,W,W,W,W,W,W,KD,W,W,W,W,W,W,W,W,W];
+  const map3=flat([lk(9),fl,fl,fl,kdWall,fl,fl,fl,fl,fl,fl,fl,
+    [W,F,F,F,F,F,F,F,F,F,F,F,F,F,N,N,N,F,W],
+    fl,so]);
+
+  // Room 4: Guard Patrol
+  const map4=flat([lk(9),fl,fl,fl,fl,fl,
+    [W,F,F,D,D,D,F,F,F,F,F,F,F,F,F,F,F,F,W],
+    [W,F,F,D,D,D,F,F,F,F,F,F,F,F,F,F,F,F,W],
+    fl,fl,fl,fl,fl,fl,so]);
+
+  // Room 5: Dark Archive
+  const map5=flat([lk(9),fl,fl,
+    [W,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,LS,F,W],
+    fl,fl,fl,fl,fl,fl,fl,fl,
+    [W,F,F,F,F,F,F,F,F,F,F,F,F,F,D,D,D,F,W],
+    fl,so]);
+
+  // Room 6: The Vault — ice floor, exit gated by 12+12 items
+  const map6=flat([op(9),fl,iceRow,iceRow,iceRow,iceRow,iceRow,iceRow,iceRow,iceRow,fl,fl,
+    [W,F,F,D,D,F,F,F,F,F,F,F,F,F,F,F,F,F,W],
+    fl,so]);
+
+  // Room 7: Exit (complete)
+  const map7=flat([so,fl,fl,fl,fl,fl,fl,fl,fl,fl,fl,fl,fl,fl,so]);
+
   return [
-    {name:'Entry Hall',map:map1,
+    {name:'Entry Hall',map:map0,
      floppies:[{x:hTX(9),y:hTY(6)},{x:hTX(14),y:hTY(4)}],
      containers:[{x:hTX(5),y:hTY(8)},{x:hTX(14),y:hTY(9)}],
-     cigars:[],
-     notes:[{x:hTX(4),y:hTY(11),code:'4819',text:"Memo on shelf — Don's access code: 4-8-1-9"}],
+     cigars:[],keycards:[],
+     notes:[{x:hTX(4),y:hTY(11),code:'4819',text:"Memo on desk: Don's access code is 4-8-1-9"}],
      keypads:[{tx:9,ty:0,code:'4819'}],
-     startX:hTX(2),startY:hTY(13),timerSecs:120,complete:false},
-    {name:'Storage Room',map:map2,
-     floppies:[],containers:[],cigars:[],notes:[],keypads:[],
-     startX:hTX(9),startY:hTY(13),timerSecs:0,complete:true},
+     guardDef:null,dark:false,
+     startX:hTX(2),startY:hTY(13),timerSecs:120},
+    {name:'Storage Room',map:map1,
+     floppies:[{x:hTX(5),y:hTY(6)},{x:hTX(13),y:hTY(6)}],
+     containers:[{x:hTX(5),y:hTY(9)},{x:hTX(13),y:hTY(9)}],
+     cigars:[],keycards:[],
+     notes:[{x:hTX(14),y:hTY(11),code:'7253',text:"Bookshelf label: storage unit code 7-2-5-3"}],
+     keypads:[{tx:9,ty:0,code:'7253'}],
+     guardDef:null,dark:false,
+     startX:hTX(9),startY:hTY(13),timerSecs:110},
+    {name:'Conveyor Hall',map:map2,
+     floppies:[{x:hTX(9),y:hTY(2)},{x:hTX(9),y:hTY(10)}],
+     containers:[{x:hTX(4),y:hTY(10)},{x:hTX(14),y:hTY(10)}],
+     cigars:[{x:hTX(9),y:hTY(6)}],keycards:[],
+     notes:[{x:hTX(3),y:hTY(11),code:'1648',text:"Crate manifest: duct bypass code 1-6-4-8"}],
+     keypads:[{tx:9,ty:0,code:'1648'}],
+     guardDef:null,dark:false,
+     startX:hTX(9),startY:hTY(13),timerSecs:130},
+    {name:'Security Wing',map:map3,
+     floppies:[{x:hTX(4),y:hTY(2)},{x:hTX(4),y:hTY(7)}],
+     containers:[{x:hTX(14),y:hTY(2)},{x:hTX(14),y:hTY(7)}],
+     cigars:[],keycards:[{x:hTX(6),y:hTY(12),color:'yellow'}],
+     notes:[{x:hTX(9),y:hTY(2),code:'2847',text:"Sealed memo: security override code 2-8-4-7"}],
+     keypads:[{tx:9,ty:0,code:'2847'}],
+     guardDef:null,dark:false,
+     startX:hTX(9),startY:hTY(12),timerSecs:120},
+    {name:'Patrol Zone',map:map4,
+     floppies:[{x:hTX(15),y:hTY(3)},{x:hTX(15),y:hTY(10)}],
+     containers:[{x:hTX(5),y:hTY(3)},{x:hTX(5),y:hTY(10)}],
+     cigars:[{x:hTX(9),y:hTY(10)}],keycards:[],
+     notes:[{x:hTX(4),y:hTY(6),code:'9163',text:"Guard logbook on desk: vault access 9-1-6-3"}],
+     keypads:[{tx:9,ty:0,code:'9163'}],
+     guardDef:{path:[{tx:2,ty:2},{tx:16,ty:2},{tx:16,ty:12},{tx:2,ty:12}],speed:52},
+     dark:false,
+     startX:hTX(9),startY:hTY(13),timerSecs:140},
+    {name:'Dark Archive',map:map5,
+     floppies:[{x:hTX(4),y:hTY(7)}],
+     containers:[{x:hTX(14),y:hTY(9)}],
+     cigars:[],keycards:[],
+     notes:[{x:hTX(15),y:hTY(12),code:'5731',text:"Archive index (lights must be on): vault seal 5-7-3-1"}],
+     keypads:[{tx:9,ty:0,code:'5731'}],
+     guardDef:null,dark:true,
+     startX:hTX(9),startY:hTY(13),timerSecs:120},
+    {name:'The Vault',map:map6,
+     floppies:[{x:hTX(5),y:hTY(5)}],
+     containers:[{x:hTX(13),y:hTY(5)}],
+     cigars:[{x:hTX(9),y:hTY(11)}],keycards:[],notes:[],keypads:[],
+     guardDef:null,dark:false,
+     startX:hTX(9),startY:hTY(13),timerSecs:0},
+    {name:'Exit',map:map7,
+     floppies:[],containers:[],cigars:[],keycards:[],notes:[],keypads:[],
+     guardDef:null,dark:false,
+     startX:hTX(9),startY:hTY(7),timerSecs:0,complete:true},
   ];
 })();
 
 let heist=null;
 function hCopyRoom(d){
-  return{name:d.name,map:d.map.slice(),
+  let guard=null;
+  if(d.guardDef){
+    const gd=d.guardDef;
+    guard={path:gd.path,speed:gd.speed||52,pathIdx:0,
+           x:hTX(gd.path[0].tx),y:hTY(gd.path[0].ty),dir:'right'};
+  }
+  return {name:d.name,map:d.map.slice(),
     floppies:d.floppies.map(i=>({x:i.x,y:i.y,got:false})),
     containers:d.containers.map(i=>({x:i.x,y:i.y,got:false})),
     cigars:d.cigars.map(i=>({x:i.x,y:i.y,got:false})),
+    keycards:d.keycards.map(k=>({x:k.x,y:k.y,got:false,color:k.color})),
     notes:d.notes.map(n=>({x:n.x,y:n.y,code:n.code,text:n.text,read:false})),
     keypads:d.keypads.map(k=>({tx:k.tx,ty:k.ty,code:k.code,open:false})),
-    startX:d.startX,startY:d.startY,timerSecs:d.timerSecs,complete:d.complete};
+    guard,dark:d.dark||false,lightsOn:false,
+    startX:d.startX,startY:d.startY,timerSecs:d.timerSecs||0,
+    complete:d.complete||false};
 }
 function initHeist(){
+  cigarsFound=0;
   const rooms=H_ROOM_DEFS.map(hCopyRoom),r=rooms[0];
   heist={rooms,roomIdx:0,room:r,
-    player:{x:r.startX,y:r.startY,dir:'down'},
-    timer:r.timerSecs*diff.timerMul,
+    player:{x:r.startX,y:r.startY,dir:'down',vx:0,vy:0},
+    timer:r.timerSecs*(diff.timerMul||1),
     collected:{f:0,c:0,g:0},
+    kInventory:{yellow:false},
     msg:'',msgT:0,completeT:0,
     noteOpen:false,noteText:'',noteCode:'',
     kpOpen:false,kpInput:'',kpIdx:-1,
+    guardStunned:false,guardStunT:0,
     failed:false,failT:0};
 }
 
@@ -723,7 +823,10 @@ function hTileAt(map,col,row){
   if(col<0||col>=H_COLS||row<0||row>=H_ROWS)return TW;
   return map[row*H_COLS+col];
 }
-function hSolid(t){return t===TW||t===TN||t===TL;}
+function hTileUnder(px,py,map){
+  return hTileAt(map,Math.floor((px-H_ROOM_X)/H_TILE),Math.floor((py-H_ROOM_Y)/H_TILE));
+}
+function hSolid(t){return t===TW||t===TN||t===TD||t===TL||t===TKD;}
 function hCanMove(nx,ny){
   const map=heist.room.map;
   const pts=[[nx-H_HS,ny-H_HS],[nx+H_HS,ny-H_HS],[nx-H_HS,ny+H_HS],[nx+H_HS,ny+H_HS]];
@@ -732,6 +835,39 @@ function hCanMove(nx,ny){
     if(hSolid(hTileAt(map,c,r)))return false;
   }
   return true;
+}
+function hTryOpenKD(nx,ny){
+  if(!heist||!heist.kInventory.yellow)return;
+  const pts=[[nx-H_HS,ny-H_HS],[nx+H_HS,ny-H_HS],[nx-H_HS,ny+H_HS],[nx+H_HS,ny+H_HS]];
+  for(const pt of pts){
+    const c=Math.floor((pt[0]-H_ROOM_X)/H_TILE),r=Math.floor((pt[1]-H_ROOM_Y)/H_TILE);
+    if(hTileAt(heist.room.map,c,r)===TKD){
+      heist.kInventory.yellow=false;
+      heist.room.map[r*H_COLS+c]=TO;
+      clearBackdropCache();
+      hShowMsg('Keycard used — sealed door unlocked!');
+      return;
+    }
+  }
+}
+function hGuardUpdate(g,dt,p){
+  const wp=g.path[g.pathIdx];
+  const tx=hTX(wp.tx),ty=hTY(wp.ty);
+  const dx=tx-g.x,dy=ty-g.y,dist=Math.hypot(dx,dy);
+  if(dist<6){
+    g.x=tx;g.y=ty;
+    g.pathIdx=(g.pathIdx+1)%g.path.length;
+  } else {
+    g.x+=dx/dist*g.speed*dt;
+    g.y+=dy/dist*g.speed*dt;
+    if(Math.abs(dx)>Math.abs(dy))g.dir=dx>0?'right':'left';
+    else g.dir=dy>0?'down':'up';
+  }
+  if(!heist.guardStunned&&Math.hypot(g.x-p.x,g.y-p.y)<22){
+    heist.guardStunned=true;heist.guardStunT=2.0;
+    score=Math.max(0,score-20);
+    hShowMsg('Guard spotted you! (-20 pts)');
+  }
 }
 function hShowMsg(m){heist.msg=m;heist.msgT=3.0;}
 function hEnterRoom(idx){
@@ -782,6 +918,17 @@ function updateHeist(dt){
     if(h.failT<=0){score=Math.max(0,score-50);stageScores.heist=0;initHeist();}
     return;
   }
+  if(h.guardStunned){
+    h.guardStunT-=dt;
+    if(h.room.guard)hGuardUpdate(h.room.guard,dt,{x:-999,y:-999});
+    if(h.guardStunT<=0){
+      h.guardStunned=false;
+      h.player.x=h.room.startX;h.player.y=h.room.startY;
+      h.player.vx=0;h.player.vy=0;
+    }
+    if(h.msgT>0)h.msgT-=dt;
+    return;
+  }
   if(h.noteOpen){
     if(eat('KeyE')||eat('Space')||eat('Enter')||eat('Escape'))h.noteOpen=false;
     if(mclk){mclk=false;h.noteOpen=false;}
@@ -794,42 +941,85 @@ function updateHeist(dt){
     return;
   }
   const p=h.player,r=h.room;
-  let dx=0,dy=0;
-  if(K['ArrowLeft']||touchState.dirs.has('left'))dx=-H_SPD;
-  if(K['ArrowRight']||touchState.dirs.has('right'))dx=H_SPD;
-  if(K['ArrowUp']||touchState.dirs.has('up'))dy=-H_SPD;
-  if(K['ArrowDown']||touchState.dirs.has('down'))dy=H_SPD;
-  if(dx&&dy){dx*=0.707;dy*=0.707;}
-  if(dx)p.dir=dx<0?'left':'right';
-  else if(dy)p.dir=dy<0?'up':'down';
-  const nx=p.x+dx*dt,ny=p.y+dy*dt;
-  if(hCanMove(nx,p.y))p.x=nx;
-  if(hCanMove(p.x,ny))p.y=ny;
+  // Guard update
+  if(r.guard)hGuardUpdate(r.guard,dt,p);
+  // Movement
+  let rawDx=0,rawDy=0;
+  if(K['ArrowLeft']||touchState.dirs.has('left'))rawDx=-H_SPD;
+  if(K['ArrowRight']||touchState.dirs.has('right'))rawDx=H_SPD;
+  if(K['ArrowUp']||touchState.dirs.has('up'))rawDy=-H_SPD;
+  if(K['ArrowDown']||touchState.dirs.has('down'))rawDy=H_SPD;
+  if(rawDx&&rawDy){rawDx*=0.707;rawDy*=0.707;}
+  if(rawDx)p.dir=rawDx<0?'left':'right';
+  else if(rawDy)p.dir=rawDy<0?'up':'down';
+  let dx=rawDx,dy=rawDy;
+  // Conveyor push
+  const underTile=hTileUnder(p.x,p.y,r.map);
+  if(underTile===TCR)dx+=H_SPD*0.65;
+  else if(underTile===TCL)dx-=H_SPD*0.65;
+  else if(underTile===TCD)dy+=H_SPD*0.65;
+  else if(underTile===TCU)dy-=H_SPD*0.65;
+  // Ice: smooth velocity
+  const onIce=(underTile===TI);
+  if(onIce){p.vx+=(dx-p.vx)*3*dt;p.vy+=(dy-p.vy)*3*dt;}
+  else{p.vx=dx;p.vy=dy;}
+  // Apply movement with keycard door detection
+  const nx=p.x+p.vx*dt,ny=p.y+p.vy*dt;
+  hTryOpenKD(nx,p.y);
+  if(hCanMove(nx,p.y))p.x=nx; else p.vx=0;
+  hTryOpenKD(p.x,ny);
+  if(hCanMove(p.x,ny))p.y=ny; else p.vy=0;
   p.x=Math.max(H_ROOM_X+H_HS+1,Math.min(H_HUD_X-H_HS-1,p.x));
   p.y=Math.max(H_ROOM_Y+H_HS+1,Math.min(H_ROOM_Y+H_ROWS*H_TILE-H_HS-1,p.y));
+  // Item pickups
   for(const it of r.floppies){
     if(!it.got&&Math.hypot(p.x-it.x,p.y-it.y)<H_PICK){
-      it.got=true;h.collected.f++;score+=15;hShowMsg('Floppy disk! ('+h.collected.f+' collected)');
+      it.got=true;h.collected.f++;score+=15;hShowMsg('Floppy disk! ('+h.collected.f+'/12)');
     }
   }
   for(const it of r.containers){
     if(!it.got&&Math.hypot(p.x-it.x,p.y-it.y)<H_PICK){
-      it.got=true;h.collected.c++;score+=15;hShowMsg('Container secured! ('+h.collected.c+')');
+      it.got=true;h.collected.c++;score+=15;hShowMsg('Container! ('+h.collected.c+'/12)');
     }
   }
   for(const it of r.cigars){
     if(!it.got&&Math.hypot(p.x-it.x,p.y-it.y)<H_PICK){
       it.got=true;h.collected.g++;cigarsFound++;score+=40;
-      hShowMsg('Exploding cigar! Use it in Stage 3.');
+      hShowMsg('Exploding cigar! ('+cigarsFound+' total)');
     }
   }
+  for(const it of r.keycards){
+    if(!it.got&&Math.hypot(p.x-it.x,p.y-it.y)<H_PICK){
+      it.got=true;h.kInventory[it.color]=true;score+=10;
+      hShowMsg('Yellow keycard! Use it at a sealed door.');
+    }
+  }
+  // E key interactions
   if(eat('KeyE')){
     let acted=false;
-    for(const n of r.notes){
-      if(Math.hypot(p.x-n.x,p.y-n.y)<H_IACT){
-        h.noteOpen=true;h.noteText=n.text;h.noteCode=n.code;n.read=true;score+=5;acted=true;break;
+    // Light switch
+    const pc=Math.floor((p.x-H_ROOM_X)/H_TILE),pr=Math.floor((p.y-H_ROOM_Y)/H_TILE);
+    for(let dr=-1;dr<=1&&!acted;dr++){
+      for(let dc=-1;dc<=1&&!acted;dc++){
+        if(hTileAt(r.map,pc+dc,pr+dr)===TLS){
+          const lsx=H_ROOM_X+(pc+dc)*H_TILE+H_TILE/2,lsy=H_ROOM_Y+(pr+dr)*H_TILE+H_TILE/2;
+          if(Math.hypot(p.x-lsx,p.y-lsy)<H_IACT){
+            r.lightsOn=!r.lightsOn;clearBackdropCache();
+            hShowMsg(r.lightsOn?'Lights on!':'Lights off.');acted=true;
+          }
+        }
       }
     }
+    // Notes
+    if(!acted){
+      for(const n of r.notes){
+        if(Math.hypot(p.x-n.x,p.y-n.y)<H_IACT){
+          if(r.dark&&!r.lightsOn){hShowMsg('Too dark to read — find the light switch!');acted=true;break;}
+          h.noteOpen=true;h.noteText=n.text;h.noteCode=n.code;n.read=true;score+=5;acted=true;break;
+        }
+      }
+    }
+    // Keypads
     if(!acted){
       for(let i=0;i<r.keypads.length;i++){
         const kp=r.keypads[i];
@@ -842,14 +1032,29 @@ function updateHeist(dt){
       }
     }
   }
-  if(h.timer>0){
+  // Timer
+  if(r.timerSecs>0){
     h.timer-=dt;
     if(h.timer<=0){h.timer=0;h.failed=true;h.failT=2.8;hShowMsg("Time's up!");}
   }
   if(h.msgT>0)h.msgT-=dt;
-  if(h.roomIdx===0&&p.y<H_ROOM_Y+H_TILE*1.6){
-    for(const kp of r.keypads){
-      if(kp.open&&kp.ty===0){hEnterRoom(1);return;}
+  // Room transition: reach north wall
+  if(p.y<H_ROOM_Y+H_TILE*1.5){
+    if(h.roomIdx===6){
+      // Vault: need 12+12
+      if(h.collected.f>=12&&h.collected.c>=12){hEnterRoom(7);return;}
+      else{
+        p.y=H_ROOM_Y+H_TILE*1.5;p.vy=0;
+        hShowMsg('Need '+(12-h.collected.f)+' more disks and '+(12-h.collected.c)+' more crates!');
+      }
+    } else {
+      const pCol=Math.round((p.x-H_ROOM_X)/H_TILE);
+      for(let dc=-1;dc<=1;dc++){
+        const c=pCol+dc;
+        if(c>=0&&c<H_COLS&&hTileAt(r.map,c,0)===TO){
+          if(h.roomIdx<7){hEnterRoom(h.roomIdx+1);return;}
+        }
+      }
     }
   }
 }
@@ -914,6 +1119,35 @@ function drawHeistRoomBg(){
       } else if(t===TO){
         ctx.fillStyle='#0a1c12';ctx.fillRect(tx,ty,H_TILE,H_TILE);
         ctx.strokeStyle='#3a8a5a';ctx.lineWidth=1.5;ctx.strokeRect(tx+1,ty+1,H_TILE-2,H_TILE-2);
+      } else if(t===TI){
+        ctx.fillStyle='#8ec8e8';ctx.fillRect(tx,ty,H_TILE,H_TILE);
+        ctx.strokeStyle='rgba(200,235,255,0.5)';ctx.lineWidth=0.5;
+        ctx.strokeRect(tx+0.5,ty+0.5,H_TILE-1,H_TILE-1);
+        ctx.strokeStyle='rgba(255,255,255,0.3)';ctx.lineWidth=1;
+        ctx.beginPath();ctx.moveTo(tx+4,ty+4);ctx.lineTo(tx+H_TILE-4,ty+H_TILE-4);ctx.stroke();
+        ctx.beginPath();ctx.moveTo(tx+H_TILE-4,ty+4);ctx.lineTo(tx+4,ty+H_TILE-4);ctx.stroke();
+      } else if(t===TCR||t===TCL||t===TCU||t===TCD){
+        ctx.fillStyle='#1a2840';ctx.fillRect(tx,ty,H_TILE,H_TILE);
+        ctx.strokeStyle='rgba(60,100,160,0.4)';ctx.lineWidth=0.5;ctx.strokeRect(tx,ty,H_TILE,H_TILE);
+        const cx2=tx+H_TILE/2,cy2=ty+H_TILE/2,aw=7,ah=4;
+        ctx.fillStyle='#4a80cc';ctx.beginPath();
+        if(t===TCR){ctx.moveTo(cx2+aw,cy2);ctx.lineTo(cx2-aw,cy2-ah);ctx.lineTo(cx2-aw,cy2+ah);}
+        else if(t===TCL){ctx.moveTo(cx2-aw,cy2);ctx.lineTo(cx2+aw,cy2-ah);ctx.lineTo(cx2+aw,cy2+ah);}
+        else if(t===TCD){ctx.moveTo(cx2,cy2+aw);ctx.lineTo(cx2-ah,cy2-aw);ctx.lineTo(cx2+ah,cy2-aw);}
+        else{ctx.moveTo(cx2,cy2-aw);ctx.lineTo(cx2-ah,cy2+aw);ctx.lineTo(cx2+ah,cy2+aw);}
+        ctx.closePath();ctx.fill();
+      } else if(t===TKD){
+        ctx.fillStyle='#302200';ctx.fillRect(tx,ty,H_TILE,H_TILE);
+        rnd(tx+3,ty+3,H_TILE-6,H_TILE-6,3,'#584010','#d0a020',2);
+        ctx.fillStyle='#ffe060';ctx.font='bold 9px monospace';ctx.textAlign='center';
+        ctx.fillText('K',tx+H_TILE/2,ty+H_TILE/2+4);
+      } else if(t===TLS){
+        ctx.fillStyle='#22222f';ctx.fillRect(tx,ty,H_TILE,H_TILE);
+        const lsOn=heist&&heist.room&&heist.room.lightsOn;
+        rnd(tx+7,ty+7,H_TILE-14,H_TILE-14,3,lsOn?'#404010':'#282830',lsOn?'#c0c020':'#505060',1.5);
+        ctx.fillStyle=lsOn?'#e8e840':'#606060';
+        ctx.font='bold 6px sans-serif';ctx.textAlign='center';
+        ctx.fillText(lsOn?'ON':'OFF',tx+H_TILE/2,ty+H_TILE/2+3);
       }
     }
   }
@@ -956,19 +1190,61 @@ function drawHeistItems(){
     ctx.fillText('- -',n.x,n.y-3);ctx.fillText('- -',n.x,n.y+5);ctx.fillText('- -',n.x,n.y+12);
     ctx.save();ctx.globalAlpha=0.28;circ(n.x,n.y,14,null,'#ffd080',2);ctx.restore();
   }
+  for(const it of r.keycards){
+    if(it.got)continue;
+    ctx.save();
+    rnd(it.x-10,it.y-5,20,11,3,'#705010','#e0b820',1.5);
+    ctx.fillStyle='#20180a';ctx.beginPath();ctx.arc(it.x+7,it.y,4,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#e0b820';ctx.fillRect(it.x+4,it.y-1,3,2);ctx.fillRect(it.x+4,it.y+3,2,2);
+    ctx.globalAlpha=0.28;circ(it.x,it.y,14,null,'#ffd060',2);
+    ctx.restore();
+  }
+}
+
+function drawGuard(g){
+  ctx.save();
+  if(g.dir==='left'){ctx.translate(g.x,g.y);ctx.scale(-1,1);ctx.translate(-g.x,-g.y);}
+  const gx=g.x,gy=g.y;
+  rnd(gx-9,gy-6,18,14,3,'#7a4030',null,0);
+  rnd(gx-6,gy-20,12,14,3,'#aa1818','#ee2222',1.5);
+  ctx.fillStyle='#ffee00';ctx.beginPath();ctx.arc(gx+4,gy-14,2.5,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#503828';ctx.fillRect(gx-7,gy+8,5,9);ctx.fillRect(gx+2,gy+8,5,9);
+  ctx.restore();
 }
 
 function drawHeistHints(){
   const h=heist,p=h.player,r=h.room;
   for(const n of r.notes){
-    if(!n.read&&Math.hypot(p.x-n.x,p.y-n.y)<H_IACT*1.5)
-      txt('[E] Read note',n.x,n.y-22,C.gold,10,'center');
+    if(!n.read&&Math.hypot(p.x-n.x,p.y-n.y)<H_IACT*1.5){
+      if(r.dark&&!r.lightsOn)txt('[E] ??? (dark)',n.x,n.y-22,'#555566',10,'center');
+      else txt('[E] Read note',n.x,n.y-22,C.gold,10,'center');
+    }
   }
   for(const kp of r.keypads){
     if(!kp.open){
       const kx=H_ROOM_X+kp.tx*H_TILE+H_TILE/2,ky=H_ROOM_Y+kp.ty*H_TILE+H_TILE/2;
       if(Math.hypot(p.x-kx,p.y-ky)<H_IACT+H_TILE)
         txt('[E] Enter code',kx,H_ROOM_Y+H_TILE*2+4,C.gold,10,'center');
+    }
+  }
+  // Light switch hint
+  const pc=Math.floor((p.x-H_ROOM_X)/H_TILE),pr=Math.floor((p.y-H_ROOM_Y)/H_TILE);
+  for(let dr=-1;dr<=1;dr++){
+    for(let dc=-1;dc<=1;dc++){
+      if(hTileAt(r.map,pc+dc,pr+dr)===TLS){
+        const lsx=H_ROOM_X+(pc+dc)*H_TILE+H_TILE/2,lsy=H_ROOM_Y+(pr+dr)*H_TILE+H_TILE/2;
+        if(Math.hypot(p.x-lsx,p.y-lsy)<H_IACT)
+          txt('[E] '+(r.lightsOn?'Lights off':'Lights on!'),lsx,lsy-22,C.gold,10,'center');
+      }
+    }
+  }
+  // Keycard door hint
+  if(h.kInventory.yellow){
+    for(let dr=-1;dr<=1;dr++){
+      for(let dc=-1;dc<=1;dc++){
+        if(hTileAt(r.map,pc+dc,pr+dr)===TKD)
+          txt('[walk] Use keycard',p.x,p.y-28,C.gold,10,'center');
+      }
     }
   }
 }
@@ -982,9 +1258,9 @@ function drawHeistHUD(){
   ctx.fillText(h.room.name,hx+8,26);
   const t=Math.max(0,h.timer);
   const tm=Math.floor(t/60),ts=Math.floor(t%60);
-  const tStr=(tm<10?'0':'')+tm+':'+(ts<10?'0':'')+ts;
+  const tStr=h.room.timerSecs>0?(tm<10?'0':'')+tm+':'+(ts<10?'0':'')+ts:'--:--';
   txt('TIME',hx+8,50,C.dimTxt,11,'left');
-  ctx.fillStyle=t<30?C.donRed:t<60?C.orange:C.cream;
+  ctx.fillStyle=h.room.timerSecs>0?(t<30?C.donRed:t<60?C.orange:C.cream):C.dimTxt;
   ctx.font='bold 19px Courier New,monospace';ctx.textAlign='right';
   ctx.fillText(tStr,hx+hw-8,50);
   let totalF=0,totalC=0,totalG=0;
@@ -1009,9 +1285,16 @@ function drawHeistHUD(){
     txt('Code: '+h.room.notes[0].code,hx+hw/2,cy+14,'#ffd060',12,'center');
     cy+=26;
   }
+  // Keycard indicator
+  if(h.kInventory.yellow){
+    cy+=4;
+    rnd(hx+6,cy,hw-12,20,3,'rgba(60,50,8,0.85)','rgba(190,160,20,0.6)',1.5);
+    txt('KEY  Yellow',hx+hw/2,cy+14,'#ffd060',11,'center');
+    cy+=26;
+  }
   ctx.strokeStyle='rgba(60,80,120,0.35)';ctx.lineWidth=1;
   ctx.beginPath();ctx.moveTo(hx+6,cy+6);ctx.lineTo(hx+hw-6,cy+6);ctx.stroke();
-  txt('Stage 2 / 4',hx+hw/2,cy+20,C.dimTxt,10,'center');
+  txt('Room '+(h.roomIdx+1)+' / 8',hx+hw/2,cy+20,C.dimTxt,10,'center');
   txt('Score',hx+8,H-30,C.dimTxt,11,'left');
   txt(Math.floor(score)+'',hx+hw-8,H-30,C.gold,15,'right','bold Georgia');
   if(!TOUCH_UI)txt('Arrows + E',hx+hw/2,H-10,C.dimTxt,10,'center');
@@ -1069,11 +1352,36 @@ function drawHeistNote(){
 }
 
 function drawHeist(){
-  const h=heist;
+  const h=heist,r=h.room,p=h.player;
+  // Background (cached)
   drawCachedBackdrop('hroom_'+h.roomIdx,drawHeistRoomBg);
+  // Items (under dark overlay)
   drawHeistItems();
-  if(!h.noteOpen&&!h.kpOpen&&!h.failed)drawHeistHints();
-  if(!h.failed)drawDigory(h.player.x,h.player.y,h.player.dir);
+  // Guard (under dark overlay so it lurks in the dark)
+  if(r.guard)drawGuard(r.guard);
+  // Dark room overlay with visibility hole around player
+  if(r.dark&&!r.lightsOn){
+    ctx.save();
+    ctx.fillStyle='rgba(0,0,8,0.93)';
+    ctx.beginPath();
+    ctx.rect(H_ROOM_X,H_ROOM_Y,H_HUD_X,H_ROWS*H_TILE);
+    ctx.arc(p.x,p.y,88,0,Math.PI*2);
+    ctx.fill('evenodd');
+    ctx.restore();
+  }
+  // Digory always visible
+  if(!h.failed&&!h.guardStunned)drawDigory(p.x,p.y,p.dir);
+  // Hints above dark overlay
+  if(!h.noteOpen&&!h.kpOpen&&!h.failed&&!h.guardStunned)drawHeistHints();
+  // Guard stun flash
+  if(h.guardStunned){
+    const flash=0.35+0.25*Math.abs(Math.sin(h.guardStunT*18));
+    ctx.save();ctx.globalAlpha=flash;
+    ctx.fillStyle='#cc0000';
+    ctx.fillRect(H_ROOM_X,H_ROOM_Y,H_HUD_X,H_ROWS*H_TILE);
+    ctx.restore();
+    txt('Caught! Stay still...',H_HUD_X/2,H_ROOM_Y+H_ROWS*H_TILE/2,'#ff8888',20,'center','bold Georgia');
+  }
   drawHeistHUD();
   if(h.kpOpen)drawHeistKP();
   else if(h.noteOpen)drawHeistNote();
