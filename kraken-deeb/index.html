@@ -160,6 +160,9 @@ function mobileLayout(){
       if(cigarsFound>0){
         btns.push({id:'cigar',cx:W-210,cy:H-150,r:40,label:'C',sub:'Cigar\xD7'+cigarsFound});
       }
+      if(s2&&s2NearStation()){
+        btns.push({id:'refuel',cx:90,cy:H-100,r:44,label:'E',sub:'Refuel'});
+      }
     }
     return {dpad:null,buttons:btns};
   }
@@ -358,8 +361,15 @@ const S1_NEAR_DIST=0.42;
 
 function s1NearStation(){
   if(!s1)return false;
-  for(let i=0;i<S1_STATIONS.length;i++){
+  for(var i=0;i<S1_STATIONS.length;i++){
     if(Math.abs(s1.dist-S1_STATIONS[i])<S1_NEAR_DIST)return true;
+  }
+  return false;
+}
+function s2NearStation(){
+  if(!s2)return false;
+  for(var i=0;i<S1_STATIONS.length;i++){
+    if(Math.abs(s2.dist-S1_STATIONS[i])<S1_NEAR_DIST)return true;
   }
   return false;
 }
@@ -626,20 +636,329 @@ function drawSub1HUD(s){
   txt('Score: '+Math.floor(score),W-18,H-22,C.gold,13,'right','bold Georgia');
 }
 
-// ── Sub2 placeholder ──────────────────────────────────────────────────────
-function initSub2(){s2={placeholder:true,chargeFalling:false};}
-function updateSub2(dt){
-  if(eat('Space')||eat('Enter')){stageScores.sub2=150;score+=150;startPhase('home');}
-  if(mclk){mclk=false;stageScores.sub2=150;score+=150;startPhase('home');}
+// ── Sub2: Submarine Escape ─────────────────────────────────────────────────
+const S2_BASE_SPD=0.5;
+const S2_THRUST_SPD=1.5;
+const S2_DESTROYER_Y=54;
+
+function initSub2(){
+  s2={
+    dist:0,fuel:S1_FUEL_MAX,bobT:0,
+    failed:false,failTimer:0,failMsg:'',
+    bgObjs:makeS1BgObjects(),
+    bubbles:makeS1Bubbles(),
+    destroyers:[{x:160,alive:true},{x:400,alive:true},{x:640,alive:true}],
+    sonarPhase:'idle',sonarT:3.5,
+    chargeT:0,chargeFromIdx:0,chargeFalling:false,
+    explodeAnims:[],
+    missFlash:0,dodgeFlash:0,dodgeMsg:'',
+  };
 }
+
+function s2ActiveCount(){
+  var n=0;
+  for(var i=0;i<s2.destroyers.length;i++){if(s2.destroyers[i].alive)n++;}
+  return n;
+}
+
+function s2PickDestroyer(seed){
+  var alive=[];
+  for(var i=0;i<s2.destroyers.length;i++){if(s2.destroyers[i].alive)alive.push(i);}
+  if(!alive.length)return -1;
+  return alive[Math.floor(Math.abs(seed||0))%alive.length];
+}
+
+function updateSub2(dt){
+  var s=s2;
+  if(s.failed){
+    s.failTimer-=dt;
+    if(s.failTimer<=0)initSub2();
+    return;
+  }
+
+  var thrusting=K['Space']||K['ArrowRight']||touchState.buttons.has('thrust');
+  var refueling=(K['KeyE']||touchState.buttons.has('refuel'))&&s2NearStation();
+
+  var spd=S2_BASE_SPD;
+  if(thrusting){
+    spd+=S2_THRUST_SPD;
+    s.fuel=Math.max(0,s.fuel-1.0*dt);
+    score+=dt*1.5;
+  }
+  s.dist+=spd*dt;
+  if(refueling){s.fuel=Math.min(S1_FUEL_MAX,s.fuel+1.4*dt);}
+
+  s.bobT+=dt;
+  for(var bi=0;bi<s.bubbles.length;bi++){
+    var b=s.bubbles[bi];b.y+=b.vy*dt;
+    if(b.y<60)b.y=490+(b.t%3)*20;
+  }
+
+  if(s.missFlash>0)s.missFlash=Math.max(0,s.missFlash-dt);
+  if(s.dodgeFlash>0)s.dodgeFlash=Math.max(0,s.dodgeFlash-dt);
+  for(var ei=s.explodeAnims.length-1;ei>=0;ei--){
+    s.explodeAnims[ei].t-=dt;
+    if(s.explodeAnims[ei].t<=0)s.explodeAnims.splice(ei,1);
+  }
+
+  // Cigar throw
+  if(eat('KeyC')&&cigarsFound>0){
+    cigarsFound--;
+    var cidx=s2PickDestroyer(Math.floor(s.bobT*7));
+    if(cidx>=0){
+      s.destroyers[cidx].alive=false;
+      s.explodeAnims.push({x:s.destroyers[cidx].x,t:0.9});
+      if(s.sonarPhase==='falling'&&s.chargeFromIdx===cidx){
+        s.sonarPhase='idle';s.chargeFalling=false;s.sonarT=2.5;
+      }
+      score+=80;
+    }
+  }
+
+  // Sonar QTE
+  var nActive=s2ActiveCount();
+  if(nActive>0){
+    var cooldown=Math.max(2.5,5.5-nActive*0.7);
+    if(s.sonarPhase==='idle'){
+      s.sonarT-=dt;
+      if(s.sonarT<=0){s.sonarPhase='ping';s.sonarT=0.6;}
+    } else if(s.sonarPhase==='ping'){
+      s.sonarT-=dt;
+      if(s.sonarT<=0){s.sonarPhase='warning';s.sonarT=1.0;}
+    } else if(s.sonarPhase==='warning'){
+      s.sonarT-=dt;
+      if(s.sonarT<=0){
+        s.sonarPhase='falling';s.chargeT=0;s.chargeFalling=true;
+        s.chargeFromIdx=s2PickDestroyer(Math.floor(s.bobT*13));
+      }
+    } else if(s.sonarPhase==='falling'){
+      s.chargeT+=dt;
+      if(eat('KeyA')){
+        s.sonarPhase='idle';s.chargeFalling=false;s.sonarT=cooldown;
+        s.dodgeFlash=0.8;score+=20;
+        var msgs=['Dodged!','Nice!','Close call!'];
+        s.dodgeMsg=msgs[Math.floor(s.bobT*7)%3];
+      } else if(s.chargeT>=diff.chargeWindow){
+        s.sonarPhase='idle';s.chargeFalling=false;s.sonarT=cooldown;
+        s.fuel=Math.max(0,s.fuel-0.6);s.missFlash=0.6;
+        score=Math.max(0,score-10);
+      }
+    }
+  }
+
+  if(s.fuel<=0&&thrusting){
+    s.fuel=0;s.failed=true;s.failTimer=2.6;
+    s.failMsg='Out of gas! Refuel at Kraken stations.';
+    score=Math.max(0,score-50);stageScores.sub2=0;
+  }
+  if(s.dist>=S1_DIST_TOTAL){
+    var bonus=Math.floor(s.fuel*20);
+    score+=bonus;
+    stageScores.sub2=score-stageScores.heist;
+    startPhase('home');
+  }
+}
+
+function drawS2Destroyer(x,alive,explodeT){
+  if(explodeT>0){
+    ctx.save();ctx.globalAlpha=explodeT/0.9*0.9;
+    var er=55*(explodeT/0.9);
+    circ(x,S2_DESTROYER_Y,er,'rgba(255,120,20,0.7)','rgba(255,200,50,0.5)',2);
+    circ(x,S2_DESTROYER_Y,er*0.55,'rgba(255,230,80,0.65)');
+    ctx.restore();return;
+  }
+  if(!alive)return;
+  ctx.save();
+  ctx.fillStyle='#3a2228';
+  ctx.beginPath();
+  ctx.moveTo(x-52,S2_DESTROYER_Y+20);ctx.lineTo(x-52,S2_DESTROYER_Y+2);
+  ctx.lineTo(x-26,S2_DESTROYER_Y-12);ctx.lineTo(x+26,S2_DESTROYER_Y-12);
+  ctx.lineTo(x+52,S2_DESTROYER_Y+2);ctx.lineTo(x+52,S2_DESTROYER_Y+20);
+  ctx.closePath();ctx.fill();
+  ctx.strokeStyle='#5a3038';ctx.lineWidth=1.5;ctx.stroke();
+  rnd(x-16,S2_DESTROYER_Y-28,32,18,2,'#4a2830','#6a3840',1);
+  ctx.fillStyle='#5a3038';
+  ctx.beginPath();ctx.rect(x-34,S2_DESTROYER_Y-4,14,7);ctx.fill();
+  ctx.beginPath();ctx.rect(x+20,S2_DESTROYER_Y-4,14,7);ctx.fill();
+  ctx.strokeStyle=C.donRed;ctx.lineWidth=1.5;
+  ctx.beginPath();ctx.moveTo(x-52,S2_DESTROYER_Y+12);ctx.lineTo(x+52,S2_DESTROYER_Y+12);
+  ctx.stroke();ctx.restore();
+}
+
 function drawSub2(){
-  fillRect(0,0,W,H,'#04101e');
-  txt('Stage 3: Submarine Escape',W/2,H/2-66,C.gold,24,'center','bold Georgia');
-  txt('(Coming in Phase D — sonar QTE + destroyer chase)',W/2,H/2-26,C.dimTxt,15,'center');
-  txt('Cigars carried in: '+cigarsFound,W/2,H/2+10,C.cream,14,'center');
-  txt('Press SPACE or tap to skip to Stage 4',W/2,H/2+46,C.cream,13,'center');
-  rnd(W/2-110,H/2+76,220,52,8,'rgba(246,213,122,0.12)',C.gold,1.5);
-  txt('CONTINUE →',W/2,H/2+110,C.gold,17,'center','bold Georgia');
+  var s=s2;
+
+  var grad=ctx.createLinearGradient(0,0,0,H);
+  grad.addColorStop(0,'#040e1e');grad.addColorStop(0.45,'#0c2240');grad.addColorStop(1,'#040e18');
+  ctx.fillStyle=grad;ctx.fillRect(0,0,W,H);
+
+  for(var li=0;li<7;li++){
+    ctx.fillStyle=li%2===0?'rgba(255,255,255,0.022)':'rgba(90,160,255,0.016)';
+    ctx.fillRect(0,70+li*56,W,28);
+  }
+
+  var sedGrad=ctx.createLinearGradient(0,H-40,0,H);
+  sedGrad.addColorStop(0,'transparent');sedGrad.addColorStop(1,'rgba(20,12,8,0.5)');
+  ctx.fillStyle=sedGrad;ctx.fillRect(0,H-40,W,40);
+
+  for(var oi=0;oi<s.bgObjs.length;oi++){
+    var obj=s.bgObjs[oi];
+    var osx=S1_SUB_X+(obj.wd-s.dist)*S1_WORLD_SCALE*obj.layer;
+    if(osx<-90||osx>W+90)continue;
+    if(obj.type==='wreck')drawS1Wreck(osx,obj.y);else drawS1Coral(osx,obj.y);
+  }
+
+  for(var si=0;si<S1_STATIONS.length;si++){
+    var stX=S1_SUB_X+(S1_STATIONS[si]-s.dist)*S1_WORLD_SCALE;
+    if(stX<-150||stX>W+150)continue;
+    drawS1Station(stX,230);
+    if(Math.abs(s.dist-S1_STATIONS[si])<S1_NEAR_DIST){
+      var stp=0.5+0.5*Math.abs(Math.sin(s.bobT*2.8));
+      ctx.save();ctx.globalAlpha=stp*0.5;circ(stX,230,80,null,'#3a8a5a',3);ctx.restore();
+    }
+  }
+
+  var destX=S1_SUB_X+(S1_DIST_TOTAL-s.dist)*S1_WORLD_SCALE;
+  if(destX>=0&&destX<=W){
+    ctx.save();
+    rnd(destX-22,160,44,140,4,'rgba(30,70,30,0.7)','#508040',1.5);
+    ctx.fillStyle='#a0e880';ctx.font='bold 10px monospace';ctx.textAlign='center';
+    ctx.fillText('HOME',destX,208);ctx.fillText('PORT',destX,222);
+    ln(destX,158,destX,300,'rgba(100,200,60,0.28)',1);
+    ctx.restore();
+  }
+
+  for(var bui=0;bui<s.bubbles.length;bui++){
+    var bu=s.bubbles[bui];
+    circ(bu.x,bu.y,bu.r,null,'rgba(160,220,255,0.28)',1);
+  }
+
+  // Sky / surface band above waterline
+  ctx.save();ctx.fillStyle='rgba(4,10,20,0.88)';
+  ctx.fillRect(0,0,W,S2_DESTROYER_Y+28);ctx.restore();
+
+  // Surface line
+  ctx.save();ctx.strokeStyle='rgba(100,180,255,0.3)';ctx.lineWidth=1;
+  ctx.setLineDash([8,6]);
+  ctx.beginPath();ctx.moveTo(0,S2_DESTROYER_Y+28);ctx.lineTo(W,S2_DESTROYER_Y+28);
+  ctx.stroke();ctx.setLineDash([]);ctx.restore();
+
+  // Destroyers
+  for(var di=0;di<s.destroyers.length;di++){
+    var dd=s.destroyers[di];var et=0;
+    for(var xi=0;xi<s.explodeAnims.length;xi++){
+      if(s.explodeAnims[xi].x===dd.x)et=s.explodeAnims[xi].t;
+    }
+    drawS2Destroyer(dd.x,dd.alive,et);
+  }
+
+  // Falling depth charge
+  if(s.sonarPhase==='falling'&&s.chargeFromIdx>=0&&s.chargeFromIdx<s.destroyers.length){
+    var fd=s.destroyers[s.chargeFromIdx];
+    var prog=Math.min(1,s.chargeT/diff.chargeWindow);
+    var cy2=(S2_DESTROYER_Y+30)+(H-160-(S2_DESTROYER_Y+30))*prog;
+    var cx2=fd.x+(S1_SUB_X-fd.x)*prog;
+    ctx.save();
+    if(prog>0.65)ctx.globalAlpha=0.6+0.4*Math.abs(Math.sin(s.bobT*14));
+    circ(cx2,cy2,11,'rgba(220,90,20,0.92)','rgba(255,150,40,0.9)',2.5);
+    ctx.strokeStyle='rgba(255,180,50,0.7)';ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.moveTo(cx2,cy2-16);ctx.lineTo(cx2,cy2-11);
+    ctx.moveTo(cx2+14,cy2+6);ctx.lineTo(cx2+9,cy2+4);
+    ctx.moveTo(cx2-14,cy2+6);ctx.lineTo(cx2-9,cy2+4);
+    ctx.stroke();
+    if(prog<0.55){
+      ctx.strokeStyle='rgba(180,120,60,0.35)';ctx.lineWidth=1;ctx.setLineDash([3,4]);
+      ctx.beginPath();ctx.moveTo(fd.x,S2_DESTROYER_Y+20);ctx.lineTo(cx2,cy2);
+      ctx.stroke();ctx.setLineDash([]);
+    }
+    ctx.restore();
+    ctx.save();ctx.globalAlpha=0.7+0.3*Math.abs(Math.sin(s.bobT*9));
+    rnd(W/2-88,H/2-14,176,28,7,'rgba(120,18,10,0.78)','rgba(220,55,28,0.85)',1.5);
+    txt('PRESS A TO DODGE!',W/2,H/2+7,C.cream,14,'center','bold monospace');
+    ctx.restore();
+  }
+
+  // Sonar ping ring
+  if(s.sonarPhase==='ping'){
+    var pr=(0.6-s.sonarT)/0.6;
+    ctx.save();ctx.globalAlpha=(1-pr)*0.55;
+    circ(S1_SUB_X,H/2,pr*210,null,'rgba(100,255,180,0.7)',2.5);ctx.restore();
+  }
+
+  // Incoming warning bar
+  if(s.sonarPhase==='warning'){
+    var wp=Math.abs(Math.sin(s.sonarT*Math.PI*3.5));
+    ctx.save();ctx.globalAlpha=0.5+0.5*wp;
+    rnd(W/2-168,H/2-22,336,44,9,'rgba(170,45,18,0.75)','rgba(255,75,38,0.9)',2);
+    txt('INCOMING DEPTH CHARGE',W/2,H/2+8,C.cream,17,'center','bold monospace');
+    ctx.restore();
+  }
+
+  if(s.missFlash>0){
+    ctx.save();ctx.globalAlpha=s.missFlash/0.6*0.33;
+    ctx.fillStyle='rgba(200,28,10,0.9)';ctx.fillRect(0,0,W,H);ctx.restore();
+  }
+  if(s.dodgeFlash>0){
+    ctx.save();ctx.globalAlpha=Math.min(1,s.dodgeFlash/0.8);
+    rnd(W/2-96,H/2-106,192,34,9,'rgba(28,100,48,0.88)','rgba(50,200,90,0.85)',1.5);
+    txt(s.dodgeMsg||'Dodged!',W/2,H/2-81,C.cream,18,'center','bold Georgia');
+    ctx.restore();
+  }
+
+  if(!s.failed){
+    var bobY=Math.sin(s.bobT*1.3)*5;
+    drawSubmarineSprite(S1_SUB_X,H/2-8+bobY,'SAMSTER');
+  }
+
+  drawSub2HUD(s);
+
+  if(s.failed){
+    var alpha=Math.min(1,(2.6-s.failTimer)/0.45);
+    ctx.save();ctx.globalAlpha=alpha;
+    rnd(W/2-230,H/2-62,460,124,14,'rgba(70,8,8,0.94)',C.donRed,2.5);
+    txt('Out of Gas!',W/2,H/2-18,'#ffaaaa',32,'center','bold Georgia');
+    txt(s.failMsg,W/2,H/2+22,C.cream,13,'center');ctx.restore();
+  }
+
+  if(!s.failed&&s2NearStation()){
+    var pls=0.65+0.35*Math.abs(Math.sin(s.bobT*3));
+    ctx.save();ctx.globalAlpha=pls;
+    rnd(W/2-136,H-76,272,34,8,'rgba(28,62,38,0.88)',C.krakGreen,1.5);
+    txt('Hold E (or Refuel button) to fill up',W/2,H-52,C.cream,13,'center');
+    ctx.restore();
+  }
+}
+
+function drawSub2HUD(s){
+  rnd(18,8,W-36,26,5,'rgba(0,0,0,0.6)','rgba(90,140,210,0.4)',1);
+  var prog=Math.min(1,s.dist/S1_DIST_TOTAL);
+  if(prog>0)rnd(20,10,Math.round((W-40)*prog),22,4,'rgba(55,120,190,0.75)',null,0);
+  for(var i=0;i<S1_STATIONS.length;i++){
+    var sx=20+(S1_STATIONS[i]/S1_DIST_TOTAL)*(W-40);
+    var near=Math.abs(s.dist-S1_STATIONS[i])<S1_NEAR_DIST;
+    circ(sx,21,near?6:4,near?C.krakGreen:'#2a6a40');
+  }
+  txt('Submarine Escape',28,26,C.dimTxt,11,'left');
+  txt(s.dist.toFixed(1)+' / 10.0 km',W-24,26,C.cream,11,'right');
+
+  rnd(18,H-40,164,24,5,'rgba(0,0,0,0.6)','rgba(80,140,100,0.4)',1);
+  var fp=s.fuel/S1_FUEL_MAX;
+  var fc=fp>0.45?'#3a9a52':fp>0.2?'#cca030':'#cc3322';
+  if(fp>0)rnd(20,H-38,Math.round(160*fp),20,4,fc,null,0);
+  txt('Fuel',28,H-22,C.dimTxt,11,'left');
+  txt((fp*100).toFixed(0)+'%',170,H-22,C.cream,11,'right');
+
+  var nAlive=s2ActiveCount();
+  if(nAlive>0){
+    txt(nAlive+' destroyer'+(nAlive!==1?'s':''),W/2,H-22,C.donRed,12,'center','bold monospace');
+  } else {
+    txt('All clear!',W/2,H-22,C.krakGreen,12,'center','bold monospace');
+  }
+  if(cigarsFound>0){
+    txt('Cigars (C): '+cigarsFound,W/2,H-38,C.gold,11,'center','monospace');
+  }
+
+  txt('Score: '+Math.floor(score),W-18,H-22,C.gold,13,'right','bold Georgia');
 }
 
 // ── Heist Engine ─────────────────────────────────────────────────────────────
