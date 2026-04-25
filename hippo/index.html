@@ -2373,10 +2373,22 @@ const STL_MOM_PATROLS=[
 ];
 const STL_DIGORY_START={x:15*32,y:10*32};
 
+// Snap a player object to a tile from a pixel-coords playerStart.
+function hippoGridFromPx(p, start){
+  var col=Math.floor(start.x/TILE), row=Math.floor(start.y/TILE);
+  MuckoGrid.init(p, col, row, TILE);
+}
+function hippoStealthBlocked(map, col, row){
+  if(row<0||row>=map.length||col<0||col>=map[0].length)return true;
+  var t=map[row][col];
+  return t===TT.WALL||t===TT.FURNITURE||t===TT.BED;
+}
 function initStealth(){
+  var hp={dir:0,anim:0,stepCd:0,facing:'up'};
+  hippoGridFromPx(hp,{x:9.5*32,y:13.5*32});
   stl={
     zone:0,
-    player:{x:9.5*32,y:13.5*32,dir:0,anim:0,stepCd:0},
+    player:hp,
     mom:{x:3*32,y:7*32,angle:0,patrol:deepClone(STL_MOM_PATROLS[0]),pidx:0,flicker:1},
     digory:{x:STL_DIGORY_START.x,y:STL_DIGORY_START.y,angle:0,wanderTimer:0,chasing:false,anim:0,barkCd:0},
     hasSandwich:true,
@@ -2416,18 +2428,14 @@ function updateStealth(dt){
   if(s.won)return;
   const zd=STL_ZONE_DATA[s.zone];
   const map=zd.map;
-  // Player movement
-  const spd=(diff.id==='easy'?2.2:diff.id==='medium'?2:1.8)*PLAYER_SPEED_SCALE;
-  let vx=0,vy=0;
-  if(K['ArrowLeft']||K['KeyA']){vx=-spd;s.player.dir=2;}
-  if(K['ArrowRight']||K['KeyD']){vx=spd;s.player.dir=3;}
-  if(K['ArrowUp']||K['KeyW']){vy=-spd;s.player.dir=0;}
-  if(K['ArrowDown']||K['KeyS']){vy=spd;s.player.dir=1;}
-  if(vx!==0&&vy!==0){vx*=0.707;vy*=0.707;}
-  const nx=s.player.x+vx,ny=s.player.y+vy;
-  if(canMoveTo(nx,s.player.y,map))s.player.x=nx;
-  if(canMoveTo(s.player.x,ny,map))s.player.y=ny;
-  const moving=(vx!==0||vy!==0);
+  // Player movement (Pokémon-style discrete grid via mucko-grid.js).
+  // Per-difficulty speed shifts the step duration: easier = faster steps.
+  const stepDur=(diff.id==='easy'?0.15:diff.id==='medium'?0.18:0.22);
+  const dir=MuckoGrid.readDir(K);
+  const moving=MuckoGrid.update(s.player,dt,dir,false,
+    function(c,r){return hippoStealthBlocked(map,c,r);},TILE,{walkDur:stepDur});
+  MuckoGrid.applyBumpRender(s.player,TILE);
+  s.player.dir=MuckoGrid.dirToNum(s.player.facing);
   s.player.moving=moving;
   if(moving)s.player.anim++;
   s.player.stepCd-=dt;
@@ -2495,7 +2503,7 @@ function updateStealth(dt){
     else{
       sfx.chime();
       const nzd=STL_ZONE_DATA[s.zone];
-      s.player.x=nzd.playerStart.x;s.player.y=nzd.playerStart.y;s.player.dir=0;
+      hippoGridFromPx(s.player,nzd.playerStart);s.player.dir=0;s.player.facing='up';
       s.mom.x=STL_MOM_PATROLS[s.zone][0].x;s.mom.y=STL_MOM_PATROLS[s.zone][0].y;
       s.mom.patrol=deepClone(STL_MOM_PATROLS[s.zone]);s.mom.pidx=0;
       showStlMsg(nzd.name);
@@ -2508,7 +2516,7 @@ function updateStealth(dt){
 function restartStealthZone(){
   const s=stl;
   const zd=STL_ZONE_DATA[s.zone];
-  s.player.x=zd.playerStart.x;s.player.y=zd.playerStart.y;s.player.dir=0;
+  hippoGridFromPx(s.player,zd.playerStart);s.player.dir=0;s.player.facing='up';
   s.mom.x=STL_MOM_PATROLS[s.zone][0].x;s.mom.y=STL_MOM_PATROLS[s.zone][0].y;
   s.mom.patrol=deepClone(STL_MOM_PATROLS[s.zone]);s.mom.pidx=0;
   if(s.zone===0){
@@ -4789,6 +4797,7 @@ if(DEBUG_HARNESS==='dialog'){
 }
 requestAnimationFrame(loop);
 </script>
+<script src="../mucko-grid.js"></script>
 <script src="../mucko-gamepad.js"></script>
 </body>
 </html>
