@@ -694,29 +694,39 @@ const BED_MAP=[
   [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
 ];
 function initStealth(){
+  var startCol=3, startRow=12;
+  var p={dir:0,anim:0,facing:'up'};
+  MuckoGrid.init(p,startCol,startRow,TILE);
   stl={
-    player:{x:3*TILE,y:12*TILE,dir:0,anim:0},
+    player:p,
     noise:0,caught:false,won:false,caughtTimer:0,
     hint:true,hintTimer:180,moving:false,
   };
 }
+function stealthIsBlocked(col,row){
+  if(row<0||row>=BED_MAP.length||col<0||col>=BED_MAP[0].length)return true;
+  const t=BED_MAP[row][col];
+  return t===TT.WALL||t===TT.FURNITURE||t===TT.BED;
+}
 function updateStealth(dt){
   const s=stl;if(!s||s.won)return;
-  if(s.caught){s.caughtTimer-=dt;if(s.caughtTimer<=0){s.caught=false;s.noise=0;s.player.x=3*TILE;s.player.y=12*TILE;}return;}
-  const spd=2.0;
-  let vx=0,vy=0;
-  if(K.ArrowLeft||K.KeyA){vx=-spd;s.player.dir=2;}
-  if(K.ArrowRight||K.KeyD){vx=spd;s.player.dir=3;}
-  if(K.ArrowUp||K.KeyW){vy=-spd;s.player.dir=0;}
-  if(K.ArrowDown||K.KeyS){vy=spd;s.player.dir=1;}
-  if(vx&&vy){vx*=0.707;vy*=0.707;}
-  s.moving=vx!==0||vy!==0;
-  const nx=s.player.x+vx,ny=s.player.y+vy;
-  if(canMoveTo(nx,s.player.y,BED_MAP))s.player.x=nx;
-  if(canMoveTo(s.player.x,ny,BED_MAP))s.player.y=ny;
-  if(s.moving){
+  if(s.caught){
+    s.caughtTimer-=dt;
+    if(s.caughtTimer<=0){
+      s.caught=false;s.noise=0;
+      MuckoGrid.init(s.player,3,12,TILE); s.player.dir=0; s.player.facing='up';
+    }
+    return;
+  }
+  const dir=MuckoGrid.readDir(K);
+  const moving=MuckoGrid.update(s.player,dt,dir,false,stealthIsBlocked,TILE);
+  MuckoGrid.applyBumpRender(s.player,TILE);
+  s.player.dir=MuckoGrid.dirToNum(s.player.facing);
+  s.moving=moving;
+  if(moving){
     s.player.anim++;
-    const tile=tileAt(s.player.x,s.player.y,BED_MAP);
+    // Sample noise at the destination tile (where the player is heading).
+    const tile=BED_MAP[s.player.targetRow]&&BED_MAP[s.player.targetRow][s.player.targetCol];
     if(tile===TT.CREAK)s.noise+=diff.noiseRate*0.8;
     else s.noise+=diff.noiseRate*0.12;
   } else {
@@ -985,8 +995,10 @@ function initHideout(){
       lasers.push({room:ri,cx:Math.min(cx,560),cy:Math.min(cy,400),len:80+li*10,angle:li*0.8,speed:(0.3+li*0.15)*diff.laserSpd,vert:vert});
     }
   }
+  var hp={dir:1,anim:0,facing:'down'};
+  MuckoGrid.init(hp,9,12,TILE);
   hideout={
-    room:0,player:{x:9.5*TILE,y:12*TILE,dir:1,anim:0},
+    room:0,player:hp,
     items:items,lasers:lasers,
     alarm:false,alarmTimer:0,
     msg:{text:'',timer:0},
@@ -1050,32 +1062,37 @@ function updateDiebs(h,dt){
 }
 function updateHideout(dt){
   const h=hideout;if(!h)return;
-  if(h.alarm){h.alarmTimer-=dt;if(h.alarmTimer<=0){h.alarm=false;h.player.x=9.5*TILE;h.player.y=12*TILE;}return;}
-  // movement
-  const spd=2.2;let vx=0,vy=0;
+  if(h.alarm){
+    h.alarmTimer-=dt;
+    if(h.alarmTimer<=0){
+      h.alarm=false;
+      MuckoGrid.init(h.player,9,12,TILE);
+      h.player.dir=1; h.player.facing='down';
+    }
+    return;
+  }
   const map=HIDEOUT_ROOMS[h.room].map;
-  const moveLeft=K.ArrowLeft||K.KeyA;
-  const moveRight=K.ArrowRight||K.KeyD;
-  const moveUp=K.ArrowUp||K.KeyW;
-  const moveDown=K.ArrowDown||K.KeyS;
-  if(moveLeft){vx=-spd;h.player.dir=2;}
-  if(moveRight){vx=spd;h.player.dir=3;}
-  if(moveUp){vy=-spd;h.player.dir=0;}
-  if(moveDown){vy=spd;h.player.dir=1;}
-  if(vx&&vy){vx*=0.707;vy*=0.707;}
-  const nx=h.player.x+vx,ny=h.player.y+vy;
-  if(canMoveTo(nx,h.player.y,map))h.player.x=nx;
-  if(canMoveTo(h.player.x,ny,map))h.player.y=ny;
-  if(vx||vy)h.player.anim++;
-  // door transitions
-  const tile=tileAt(h.player.x,h.player.y,map);
-  if(tile===TT.DOOR){
-    const py=Math.floor(h.player.y/TILE);
-    if(py<=1&&moveUp){
-      if(h.room>0){h.room--;h.player.y=13*TILE;showHideoutMsg(HIDEOUT_ROOMS[h.room].name);clearBackdropCache();}
-      else if(h.foundCount>=h.totalCount){startPhase('cart');return;}
-    } else if(py>=13&&moveDown&&h.room<HIDEOUT_ROOMS.length-1){
-      h.room++;h.player.y=1.5*TILE;showHideoutMsg(HIDEOUT_ROOMS[h.room].name);clearBackdropCache();
+  function hideoutBlocked(col,row){
+    if(row<0||row>=map.length||col<0||col>=map[0].length)return true;
+    const t=map[row][col];
+    return t===TT.WALL||t===TT.FURNITURE||t===TT.BED;
+  }
+  const dir=MuckoGrid.readDir(K);
+  const moving=MuckoGrid.update(h.player,dt,dir,false,hideoutBlocked,TILE);
+  MuckoGrid.applyBumpRender(h.player,TILE);
+  h.player.dir=MuckoGrid.dirToNum(h.player.facing);
+  if(moving)h.player.anim++;
+  // Door transitions: when standing on a DOOR tile and pressing the matching
+  // direction, walk through to the next/prev room (re-init grid in destination).
+  if(!h.player.gridMoving){
+    const t=tileAt(h.player.x,h.player.y,map);
+    if(t===TT.DOOR){
+      if(h.player.gridRow<=1&&dir==='up'){
+        if(h.room>0){h.room--;MuckoGrid.init(h.player,h.player.gridCol,13,TILE);h.player.dir=1;h.player.facing='down';showHideoutMsg(HIDEOUT_ROOMS[h.room].name);clearBackdropCache();}
+        else if(h.foundCount>=h.totalCount){startPhase('cart');return;}
+      } else if(h.player.gridRow>=13&&dir==='down'&&h.room<HIDEOUT_ROOMS.length-1){
+        h.room++;MuckoGrid.init(h.player,h.player.gridCol,1,TILE);h.player.dir=0;h.player.facing='up';showHideoutMsg(HIDEOUT_ROOMS[h.room].name);clearBackdropCache();
+      }
     }
   }
   // raccoon power-cut logic
@@ -1778,6 +1795,7 @@ function loop(ts){
 }
 requestAnimationFrame(loop);
 </script>
+<script src="../mucko-grid.js"></script>
 <script src="../mucko-gamepad.js"></script>
 </body>
 </html>
