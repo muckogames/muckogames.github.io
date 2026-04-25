@@ -1545,6 +1545,174 @@ const H_ROOM_DEFS=(function(){
   ];
 })();
 
+// ── Level editor format (mucko-level/v1) ────────────────────────────────
+// Parses a JSON level into the same shape that H_ROOM_DEFS produces, so the
+// heist runtime can play it without any other changes. See don/editor.html.
+const LEVEL_TILE_CHARS={
+  '.':TF, '#':TW, 'N':TN, 'D':TD, 'L':TL, 'O':TO, 'I':TI,
+  '<':TCL, '>':TCR, '^':TCU, 'v':TCD,
+  'K':TKD, 'S':TLS, 'B':TBO
+};
+const LEVEL_TILE_INV=(function(){var m={};for(var k in LEVEL_TILE_CHARS)m[LEVEL_TILE_CHARS[k]]=k;return m;})();
+const LEVEL_KNOWN_NPC_CHARS={
+  digory:1, samster:1, duckdieb:1, pflueger:1,
+  don:1, firelightGuy:1, mom:1, guard:1
+};
+
+function parseLevel(input){
+  var data;
+  if(typeof input==='string'){
+    try{data=JSON.parse(input);}catch(e){return {error:'JSON parse: '+e.message};}
+  } else data=input;
+  if(!data||typeof data!=='object')return {error:'level must be an object'};
+  if(data.format&&data.format!=='mucko-level/v1')return {error:'unknown format: '+data.format};
+  if(!Array.isArray(data.rooms)||data.rooms.length===0)return {error:'rooms[] required'};
+  var rooms=[];
+  for(var i=0;i<data.rooms.length;i++){
+    var rd=data.rooms[i];
+    var parsed=parseRoom(rd,i);
+    if(parsed.error)return {error:'room '+i+': '+parsed.error};
+    rooms.push(parsed.room);
+  }
+  return {
+    rooms:rooms,
+    playerChar:data.playerChar||'digory',
+    levelName:data.name||'Untitled'
+  };
+}
+
+function parseRoom(rd,idx){
+  if(!rd||typeof rd!=='object')return {error:'not an object'};
+  if(!Array.isArray(rd.map)||rd.map.length!==H_ROWS)
+    return {error:'map must be '+H_ROWS+' rows'};
+  var map=new Array(H_COLS*H_ROWS);
+  for(var row=0;row<H_ROWS;row++){
+    var line=rd.map[row];
+    if(typeof line!=='string'||line.length!==H_COLS)
+      return {error:'map row '+row+' must be '+H_COLS+' chars'};
+    for(var col=0;col<H_COLS;col++){
+      var ch=line.charAt(col);
+      if(!(ch in LEVEL_TILE_CHARS))return {error:"unknown tile '"+ch+"' at row "+row+" col "+col};
+      map[row*H_COLS+col]=LEVEL_TILE_CHARS[ch];
+    }
+  }
+  var room={
+    name:rd.name||('Room '+(idx+1)),
+    map:map,
+    floppies:[], containers:[], cigars:[], keycards:[],
+    notes:[], keypads:[],
+    npcs:[],                           // new field — non-guard NPCs
+    guardDef:null,
+    dark:!!rd.dark,
+    timerSecs:typeof rd.timerSecs==='number'?rd.timerSecs:120,
+    complete:!!rd.complete
+  };
+  // Spawn position (tile coords; defaults to col 9 row 13)
+  var spawn=rd.spawn||{};
+  var sCol=typeof spawn.col==='number'?spawn.col:9;
+  var sRow=typeof spawn.row==='number'?spawn.row:13;
+  room.startX=hTX(sCol); room.startY=hTY(sRow);
+  room.spawnFacing=spawn.facing||'up';
+  // Items
+  if(rd.items)for(var ii=0;ii<rd.items.length;ii++){
+    var it=rd.items[ii];
+    if(!it||typeof it!=='object')continue;
+    var x=hTX(it.col), y=hTY(it.row);
+    if(it.type==='floppy')         room.floppies.push({x:x,y:y});
+    else if(it.type==='container') room.containers.push({x:x,y:y});
+    else if(it.type==='cigar')     room.cigars.push({x:x,y:y});
+    else if(it.type==='keycard')   room.keycards.push({x:x,y:y,color:it.color||'yellow'});
+    else if(it.type==='note')      room.notes.push({x:x,y:y,code:it.code||'',text:it.text||''});
+    else if(it.type==='keypad')    room.keypads.push({tx:it.col,ty:it.row,code:it.code||''});
+    else return {error:"unknown item type '"+it.type+"'"};
+  }
+  // NPCs
+  if(rd.npcs)for(var ni=0;ni<rd.npcs.length;ni++){
+    var np=rd.npcs[ni];
+    if(!np||typeof np!=='object')continue;
+    if(!LEVEL_KNOWN_NPC_CHARS[np.char])return {error:"unknown NPC char '"+np.char+"'"};
+    if(np.char==='guard'&&Array.isArray(np.patrol)&&np.patrol.length>0){
+      // The shipped guard system uses guardDef — keep using that for guards.
+      var path=np.patrol.map(function(p){return {tx:p[0],ty:p[1]};});
+      room.guardDef={path:path,speed:np.speed||52};
+    } else {
+      var anpc={
+        char:np.char,
+        col:typeof np.col==='number'?np.col:0,
+        row:typeof np.row==='number'?np.row:0,
+        dir:np.dir||'down',
+        dialog:np.dialog||'',
+        speed:np.speed||52
+      };
+      if(Array.isArray(np.patrol)&&np.patrol.length>0){
+        anpc.patrol=np.patrol.map(function(p){return {tx:p[0],ty:p[1]};});
+      }
+      room.npcs.push(anpc);
+    }
+  }
+  // Hooks reserved for the scripting DSL — pass through, don't act on yet.
+  if(rd.onEnter)room._onEnter=rd.onEnter;
+  return {room:room};
+}
+
+// Encode a single room back into the v1 JSON shape (for the editor's
+// "save / copy out" path). Inverse of parseRoom; lossless for fields we own.
+function encodeRoom(room){
+  var lines=[];
+  for(var row=0;row<H_ROWS;row++){
+    var s='';
+    for(var col=0;col<H_COLS;col++){
+      var t=room.map[row*H_COLS+col];
+      s+=(t in LEVEL_TILE_INV)?LEVEL_TILE_INV[t]:'.';
+    }
+    lines.push(s);
+  }
+  var items=[];
+  function pushAll(arr,type,extra){
+    if(!arr)return;
+    for(var i=0;i<arr.length;i++){
+      var it=arr[i],e={type:type,col:Math.round((it.x-H_ROOM_X-H_TILE/2)/H_TILE),row:Math.round((it.y-H_ROOM_Y-H_TILE/2)/H_TILE)};
+      if(extra)extra(e,it);
+      items.push(e);
+    }
+  }
+  pushAll(room.floppies,'floppy');
+  pushAll(room.containers,'container');
+  pushAll(room.cigars,'cigar');
+  pushAll(room.keycards,'keycard',function(e,it){e.color=it.color||'yellow';});
+  pushAll(room.notes,'note',function(e,it){e.code=it.code||'';e.text=it.text||'';});
+  if(room.keypads)for(var k=0;k<room.keypads.length;k++){
+    items.push({type:'keypad',col:room.keypads[k].tx,row:room.keypads[k].ty,code:room.keypads[k].code||''});
+  }
+  var npcs=[];
+  if(room.guardDef){
+    npcs.push({char:'guard',col:room.guardDef.path[0].tx,row:room.guardDef.path[0].ty,
+               speed:room.guardDef.speed||52,
+               patrol:room.guardDef.path.map(function(p){return [p.tx,p.ty];})});
+  }
+  if(room.npcs)for(var n=0;n<room.npcs.length;n++){
+    var nn=room.npcs[n],out={char:nn.char,col:nn.col,row:nn.row};
+    if(nn.dir&&nn.dir!=='down')out.dir=nn.dir;
+    if(nn.dialog)out.dialog=nn.dialog;
+    if(nn.patrol)out.patrol=nn.patrol.map(function(p){return [p.tx,p.ty];});
+    if(nn.speed&&nn.speed!==52)out.speed=nn.speed;
+    npcs.push(out);
+  }
+  var sCol=Math.round((room.startX-H_ROOM_X-H_TILE/2)/H_TILE);
+  var sRow=Math.round((room.startY-H_ROOM_Y-H_TILE/2)/H_TILE);
+  var out={
+    name:room.name,
+    map:lines,
+    spawn:{col:sCol,row:sRow,facing:room.spawnFacing||'up'},
+    items:items,
+    npcs:npcs
+  };
+  if(room.dark)out.dark=true;
+  if(typeof room.timerSecs==='number'&&room.timerSecs!==120)out.timerSecs=room.timerSecs;
+  if(room.complete)out.complete=true;
+  return out;
+}
+
 let heist=null;
 function hCopyRoom(d){
   let guard=null;
@@ -1553,6 +1721,19 @@ function hCopyRoom(d){
     guard={path:gd.path,speed:gd.speed||52,pathIdx:0,
            x:hTX(gd.path[0].tx),y:hTY(gd.path[0].ty),dir:'right'};
   }
+  // Editor-authored NPCs (non-guard). Each gets its own runtime state with
+  // a tile-anchored position, optional patrol, and a one-shot dialog flag.
+  var npcs=null;
+  if(d.npcs&&d.npcs.length){
+    npcs=d.npcs.map(function(n){
+      return {char:n.char,col:n.col,row:n.row,
+              x:hTX(n.col),y:hTY(n.row),
+              dir:n.dir||'down',facing:n.dir||'down',
+              dialog:n.dialog||'',spoken:false,
+              speed:n.speed||52,
+              patrol:n.patrol?n.patrol.slice():null,pathIdx:0,bobT:0};
+    });
+  }
   return {name:d.name,map:d.map.slice(),
     floppies:d.floppies.map(i=>({x:i.x,y:i.y,got:false})),
     containers:d.containers.map(i=>({x:i.x,y:i.y,got:false})),
@@ -1560,18 +1741,33 @@ function hCopyRoom(d){
     keycards:d.keycards.map(k=>({x:k.x,y:k.y,got:false,color:k.color})),
     notes:d.notes.map(n=>({x:n.x,y:n.y,code:n.code,text:n.text,read:false})),
     keypads:d.keypads.map(k=>({tx:k.tx,ty:k.ty,code:k.code,open:false})),
-    guard,dark:d.dark||false,lightsOn:false,
-    startX:d.startX,startY:d.startY,timerSecs:d.timerSecs||0,
+    guard,npcs:npcs,dark:d.dark||false,lightsOn:false,
+    startX:d.startX,startY:d.startY,spawnFacing:d.spawnFacing||'up',
+    timerSecs:d.timerSecs||0,
     complete:d.complete||false};
 }
 // Convert pixel start coords (r.startX,r.startY) into tile col/row
 function hPxToCol(px){return Math.floor((px-H_ROOM_X)/H_TILE);}
 function hPxToRow(py){return Math.floor((py-H_ROOM_Y)/H_TILE);}
 
+// Active player character id for the heist phase. Defaults to digory; the
+// editor's "Play this level" path can override this via editorLevel.playerChar.
+let heistPlayerChar='digory';
+let editorLevel=null;        // active editor level (null = shipped rooms)
+
 function initHeist(){
   cigarsFound=0;
-  const rooms=H_ROOM_DEFS.map(hCopyRoom),r=rooms[0];
-  var pPlayer={dir:'down',vx:0,vy:0,facing:'up'};
+  var sourceRooms;
+  if(editorLevel){
+    // Editor levels carry their own room definitions and player character.
+    sourceRooms=editorLevel.rooms;
+    heistPlayerChar=editorLevel.playerChar||'digory';
+  } else {
+    sourceRooms=H_ROOM_DEFS;
+    heistPlayerChar='digory';
+  }
+  const rooms=sourceRooms.map(hCopyRoom),r=rooms[0];
+  var pPlayer={dir:'down',vx:0,vy:0,facing:r.spawnFacing||'up'};
   MuckoGrid.init(pPlayer, hPxToCol(r.startX), hPxToRow(r.startY), H_TILE, H_ROOM_X, H_ROOM_Y);
   heist={rooms,roomIdx:0,room:r,
     player:pPlayer,
@@ -1861,6 +2057,25 @@ function updateHeist(dt){
   // Room transition: stepped onto a back door (row H_ROWS-1 TBO tile)
   if(!p.gridMoving&&p.gridRow===H_ROWS-1&&hTileAt(r.map,p.gridCol,H_ROWS-1)===TBO){
     if(h.roomIdx>0){hEnterRoom(h.roomIdx-1,'fromNorth');return;}
+  }
+}
+
+// ── Player & NPC sprite dispatch ─────────────────────────────────────────────
+// drawHeistPlayer / drawHeistNpcs route by char id to a draw function.
+// MUCKO_NPCS is populated lazily — Phase 2 will fill in samster/pflueger/etc
+// from don/mucko-npcs.js. For now only the natively-defined chars are wired.
+var MUCKO_NPCS=window.MUCKO_NPCS||(window.MUCKO_NPCS={});
+function drawHeistPlayer(charId,x,y,dir){
+  var entry=MUCKO_NPCS[charId];
+  if(entry&&entry.draw){entry.draw(x,y,dir,0);return;}
+  drawDigory(x,y,dir); // fallback
+}
+function drawHeistNpcs(npcs){
+  for(var i=0;i<npcs.length;i++){
+    var n=npcs[i],e=MUCKO_NPCS[n.char];
+    n.bobT=(n.bobT||0)+1/60;
+    if(e&&e.draw)e.draw(n.x,n.y,n.dir,n.bobT,n);
+    else drawDigory(n.x,n.y,n.dir); // fallback so NPC is at least visible
   }
 }
 
@@ -2215,7 +2430,8 @@ function drawHeist(){
     ctx.restore();
   }
   // Digory always visible
-  if(!h.failed&&!h.guardStunned)drawDigory(p.x,p.y,p.dir);
+  if(!h.failed&&!h.guardStunned)drawHeistPlayer(heistPlayerChar,p.x,p.y,p.dir);
+  if(h.room.npcs)drawHeistNpcs(h.room.npcs);
   // Hints above dark overlay
   if(!h.noteOpen&&!h.kpOpen&&!h.failed&&!h.guardStunned)drawHeistHints();
   // Guard stun flash
@@ -2822,6 +3038,28 @@ function drawFirelightGuy(x,y,dir,bobT){
   ctx.restore();
 }
 
+// Register the natively-defined characters in the NPC dispatch table so the
+// heist player & NPC arrays can use any of them. Phase 2 will add the ported
+// sprites for samster/pflueger/mom/duckdieb via mucko-npcs.js.
+MUCKO_NPCS.digory={
+  draw:function(x,y,dir){drawDigory(x,y,dir);},
+  label:'Digory'
+};
+MUCKO_NPCS.don={
+  draw:function(x,y,dir,t,extras){drawDon(x,y,dir==='left'?'left':'right',t||0,extras&&extras.burnT||0);},
+  label:'The Don'
+};
+MUCKO_NPCS.firelightGuy={
+  draw:function(x,y,dir,t){drawFirelightGuy(x,y,dir==='left'?'left':'right',t||0);},
+  label:'Firelight Guy'
+};
+MUCKO_NPCS.guard={
+  // Guards are drawn via drawGuard(g) elsewhere; this entry exists for the
+  // editor preview when a guard is placed without a patrol.
+  draw:function(x,y,dir){drawGuard({x:x,y:y,dir:dir});},
+  label:'Guard'
+};
+
 function drawHomeHUD(){
   var h=hm;
   ctx.fillStyle='#181428';ctx.fillRect(0,0,W,H_ROOM_Y);
@@ -3190,9 +3428,33 @@ function loop(ts){
 
   requestAnimationFrame(loop);
 }
+// ── Editor-level boot ────────────────────────────────────────────────────
+// If launched with ?level=<name>, look up the level in localStorage and jump
+// straight into the heist with it. Failure falls through to the title.
+(function(){
+  try{
+    var params=new URLSearchParams(window.location.search);
+    var name=params.get('level');
+    if(!name)return;
+    var raw=localStorage.getItem('mucko_level_'+name);
+    if(!raw)return;
+    var parsed=parseLevel(raw);
+    if(parsed.error){
+      console.warn('[level] parse failed:',parsed.error);
+      return;
+    }
+    editorLevel=parsed;
+    diff=DIFFS[1]; // medium — editor levels skip the difficulty screen
+    cigarsFound=3; // give a cigar so the heist isn't penalised on test runs
+    score=0;
+    startPhase('heist');
+  }catch(e){console.warn('[level] boot error:',e);}
+})();
+
 requestAnimationFrame(loop);
 </script>
 <script src="../mucko-grid.js"></script>
+<script src="mucko-npcs.js"></script>
 <script src="../mucko-gamepad.js"></script>
 </body>
 </html>
