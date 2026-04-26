@@ -353,6 +353,12 @@ function hideModal() {
 
 // ── Game state ─────────────────────────────────────────────────────────────
 let gs = {};
+function easyInfiniteMiniLives() { return gs.difficulty === 'easy'; }
+function miniLivesValue(baseLives) { return easyInfiniteMiniLives() ? Infinity : baseLives; }
+function miniLivesLabel(lives) { return Number.isFinite(lives) ? ''+lives : '\u221E'; }
+function miniLivesBonusValue() {
+  return gs.miniLivesLeft.reduce((sum, lives) => sum + (Number.isFinite(lives) ? lives : 4), 0);
+}
 function newGame() {
   gs = {
     name: 'Engineer',
@@ -661,7 +667,7 @@ function buildSetup(app) {
               <div class="diff-mid">
                 <div class="diff-stars" aria-hidden="true">⭐</div>
                 <span class="diff-name">Easy</span>
-                <div class="diff-detail">Start with full resources. Slower obstacles. 4 lives per minigame.</div>
+                <div class="diff-detail">Start with full resources. Slower obstacles. Infinite lives per minigame.</div>
               </div>
             </div>
           </label>
@@ -713,7 +719,7 @@ function buildSetup(app) {
     const diff = document.querySelector('input[name=diff]:checked').value;
     gs.difficulty = diff;
     const startRes = diff === 'easy' ? 100 : diff === 'normal' ? 80 : 60;
-    const startLives = diff === 'easy' ? 4 : diff === 'normal' ? 3 : 2;
+    const startLives = miniLivesValue(diff === 'normal' ? 3 : diff === 'hard' ? 2 : 4);
     gs.coal = gs.water = gs.food = startRes;
     gs.hp = 100; gs.morale = startRes;
     gs.miniLivesLeft = [startLives, startLives, startLives];
@@ -1043,6 +1049,10 @@ function buildTrackMini(app, miniIdx, cfg) {
   function updateLivesUI() {
     const el = document.getElementById('mini-lives');
     if (!el) return;
+    if (!Number.isFinite(cfg.lives)) {
+      el.innerHTML = `<span class="mini-life">∞</span>`;
+      return;
+    }
     let s = '';
     for(let i=0;i<cfg.lives;i++) s += `<span class="mini-life">${i < lives ? '❤️' : '🖤'}</span>`;
     el.innerHTML = s;
@@ -1099,7 +1109,7 @@ function buildTrackMini(app, miniIdx, cfg) {
           if (h.depth > 0.82 && h.depth < 1.0) {
             const pLane = Math.round(playerLaneAnim);
             if (h.lane === pLane) {
-              lives--;
+              if (Number.isFinite(lives)) lives--;
               invincible = 2.0;
               h.depth = 1.5; // remove
               updateLivesUI();
@@ -1291,7 +1301,7 @@ function buildTrackMini(app, miniIdx, cfg) {
       gs.hp = cap(gs.hp); gs.morale = cap(gs.morale);
       gs.log.push(`Track hazard: took damage in ${cfg.label}. Engine HP ${gs.hp}, Morale ${gs.morale}.`);
     } else {
-      gs.log.push(`Navigated ${cfg.label} successfully with ${lives} ${lives===1?'life':'lives'} remaining!`);
+      gs.log.push(`Navigated ${cfg.label} successfully with ${miniLivesLabel(lives)} ${lives===1?'life':'lives'} remaining!`);
     }
     gs.stepIdx++;
     goTo(buildTrail);
@@ -1707,7 +1717,7 @@ function buildEnding(app) {
   if (gs.morale > 0) { const m = Math.round(gs.morale*0.5); score += m; breakdown.push([`Crew morale (${Math.round(gs.morale/2)})`, m, 'pos']); }
   // Mini games
   const minisPassed = gs.miniPassed.filter(Boolean).length;
-  const miniBonus = minisPassed * 60 + gs.miniLivesLeft.reduce((a,b)=>a+b,0)*20;
+  const miniBonus = minisPassed * 60 + miniLivesBonusValue()*20;
   if (miniBonus) { score += miniBonus; breakdown.push([`Track minigames (${minisPassed}/3 cleared)`, miniBonus, 'pos']); }
   // Steam repair
   if (gs.steamTotal > 0) {

@@ -249,6 +249,11 @@ let scoreSaved = false;
 
 let heist = null;     // heist phase state
 
+function hasInfiniteLives() { return diff.id === 'easy'; }
+function resetLives() { lives = hasInfiniteLives() ? Infinity : 3; }
+function livesLabel(count) { return Number.isFinite(count) ? ''+count : '\u221E'; }
+function livesBonusCount() { return hasInfiniteLives() ? 3 : lives; }
+
 /* ── High scores ────────────────────────────────────────────────── */
 const HS_KEY = 'mucko_ftrail_hs';
 function getHS() { try { return JSON.parse(localStorage.getItem(HS_KEY)||'[]'); } catch(e) { return []; } }
@@ -259,7 +264,7 @@ function saveHS(entry) {
 }
 
 function resetRun() {
-  lives=3; fuel=diff.fuelStart; hideoutIdx=0; runScore=0; scoreSaved=false; heist=null;
+  resetLives(); fuel=diff.fuelStart; hideoutIdx=0; runScore=0; scoreSaved=false; heist=null;
 }
 
 /* ── Fire particle system ───────────────────────────────────────── */
@@ -673,7 +678,7 @@ function updateHeist(dt) {
     if (heist.caught) {
       heist.caughtTimer += dt;
       if (heist.caughtTimer > 2.2) {
-        lives--;
+        if (Number.isFinite(lives)) lives--;
         if (lives <= 0) {
           startPhase('gameover');
         } else {
@@ -1181,7 +1186,7 @@ function drawHeist() {
     ctx.save(); ctx.globalAlpha=Math.min(1, heist.caughtTimer);
     rnd(W/2-160,H/2-40,320,80,14,'rgba(0,0,0,0.9)','#cc2200',3);
     txt('CAUGHT!', W/2, H/2-8, '#ff4444', 26, 'center', 'bold Georgia');
-    txt('Lives: '+Math.max(0,lives-1), W/2, H/2+22, '#ffaaaa', 14, 'center', 'monospace');
+    txt('Lives: '+(hasInfiniteLives()?'\u221E':Math.max(0,lives-1)), W/2, H/2+22, '#ffaaaa', 14, 'center', 'monospace');
     ctx.restore();
   }
 
@@ -1208,11 +1213,15 @@ function drawHeistHUD() {
   rnd(14, 12, Math.round(fuelW*fc), 16, 4, fcol, null, 0);
   txt('\uD83D\uDD25 FUEL', 14, 10, '#ff9944', 10, 'left', 'bold monospace');
   // lives
-  for (var li=0; li<3; li++) {
-    const a = li<lives?1:0.2;
-    ctx.save(); ctx.globalAlpha=a;
-    txt('\u2764', 210+li*22, 28, '#ff4444', 16, 'left');
-    ctx.restore();
+  if (hasInfiniteLives()) {
+    txt('\u2764 \u221E', 210, 28, '#ff4444', 16, 'left', 'bold monospace');
+  } else {
+    for (var li=0; li<3; li++) {
+      const a = li<lives?1:0.2;
+      ctx.save(); ctx.globalAlpha=a;
+      txt('\u2764', 210+li*22, 28, '#ff4444', 16, 'left');
+      ctx.restore();
+    }
   }
   // hideout name
   txt(HIDEOUTS[hideoutIdx%HIDEOUTS.length].name, W/2, 30, '#cc8844', 13, 'center', 'bold monospace');
@@ -1567,10 +1576,14 @@ function drawMap() {
   var fc=fuel/100;
   rnd(14,14,Math.round(150*fc),14,4,fc>0.5?'#ff8800':fc>0.25?'#ff5500':'#ff2200',null,0);
   // lives
-  for (var li=0; li<3; li++) {
-    ctx.save(); ctx.globalAlpha=li<lives?1:0.2;
-    txt('\u2764', 176+li*22, 27, '#ff4444', 16, 'left');
-    ctx.restore();
+  if (hasInfiniteLives()) {
+    txt('\u2764 \u221E', 176, 27, '#ff4444', 16, 'left', 'bold monospace');
+  } else {
+    for (var li=0; li<3; li++) {
+      ctx.save(); ctx.globalAlpha=li<lives?1:0.2;
+      txt('\u2764', 176+li*22, 27, '#ff4444', 16, 'left');
+      ctx.restore();
+    }
   }
   // hideout count
   txt('HIDEOUTS BURNED: '+hideoutIdx+'/4', W-14, 27, '#cc8844', 12, 'right', 'bold monospace');
@@ -1677,7 +1690,7 @@ function drawGameOver() {
 var vic = null;
 function initVictory() {
   // score: each hideout awards ~140 base; fuel bonus; lives bonus
-  var lifeBonus = lives * 80;
+  var lifeBonus = livesBonusCount() * 80;
   var fuelBonus = Math.round(fuel * 0.8);
   runScore += lifeBonus + fuelBonus;
   var stars = runScore >= 600 ? 3 : runScore >= 380 ? 2 : 1;
@@ -1723,10 +1736,11 @@ function drawVictory() {
   // Score breakdown
   var sy=220;
   rnd(W/2-200,sy,400,120,12,'rgba(20,8,0,0.85)','rgba(180,80,0,0.5)',1.5);
-  var fuelBon=Math.round(fuel*0.8), lifeBon=lives*80;
+  var shownLives=livesLabel(livesBonusCount());
+  var fuelBon=Math.round(fuel*0.8), lifeBon=livesBonusCount()*80;
   txt('Hideouts burned: 4 \u00D7 ~140', W/2, sy+26, '#cc9966', 12, 'center', 'monospace');
   txt('Fuel bonus: +'+fuelBon, W/2, sy+48, '#cc9966', 12, 'center', 'monospace');
-  txt('Lives bonus: '+lives+' \u00D7 80 = +'+lifeBon, W/2, sy+70, '#cc9966', 12, 'center', 'monospace');
+  txt('Lives bonus: '+shownLives+' \u00D7 80 = +'+lifeBon, W/2, sy+70, '#cc9966', 12, 'center', 'monospace');
   txt('TOTAL: '+runScore, W/2, sy+100, '#ffcc44', 18, 'center', 'bold monospace');
 
   if (vic.rank > 0) {
@@ -1900,7 +1914,7 @@ function drawDiff() {
     }
 
     // description
-    const descs=['Perfect for a first arson.','A proper heist challenge.','Diebs are always watching.'];
+    const descs=['Perfect for a first arson. Infinite lives.','A proper heist challenge.','Diebs are always watching.'];
     txt(descs[di], cx+cw/2, cy+190, sel?'#cc9966':'#664433', 11, 'center', 'italic Georgia');
 
     if (sel) {
