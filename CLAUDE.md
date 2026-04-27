@@ -96,10 +96,7 @@ Rotterdam**, smuggling banned books, jazz records, and stolen art through Weimar
 Manages heat (police suspicion), coal, bribe money, and cargo condition. At each port
 a **top-down canvas minigame** plays out customs inspection — decide what to declare,
 what to hide, who to bribe. Random river events: fog, engine trouble, rival smugglers.
-Uses `mucko-engine.js`. 
-
-This game was proposed in `JOHN_CARMERO_REVIEW.md` as the "cover game" merging the
-Trail resource structure with Duck Dieb stealth mechanics.
+Uses `mucko-engine.js`.
 
 **Resources:** coal, bribe fund, heat (suspicion), cargo condition  
 **Special mechanic:** port customs top-down canvas minigame
@@ -188,9 +185,6 @@ star rating). Web Audio rocket sounds.
 YES triggers the Apollo 13 sequence — O2 explosion → comms failure dialog → slingshot
 around the moon → re-entry (skipping mining and landing). Ends as a rescue victory.
 
-Has `PLAYTESTING.md` with notes from a 6-year-old playtester —
-**read it before touching difficulty or controls**.
-
 ---
 
 #### Mucko Tac Toe (`tictactoe/index.html`) — ~1,900 lines  · Canvas + DOM overlay
@@ -252,8 +246,8 @@ Left/right chevrons are drawn via `drawChevron()` — never use Unicode arrow gl
 is tinted with the character's `accent`/`color` palette. Add a short `label` (≤ 6
 chars, drawn inside the button) and `caption` (≤ 12 chars, drawn on the plaque above
 the button) to the special definition — `mobileLayout()` picks them up automatically.
-Characters without a special (Samster, Nik, Lekan, Basil, Mandy, Captain Mucko, Pras,
-Natasha) render no special button at all.
+Characters without a special (Samster, Nik, Lekan, Basil, Captain Mucko, Pras)
+render no special button at all.
 
 ---
 
@@ -266,8 +260,9 @@ to NPC characters. Each NPC gives a clue card; once you have both clues for a qu
 solve an addition problem to unlock a picnic chest item. Four areas with 1–2 NPCs each:
 Samster & Duck Dieb → Hippo & Nik → Lekan & Basil → Captain Mucko & Saturn V.
 
-This is the **only game currently using `mucko-engine.js`**. Its logic is split into a
-separate `game.js` — also unusual in this codebase.
+This is one of several current `mucko-engine.js` adopters (along with Contraband Trail,
+Duck Dieb 2, and Smash). Its logic is split into a separate `game.js` — still unusual
+in this codebase.
 
 ---
 
@@ -402,9 +397,9 @@ it first, the iOS app will be out of date.
 
 ## `mucko-engine.js` — Shared Library
 
-A shared engine library (~240 lines). Currently only used by Lake House Math and
-Contraband Trail, but intended as the foundation for future games. Philosophy: it's a
-*library*, not a framework — you call it, it doesn't call you.
+A shared engine library (~240 lines). Current adopters include Lake House Math,
+Contraband Trail, Duck Dieb 2, and Smash. Philosophy: it's a *library*, not a
+framework — you call it, it doesn't call you.
 
 **Exports:**
 - `MuckoEngine.initCanvas(canvasEl, W, H)` — sets up DPR scaling, stage positioning,
@@ -737,12 +732,6 @@ The PIN gate on `index.html` restricts access to the whole collection.
 
 ## Other Files
 
-- `JOHN_CARMERO_REVIEW.md` — A fictional 1992 game magazine review in the voice of
-  Carmack and Romero. Doubles as a creative direction document: it names the design
-  weaknesses, proposes improvements, and several suggestions have shipped (tournament
-  mode, `mucko-engine.js`, `sync-ios.sh`, Contraband Trail, trained-NN Expert CPU in
-  Smash). Read for design philosophy.
-
 - `PUNCHLIST.md` — Active, grouped-by-priority queue of bugs and improvements. Items
   are self-contained enough to hand to an agent.
 
@@ -753,9 +742,6 @@ The PIN gate on `index.html` restricts access to the whole collection.
   shipping a new Expert-tier neural-net model via `smash/train-rl.js` (REINFORCE +
   curriculum) or `smash/train-nn.js` (Evolution Strategies). Read this before
   touching the AI pipeline.
-
-- `rockettrail/PLAYTESTING.md` — Notes from a 6-year-old playtester. **Read before
-  touching Rocket Trail's difficulty or controls.**
 
 - `local/` — Contains the source PDF for the Hippo book. Not used by any game.
 

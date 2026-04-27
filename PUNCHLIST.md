@@ -17,24 +17,7 @@ Audited clean as of 2026-04-24.
 
 ---
 
-## Priority 2 — Functional Bugs (things that break gameplay)
-
-*(All known P2 items fixed as of 2026-04-24.)*
-
----
-
 ## Priority 3 — Gameplay Improvements
-
-### `orbit/index.html` — Phase 6 Muckoification follow-ups
-
-Phase 3 (all 4 scripted programs) is fully shipped: Hohmann Transfer, Moon
-Insertion (TLI + LOI), Free Return, and Gravity Assist. Duck Dieb's Escape Pod
-skin, per-program story narration, and 5 narration events also done.
-
-All Phase 6 items are complete as of 2026-04-24. Skins: Capsule, Saturn V,
-Duck Dieb, Samster. Achievements: 12 total. Narration events: 8 total.
-
----
 
 ### `smash/index.html` + `smash/sim.js` — next-pass Smash work
 
@@ -50,15 +33,26 @@ are system-balancing and second-pass polish rather than missing scaffolding.
     recovery loops across the full roster.
   - Digory's mass-up bounce stance should be checked for degenerate ledge situations.
 - Add more character specials:
-  - Natasha and Mandy currently have no special moves.
   - Lekan, Basil, Samster, and Pras are still good candidates for utility or movement
     specials that reinforce character identity.
+  - `smash/sim.js` still lags the live roster for Mandy and Natasha specials; bring
+    simulator parity back before the next training pass.
 - Improve training/eval after specials:
   - rerun AI evaluation after major special or physics changes so shipped tiers do not
     drift from the actual game.
   - consider adding cross-character eval suites, not only mirror and baseline checks.
 
 ---
+
+### `rockettrail/index.html` — remaining playtest follow-up
+
+Most of the kid-playtest action items are shipped now (simpler travel text, crash
+feedback, bigger thrust affordance, re-entry rocket variety, interactive flag plant,
+victory confetti). The clearest still-open follow-up is:
+
+- Add the mining time bonus:
+  - if the player reaches 15+ minerals in the asteroid phase, show `+5 SEC BONUS`
+    and extend the timer to reward accurate tapping.
 
 ## Priority 4 — Polish & Nice-to-Have
 
@@ -77,8 +71,9 @@ The music note `♪` glyphs should remain on top (drawn last).
 
 ### Apply `mucko-engine.js` to more games
 
-Currently only Lake House Math and Contraband Trail use it. The next candidate is any
-new game, or any existing game receiving a substantial rewrite. Priority order:
+Current adopters: Lake House Math, Contraband Trail, Duck Dieb 2, and Smash.
+The next candidate is any new game, or any existing game receiving a substantial
+rewrite. Priority order:
 
 1. **Duck Dieb** — simplest canvas game, good pilot
 2. **Rocket Trail** — would benefit from the shared `makeAudio()` and `makeStore()`

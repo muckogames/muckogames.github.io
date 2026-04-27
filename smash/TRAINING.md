@@ -68,7 +68,9 @@ The replay file stores:
   - per-slot lives, restart-from-same-config, and per-slot random character selection
   - side-view sprites plus separate portrait usage in menus/results
   - active roster of 12 characters including Mandy Mouse and Natasha
-  - special abilities for Duck Dieb, Saturn V, J. Long, Hippo, and Digory
+  - live-game specials for Duck Dieb, Saturn V, J. Long, Hippo, Digory, Mandy, and Natasha
+  - a simulator parity requirement: when the live roster or specials change, update
+    `smash/sim.js` in the same pass before training or shipping AI
 
 ## Retrospective Notes
 
