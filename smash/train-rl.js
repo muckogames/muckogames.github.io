@@ -220,10 +220,46 @@ function getOpponents(phase) {
   return [e, m, h];
 }
 
+function chooseCharPair(seed) {
+  var ids = Sim.CHAR_IDS;
+  var n = ids.length;
+  var a = Math.floor(lcgRand((seed ^ 0x9e3779b9) >>> 0) * n);
+  var b = Math.floor(lcgRand((seed ^ 0x85ebca6b) >>> 0) * n);
+  if (n > 1 && a === b && lcgRand((seed ^ 0xc2b2ae35) >>> 0) < 0.85) {
+    b = (b + 1 + Math.floor(lcgRand((seed ^ 0x27d4eb2f) >>> 0) * (n - 1))) % n;
+  }
+  return { nnCharId: ids[a], oppCharId: ids[b] };
+}
+
+function findNearestOpponent(match, entity) {
+  var best = null;
+  var bestDist = Infinity;
+  for (var i = 0; i < match.entities.length; i++) {
+    var other = match.entities[i];
+    if (other.id === entity.id || other.ko) continue;
+    var dx = other.x - entity.x;
+    var dy = other.y - entity.y;
+    var dist = Math.abs(dx) + Math.abs(dy) * 0.6;
+    if (dist < bestDist) {
+      best = other;
+      bestDist = dist;
+    }
+  }
+  return best;
+}
+
+function computeUrgencyPenalty(stepCount) {
+  var secs = stepCount / 60;
+  if (secs < 8) return 0;
+  if (secs < 16) return -0.0015;
+  return -0.006;
+}
+
 // Per-step reward computed AFTER stepMatch runs (events reflect this frame).
 // prevStats = { damageDealt, damageTaken } captured before the step.
-function computeStepReward(events, nnId, nnEntity, prevStats, phase) {
+function computeStepReward(match, events, nnId, nnEntity, prevStats, phase, pressureState) {
   var r = 0.005; // survival: ~+9 over 30-second match at 60 fps
+  r += computeUrgencyPenalty(match.stepCount);
 
   // Smooth edge-proximity penalty. Provides a continuous gradient signal
   // to stay away from the blast zone without the destabilizing spike of a
@@ -232,11 +268,34 @@ function computeStepReward(events, nnId, nnEntity, prevStats, phase) {
   if (edgeDist < 100) r -= (100 - edgeDist) * 0.0015;
 
   var ddDealt = nnEntity.stats.damageDealt - prevStats.damageDealt;
+  var ddTaken = nnEntity.stats.damageTaken - prevStats.damageTaken;
   r += ddDealt * 0.4;
 
   if (phase >= 2) {
-    var ddTaken = nnEntity.stats.damageTaken - prevStats.damageTaken;
     r -= ddTaken * 0.2;
+  }
+
+  var target = findNearestOpponent(match, nnEntity);
+  if (target) {
+    var dx = Math.abs(target.x - nnEntity.x);
+    var dy = Math.abs(target.y - nnEntity.y);
+    var noExchange = ddDealt < 0.001 && ddTaken < 0.001;
+    var disengaged = dx > 185 && dy > 75;
+    if (noExchange && disengaged) pressureState.disengagedFrames++;
+    else pressureState.disengagedFrames = 0;
+
+    if (noExchange && nnEntity.specialActive && dx > 170) pressureState.campingFrames++;
+    else pressureState.campingFrames = 0;
+
+    if (pressureState.disengagedFrames > 150) {
+      r -= Math.min(0.002, (pressureState.disengagedFrames - 150) * 0.000015);
+    }
+    if (pressureState.campingFrames > 60) {
+      r -= Math.min(0.004, (pressureState.campingFrames - 60) * 0.00005);
+    }
+  } else {
+    pressureState.disengagedFrames = 0;
+    pressureState.campingFrames = 0;
   }
 
   for (var i = 0; i < events.length; i++) {
@@ -251,8 +310,9 @@ function computeStepReward(events, nnId, nnEntity, prevStats, phase) {
   return r;
 }
 
-function computeTerminalReward(winnerId, nnId, phase) {
-  if (phase < 3) return 0;
+function computeTerminalReward(winnerId, nnId, phase, timedOut) {
+  if (phase < 3) return timedOut ? -10 : 0;
+  if (timedOut) return winnerId === nnId ? 0 : (winnerId != null ? -35 : -15);
   return winnerId === nnId ? 100 : (winnerId != null ? -50 : 0);
 }
 
@@ -302,9 +362,10 @@ function buildInput(action, logits, nnState) {
 // observing reward r_t from the resulting transition.
 
 // oppSpec: { type: 'heuristic', genome: G } | { type: 'neural', model: M }
-function runEpisode(model, oppSpec, phase, seed, maxSeconds) {
+function runEpisode(model, oppSpec, phase, seed, maxSeconds, matchup) {
   var nnId = 0;
   var nnState = { prevJump: 0, prevDash: 0, prevSpecial: 0 };
+  var pressureState = { disengagedFrames: 0, campingFrames: 0 };
 
   // Written by getInput, read after stepMatch returns.
   var pendingObs = null, pendingAction = null, pendingActs = null;
@@ -345,8 +406,8 @@ function runEpisode(model, oppSpec, phase, seed, maxSeconds) {
   var match = Sim.createMatch({
     seed: seed,
     roster: [
-      { charId: 'samster', controller: nnController },
-      { charId: 'samster', controller: oppController }
+      { charId: matchup.nnCharId, controller: nnController },
+      { charId: matchup.oppCharId, controller: oppController }
     ]
   });
 
@@ -361,16 +422,17 @@ function runEpisode(model, oppSpec, phase, seed, maxSeconds) {
 
     // getInput fired during stepMatch; events are now populated for this frame.
     if (pendingObs !== null) {
-      var r = computeStepReward(match.events, nnId, nnEntity, prevStats, phase);
+      var r = computeStepReward(match, match.events, nnId, nnEntity, prevStats, phase, pressureState);
       prevStats.damageDealt = nnEntity.stats.damageDealt;
       prevStats.damageTaken = nnEntity.stats.damageTaken;
       trajectory.push({ obs: pendingObs, action: pendingAction, acts: pendingActs, reward: r });
     }
   }
 
+  var timedOut = match.status === 'play';
   // Determine winner (timeout if match still 'play')
   var winnerId = match.winnerId;
-  if (match.status === 'play') {
+  if (timedOut) {
     var best = null, bestSc = -Infinity;
     for (var i = 0; i < match.entities.length; i++) {
       var e = match.entities[i];
@@ -382,7 +444,7 @@ function runEpisode(model, oppSpec, phase, seed, maxSeconds) {
   }
 
   if (trajectory.length > 0) {
-    trajectory[trajectory.length - 1].reward += computeTerminalReward(winnerId, nnId, phase);
+    trajectory[trajectory.length - 1].reward += computeTerminalReward(winnerId, nnId, phase, timedOut);
   }
 
   return {
@@ -493,6 +555,9 @@ async function train(args) {
   var numWorkers        = Math.min(intArg(args, 'workers', os.cpus().length - 1), episodesPerUpdate, 20);
   var fresh             = !!args.fresh;
   var warmstartPath     = args.warmstart || null;
+  var selfPlayFrac      = numArg(args, 'self-play-frac', 0.33);
+  var selfPlaySnapEvery = intArg(args, 'self-play-snap-every', 200);
+  var selfPlayMaxPool   = intArg(args, 'self-play-max-pool', 5);
 
   ensureDir(CKPT_DIR);
   var latestPath = path.join(CKPT_DIR, 'latest-rl.json');
@@ -531,20 +596,21 @@ async function train(args) {
   if (pool.length > 0) console.log('workers:', pool.length);
 
   var selfPlayPool = [];     // rolling window of past model snapshots
-  var SP_SNAP_EVERY = 200;   // add snapshot every N phase-3 epochs
-  var SP_MAX_POOL   = 5;     // keep at most this many snapshots
-  var SP_FRAC       = 0.33;  // fraction of phase-3 episodes that use self-play
+  var SP_SNAP_EVERY = selfPlaySnapEvery; // add snapshot every N phase-3 epochs
+  var SP_MAX_POOL   = selfPlayMaxPool;   // keep at most this many snapshots
+  var SP_FRAC       = Math.max(0, Math.min(1, selfPlayFrac)); // fraction of phase-3 episodes that use self-play
 
   for (var epoch = startEpoch; epoch < totalEpochs; epoch++) {
     var t0    = Date.now();
     var phase = Math.max(getCurriculumPhase(epoch, totalEpochs), minPhase);
+    var phaseLr = phase === 3 ? lr * 0.35 : (phase === 2 ? lr * 0.65 : lr);
     var opps  = getOpponents(phase);
 
     // Maintain self-play snapshot pool in phase 3.
-    if (phase === 3 && epoch % SP_SNAP_EVERY === 0 && epoch > startEpoch) {
-      selfPlayPool.push(JSON.parse(JSON.stringify(model)));
-      if (selfPlayPool.length > SP_MAX_POOL) selfPlayPool.shift();
-      console.log('self-play pool size:', selfPlayPool.length, '(epoch ' + epoch + ')');
+      if (SP_FRAC > 0 && phase === 3 && epoch % SP_SNAP_EVERY === 0 && epoch > startEpoch) {
+        selfPlayPool.push(JSON.parse(JSON.stringify(model)));
+        if (selfPlayPool.length > SP_MAX_POOL) selfPlayPool.shift();
+        console.log('self-play pool size:', selfPlayPool.length, '(epoch ' + epoch + ')');
     }
 
     // Build one task per episode.
@@ -552,6 +618,7 @@ async function train(args) {
     for (var ep = 0; ep < episodesPerUpdate; ep++) {
       var opp  = opps[ep % opps.length];
       var seed = (epoch * episodesPerUpdate + ep + 1) >>> 0;
+      var matchup = chooseCharPair(seed);
       // In phase 3, occasionally substitute a self-play opponent.
       var oppSpec;
       if (phase === 3 && selfPlayPool.length > 0 && lcgRand(seed) < SP_FRAC) {
@@ -561,7 +628,7 @@ async function train(args) {
         oppSpec = { type: 'heuristic', genome: opp.genome };
       }
       tasks.push({ model: model, oppSpec: oppSpec, phase: phase,
-                   seed: seed, matchSeconds: matchSeconds, gamma: gamma });
+                   seed: seed, matchSeconds: matchSeconds, gamma: gamma, matchup: matchup });
     }
 
     // Run episodes in parallel (workers) or fall back to serial.
@@ -572,7 +639,7 @@ async function train(args) {
       epResults = [];
       for (var ep2 = 0; ep2 < tasks.length; ep2++) {
         var tk   = tasks[ep2];
-        var eres = runEpisode(tk.model, tk.oppSpec, tk.phase, tk.seed, tk.matchSeconds);
+        var eres = runEpisode(tk.model, tk.oppSpec, tk.phase, tk.seed, tk.matchSeconds, tk.matchup);
         var erts = computeReturns(eres.trajectory, tk.gamma);
         var eg   = makeZeroGrads(model);
         accumulateGrads(model, eres.trajectory, erts, eg);
@@ -604,7 +671,7 @@ async function train(args) {
 
     scaleGrads(totalG, 1.0 / Math.max(1, totSteps));
     clipGradNorm(totalG, 0.5);
-    applyAdam(model, totalG, adamState, lr);
+    applyAdam(model, totalG, adamState, phaseLr);
 
     var meanReturn = totRet / episodesPerUpdate;
     var wallMs     = Date.now() - t0;
@@ -659,6 +726,7 @@ function evalModel(modelPath, args) {
   for (var oi = 0; oi < opps.length; oi++) {
     for (var g = 0; g < gpp; g++) {
       var seed    = (oi * 10000 + g + 1) >>> 0;
+      var matchup = chooseCharPair(seed);
       var nnId    = 0;
       var nnState = { prevJump: 0, prevDash: 0, prevSpecial: 0 };
       var localOpp = opps[oi]; // capture for closure
@@ -681,8 +749,8 @@ function evalModel(modelPath, args) {
         seed:     seed,
         maxSteps: 60 * 30,
         roster: [
-          { charId: 'samster', controller: nnCtrl },
-          { charId: 'samster', controller: { type: 'heuristic', genome: localOpp.genome } }
+          { charId: matchup.nnCharId, controller: nnCtrl },
+          { charId: matchup.oppCharId, controller: { type: 'heuristic', genome: localOpp.genome } }
         ]
       });
 
@@ -718,7 +786,7 @@ function evalModel(modelPath, args) {
 
 if (workerThreads && !isMainThread) {
   workerThreads.parentPort.on('message', function (task) {
-    var res     = runEpisode(task.model, task.oppSpec, task.phase, task.seed, task.matchSeconds);
+    var res     = runEpisode(task.model, task.oppSpec, task.phase, task.seed, task.matchSeconds, task.matchup);
     var returns = computeReturns(res.trajectory, task.gamma);
     var grads   = makeZeroGrads(task.model);
     accumulateGrads(task.model, res.trajectory, returns, grads);

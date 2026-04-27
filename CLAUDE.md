@@ -6,7 +6,7 @@ Mucko's Games is a personal family game collection — twelve browser games buil
 iterated over time, all playable from a single PIN-gated homepage (`index.html`). The
 games are made to be played on an old iPad by kids and adults alike, mostly in the
 evenings or on road trips. The "Mucko" brand is a family nickname; several games star
-family members (Pflueger) or recurring invented characters (Samster, Lekan, Duck Dieb).
+household stand-ins or recurring invented characters (Samster, Lekan, Duck Dieb).
 
 Every game is a self-contained static HTML/JS/CSS file — no build step, no server, no
 dependencies. You open the file in a browser and the game runs. This is an intentional
@@ -17,6 +17,12 @@ game in one file.
 on one or more of these games. Read the technical sections carefully — the iOS 12 Safari
 target has sharp edges. The game descriptions and character guide are also here to give
 you enough context to make creative decisions that fit the existing universe.
+
+**Privacy / source-material rule.** Some local machines also have a private `dsref/`
+story dossier with richer family-story canon. If that folder exists, treat it as the
+best source for tone, visual rules, and Digory-story alignment. Do **not** copy real
+personal names from private source material into tracked repo files. In tracked docs and
+content, prefer Mucko-universe names, generic roles, or established character aliases.
 
 ---
 
@@ -114,11 +120,11 @@ background layer `bgc` and a foreground layer `gc`) and a **backdrop caching sys
 
 #### Samster Diebs from the Diebs (`samster/index.html`) — ~1,770 lines  ★ Reference
 
-**Samster** the hamster escapes his cage, sneaks past Pflueger, and infiltrates the
+**Samster** the hamster escapes his cage, sneaks past a sleeping owner, and infiltrates the
 Diebs' hideout to steal back what was stolen. Phases:
 
 1. **Cage** — simple introductory screen
-2. **Stealth** — top-down grid map, dodge Pflueger's patrol; raccoon allies can cut power
+2. **Stealth** — top-down grid map, dodge the owner's patrol; raccoon allies can cut power
    to disable laser tripwires
 3. **Hideout** — explore the Diebs' lair, search crates
 4. **Cart ride** — time your braking before a wall (QTE)
@@ -132,14 +138,14 @@ caching, the `mclk`/`mx`/`my` input pattern, and touch controls. See it first.
 
 ---
 
-#### Pflueger and the Hippo (`hippo/index.html`) — ~3,360 lines (largest game)  · Canvas
+#### Hippo Adventure (`hippo/index.html`) — ~3,360 lines (largest game)  · Canvas
 
-A JRPG-style adventure based on a book. A hippo walks into Pflueger's life; Pflueger
+A JRPG-style adventure based on a book. A hippo walks into a human helper's life; the helper
 helps him escape back to the zoo where Lekan the panda has a plan. Phases:
 
 1. **Story panels** — illustrated dialog scenes with narrator text
-2. **Stealth** — Pflueger (player) sneaks through zoo zones past keepers; use Nik the
-   seal once per zone to freeze all keepers temporarily
+2. **Stealth** — the human helper (player) sneaks through zoo zones past keepers; use Nik the
+   monkey once per zone to freeze all keepers temporarily
 3. **PB&J minigame** — QTE sequence for making a sandwich while keeping Hippo quiet
 4. **Closet minigame** — hide evidence; timed object-sorting puzzle
 5. **Epilogue/credits**
@@ -331,12 +337,13 @@ in Car Trail ("Duck Dieb Attacks!"). NPC in Lake House Math. "Dieb" is German fo
 **The Diebs** — Raccoon thieves, Samster's antagonists. A separate use of the "Dieb"
 motif from Duck Dieb.
 
-**Pflueger** — A family member's name used as an in-game character. Appears as:
-- The human helper in *Pflueger and the Hippo* (protagonist's guardian)
+**The Sleeping Owner / Human Helper** — Legacy human stand-in used across a few games.
+Appears as:
+- The human helper in `hippo/index.html`
 - The owner Samster sneaks past in *Samster*
-- Referenced in Train Trail
+- A referenced authority figure in Train Trail
 
-**Hippo** — The unnamed hippo from *Pflueger and the Hippo*. A zoo escapee who just
+**Hippo** — The unnamed hippo from `hippo/index.html`. A zoo escapee who just
 wants a PB&J and a good night's sleep. Purple-grey coloring. NPC in Lake House Math.
 
 **Lekan** — A panda; the mastermind who orchestrated the zoo escape. Patient, strategic,
@@ -355,7 +362,7 @@ zookeeper in earlier games; canon is now otter.)
 one side and a smaller black spot (the kids call it his "on/off button"); a black
 rump patch extends up the tail which ends in a white tip; his face is black with
 triangle upright ears and a bit of brown around the muzzle. Usually wears a gray
-collar with a silver tag. Appears in *Pflueger and the Hippo*.
+collar with a silver tag. Appears in `hippo/index.html`.
 
 **Pras the Koala** — Referenced in Hippo's dialog as always being asleep. Immortalized
 by cheat code `PRASTHEKOALA` which slows keepers "having an epic dream."
@@ -375,7 +382,7 @@ hints.
 
 **Natasha** — A parrot NPC in Hippo's plaza. Now also part of the active Smash roster.
 
-**Lisa** — Friend of Pflueger who discovers the hippo is a zoo escapee (dialog reference).
+**Lisa** — Friend of the human helper who discovers the hippo is a zoo escapee (dialog reference).
 
 **Capt. Smith / Rose** — Captain and co-pilot of the R.M.A.S. Mucko in Airplane Trail.
 

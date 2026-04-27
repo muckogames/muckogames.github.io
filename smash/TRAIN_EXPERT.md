@@ -6,7 +6,8 @@ neural-network CPU from any machine.
 There are two trainers:
 
 - **`train-rl.js`** — REINFORCE with curriculum learning. **Recommended.**
-  Produced `expert-v1.json` (Easy 1.00 / Medium 0.70 / Hard 0.70 WR).
+  Trains across the live roster with curriculum self-play and timeout pressure.
+  Produced `expert-v1.json` before the roster-wide training pass.
 - **`train-nn.js`** — Evolution Strategies (ES). Simpler but plateaued at
   ~55% Hard WR with the 64×64 network. Good for quick experiments.
 
@@ -52,11 +53,13 @@ the final line `pass criteria: every match completed, no exceptions.`
 node smash/train-rl.js train \
   --fresh \
   --hidden 128,128 \
-  --epochs 4000 \
-  --episodes 16 \
+  --epochs 6000 \
+  --episodes 24 \
   --workers 16 \
   --lr 0.001 \
-  --seconds 30
+  --seconds 30 \
+  --warmstart smash/ai/expert-v1.json \
+  --self-play-frac 0
 ```
 
 **What to expect:**
@@ -77,14 +80,15 @@ epoch 2640  phase 3  return 41.5  wr 0.56  selfKos 0  (601ms)
 
 | Phase | Opponents | Rewards |
 |-------|-----------|---------|
-| 1 | Easy only | Survive + deal damage |
+| 1 | Easy only | Survive, deal damage, avoid stalling |
 | 2 | Easy + Medium | Add KO/death stakes |
-| 3 | Easy + Medium + Hard | Add win/loss terminal reward + self-play |
+| 3 | Easy + Medium + Hard | Add win/loss terminal reward; optional self-play once stable |
 
 Watch for:
 - **`selfKos`** dropping to 0 by epoch ~280 and staying there
 - **`wr`** climbing to 1.00 in phase 1, then dropping to ~0.5–0.7 when
   Medium/Hard opponents are introduced — that's normal and expected
+- Timeout-heavy play becoming less common as the urgency term starts to matter
 - Epoch timing stable at ~600ms — any wild variation means a problem
 
 ### Stop / resume
@@ -93,7 +97,7 @@ Watch for:
 
 ```bash
 # Resume from latest checkpoint
-node smash/train-rl.js train --epochs 4000 --workers 16
+node smash/train-rl.js train --epochs 6000 --workers 16
 ```
 
 No `--fresh` → resumes from `smash/ai/models/latest-rl.json`. The epoch
@@ -110,6 +114,10 @@ counter continues from where it stopped.
 | `--lr R` | 0.001 | Adam learning rate |
 | `--seconds N` | 30 | Match length cap |
 | `--gamma G` | 0.99 | Return discount |
+| `--warmstart FILE` | — | Load weights from a shipped/existing model but reset optimizer state |
+| `--self-play-frac F` | 0.33 | Fraction of phase-3 episodes that use self-play snapshots |
+| `--self-play-snap-every N` | 200 | Snapshot cadence for the self-play pool |
+| `--self-play-max-pool N` | 5 | Maximum number of stored self-play snapshots |
 | `--fresh` | — | Ignore latest-rl.json and start from scratch |
 | `--min-phase N` | 0 | Force curriculum to start at phase N (useful on resume) |
 
@@ -142,6 +150,8 @@ per-opponent:
   medium: 14W  6L  0D  winrate=0.700
   hard:   14W  6L  0D  winrate=0.700
 ```
+
+This eval now samples random live-roster matchups instead of `samster` mirrors.
 
 **Ship gate:**
 

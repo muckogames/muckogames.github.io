@@ -61,7 +61,8 @@
     nik:     { name: 'Nik',            color: '#6b4a2e', accent: '#c9a47a', outline: '#3a2612', sprite: 'monkey' },
     lekan:   { name: 'Lekan',          color: '#f4f4f4', accent: '#242424', outline: '#202020', sprite: 'panda' },
     basil:   { name: 'Basil',          color: '#6b4527', accent: '#d8b985', outline: '#3b2614', sprite: 'otter' },
-    mandy:   { name: 'Mandy Mouse',    color: '#d9a0a3', accent: '#b87e80', outline: '#5b3d40', sprite: 'mouse' },
+    mandy:   { name: 'Mandy Mouse',    color: '#d9a0a3', accent: '#b87e80', outline: '#5b3d40', sprite: 'mouse',
+               special: { type: 'scurry', cooldown: 1.8, speed: 640, active: 0.16, range: 22, damage: 7, launchX: 240, launchY: 185 } },
     // Kept defined so he can return to the roster later without rebuilding the art/spec.
     mucko:   { name: 'Captain Mucko',  color: '#d8a95a', accent: '#8f2f2f', outline: '#5f3914', sprite: 'captain' },
     rocket:  { name: 'Saturn V',       color: '#ededed', accent: '#d76039', outline: '#373737', sprite: 'rocket',
@@ -72,7 +73,8 @@
                special: { type: 'neckHammer', cooldown: 0.75, active: 0.16, range: 50, radius: 18, damage: 10, launchX: 310, launchY: 170 } },
     pras:    { name: 'Pras the Koala', color: '#9aa1a8', accent: '#3a3f48', outline: '#2c2f36', sprite: 'koala',
                moveMul: 0.06, jumpMul: 0.18, dashMul: 0.10 },
-    natasha: { name: 'Natasha',        color: '#45b95c', accent: '#ef6944', outline: '#245a2d', sprite: 'parrot' }
+    natasha: { name: 'Natasha',        color: '#45b95c', accent: '#ef6944', outline: '#245a2d', sprite: 'parrot',
+               special: { type: 'screech', cooldown: 1.2, active: 0.28, range: 68, radius: 32, damage: 9, launchX: 270, launchY: 145 } }
   };
   var CHAR_IDS = ['samster', 'duck', 'hippo', 'nik', 'lekan', 'basil', 'mandy', 'rocket', 'digory', 'jlong', 'pras', 'natasha'];
 
@@ -465,6 +467,24 @@
       emit(match, { type: 'special', entityId: entity.id, specialType: special.type });
       return true;
     }
+    if (special.type === 'screech') {
+      if (entity.specialCooldown > 0 || entity.specialT > 0) return false;
+      entity.specialCooldown = special.cooldown;
+      entity.specialT = special.active;
+      entity.specialVictims = Object.create(null);
+      emit(match, { type: 'special', entityId: entity.id, specialType: special.type });
+      return true;
+    }
+    if (special.type === 'scurry') {
+      if (entity.specialCooldown > 0 || entity.specialT > 0) return false;
+      entity.specialCooldown = special.cooldown;
+      entity.specialT = special.active;
+      entity.specialVictims = Object.create(null);
+      entity.vx = (entity.facing === 'left' ? -1 : 1) * special.speed;
+      entity.vy = Math.min(entity.vy, -55);
+      emit(match, { type: 'special', entityId: entity.id, specialType: special.type });
+      return true;
+    }
     return false;
   }
 
@@ -506,6 +526,16 @@
       if (entity.specialActive) {
         entity.specialAnimT += dt;
         entity.vx *= Math.max(0, 1 - dt * 12);
+      } else {
+        entity.specialAnimT = 0;
+      }
+      return;
+    }
+
+    if (special.type === 'scurry') {
+      if (entity.specialT > 0) {
+        entity.vx = (entity.facing === 'left' ? -1 : 1) * special.speed;
+        entity.specialAnimT += dt;
       } else {
         entity.specialAnimT = 0;
       }
@@ -591,6 +621,18 @@
       } else if (target && specialReady && special.type === 'bulldogBounce' && adx < 70 && Math.abs(dy) < 70) {
         input.specialHeld = true;
         ai.state = 'idle';
+        ai.timer = randRange(rng, g.dwellMin, g.dwellMax);
+        ai.input = input;
+        return input;
+      } else if (target && specialReady && special.type === 'screech' && adx < special.range - 8 && Math.abs(dy) < 70) {
+        input.specialPressed = true;
+        ai.state = 'idle';
+        ai.timer = randRange(rng, g.dwellMin, g.dwellMax);
+        ai.input = input;
+        return input;
+      } else if (target && specialReady && special.type === 'scurry' && adx < 100 && Math.abs(dy) < 50 && entity.onGround) {
+        input.specialPressed = true;
+        ai.state = desiredDir < 0 ? 'walk_left' : 'walk_right';
         ai.timer = randRange(rng, g.dwellMin, g.dwellMax);
         ai.input = input;
         return input;
@@ -958,6 +1000,32 @@
               Math.abs((defender.y - 8) - hy) <= special.radius + HEAD_OFFSET) {
             attacker.specialVictims[defender.id] = true;
             applySpecialHit(match, attacker, defender, special, dir);
+          }
+        }
+      }
+      if (special && special.type === 'screech' && attacker.specialT > 0) {
+        var dir2 = attacker.facing === 'left' ? -1 : 1;
+        for (var j2 = 0; j2 < match.entities.length; j2++) {
+          var defender2 = match.entities[j2];
+          if (defender2.ko || defender2.id === attacker.id || attacker.specialVictims[defender2.id]) continue;
+          var dx = defender2.x - attacker.x;
+          var inFront = dir2 > 0 ? dx > -10 : dx < 10;
+          if (inFront && Math.abs(dx) <= special.range &&
+              Math.abs((defender2.y - 8) - attacker.y) <= special.radius) {
+            attacker.specialVictims[defender2.id] = true;
+            applySpecialHit(match, attacker, defender2, special, dir2);
+          }
+        }
+      }
+      if (special && special.type === 'scurry' && attacker.specialT > 0) {
+        var dir3 = attacker.facing === 'left' ? -1 : 1;
+        for (var j3 = 0; j3 < match.entities.length; j3++) {
+          var defender3 = match.entities[j3];
+          if (defender3.ko || defender3.id === attacker.id || attacker.specialVictims[defender3.id]) continue;
+          if (Math.abs(defender3.x - attacker.x) <= special.range + defender3.w * 0.5 &&
+              Math.abs((defender3.y - 8) - attacker.y) <= special.range + HEAD_OFFSET) {
+            attacker.specialVictims[defender3.id] = true;
+            applySpecialHit(match, attacker, defender3, special, dir3);
           }
         }
       }

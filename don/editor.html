@@ -32,6 +32,12 @@
   .roomNav > * { margin-right: 6px; }
   .roomNav .name { font-size: 12px; color: #8a9ab8; }
   .badge { font-size: 10px; color: #8a9ab8; padding: 0 6px; }
+  .storyPreview { margin-top: 10px; padding: 10px; background: #0f0f1a; border: 1px solid #2a2a3a; }
+  .storyPreview h2 { margin: 0 0 4px 0; font: bold 17px Georgia, serif; color: #f6d57a; }
+  .storyPreview .sub { color: #8a9ab8; font: 12px Georgia, serif; margin-bottom: 8px; }
+  .storyPreview .room { color: #efe2c2; font: bold 12px Georgia, serif; margin: 10px 0 4px; }
+  .storyPreview .label { color: #8a9ab8; font-size: 10px; text-transform: uppercase; margin-top: 8px; }
+  .storyPreview .line { color: #d8dce6; font-size: 12px; line-height: 1.4; }
 </style>
 </head>
 <body>
@@ -122,6 +128,19 @@
       <button id="newLevel">New blank level</button>
       <button id="copyJson">Copy JSON</button>
     </div>
+    <div class="storyPreview" id="storyPreview">
+      <h2 id="storyMissionTitle">BEDTIME MISSION</h2>
+      <div class="sub" id="storyMissionSubtitle">A custom Digory caper</div>
+      <div class="room" id="storyRoomName">Room 1</div>
+      <div class="label">Room intro</div>
+      <div class="line" id="storyRoomIntro">No room intro yet.</div>
+      <div class="label">Backtrack line</div>
+      <div class="line" id="storyBacktrack">No backtrack line yet.</div>
+      <div class="label">Complete line</div>
+      <div class="line" id="storyComplete">No complete line yet.</div>
+      <div class="label">Victory line</div>
+      <div class="line" id="storyVictory">No custom victory line yet.</div>
+    </div>
   </div>
 </main>
 
@@ -175,6 +194,9 @@ function blankRoom(idx) {
   rows[0] = rows[0].substring(0, 9) + 'O' + rows[0].substring(10);
   return {
     name: 'Room ' + (idx + 1),
+    roomIntro: '',
+    roomBacktrackLine: '',
+    roomCompleteLine: '',
     map: rows,
     spawn: { col: 9, row: 13, facing: 'up' },
     items: [],
@@ -185,6 +207,9 @@ function blankLevel() {
   return {
     format: 'mucko-level/v1',
     name: 'My Level',
+    missionTitle: 'BEDTIME MISSION',
+    missionSubtitle: 'A custom Digory caper',
+    successLine: '',
     playerChar: 'digory',
     rooms: [ blankRoom(0) ]
   };
@@ -540,6 +565,12 @@ function showRoomProps() {
   var room = getRoom();
   propsEl.appendChild(inputRow('room name',  room.name || '',
     function(v) { room.name = v; regenerateJson(); updateRoomLabel(); render(); }));
+  propsEl.appendChild(inputRow('room intro', room.roomIntro || '',
+    function(v) { room.roomIntro = v; regenerateJson(); }));
+  propsEl.appendChild(inputRow('backtrack line', room.roomBacktrackLine || '',
+    function(v) { room.roomBacktrackLine = v; regenerateJson(); }));
+  propsEl.appendChild(inputRow('complete line', room.roomCompleteLine || '',
+    function(v) { room.roomCompleteLine = v; regenerateJson(); }));
   propsEl.appendChild(inputRow('timer (s)',  room.timerSecs == null ? 120 : room.timerSecs,
     function(v) { var n = parseInt(v, 10); room.timerSecs = isNaN(n) ? 120 : n; regenerateJson(); }));
   propsEl.appendChild(inputRow('dark',       room.dark ? 'true' : 'false',
@@ -552,6 +583,12 @@ function showRoomProps() {
   propsEl.appendChild(divider);
   propsEl.appendChild(inputRow('level name', level.name || '',
     function(v) { level.name = v; regenerateJson(); }));
+  propsEl.appendChild(inputRow('mission title', level.missionTitle || '',
+    function(v) { level.missionTitle = v; regenerateJson(); }));
+  propsEl.appendChild(inputRow('mission subtitle', level.missionSubtitle || '',
+    function(v) { level.missionSubtitle = v; regenerateJson(); }));
+  propsEl.appendChild(inputRow('success line', level.successLine || '',
+    function(v) { level.successLine = v; regenerateJson(); }));
   propsEl.appendChild(inputRow('player',     level.playerChar || 'digory',
     function(v) { level.playerChar = v; regenerateJson(); },
     { options: ['digory','samster','duckdieb','pflueger','don','firelightGuy','mom','digoryTD'] }));
@@ -621,10 +658,31 @@ function showPropsForNpc(n, idx) {
 // ── Two-way JSON sync ───────────────────────────────────────────────────────
 var jsonEl = document.getElementById('json');
 var errEl  = document.getElementById('err');
+function previewText(v, fallback) {
+  return v && String(v).trim() ? v : fallback;
+}
+function updateStoryPreview() {
+  var room = getRoom();
+  document.getElementById('storyMissionTitle').textContent =
+    previewText(level.missionTitle, level.name || 'BEDTIME MISSION');
+  document.getElementById('storyMissionSubtitle').textContent =
+    previewText(level.missionSubtitle, 'A custom Digory caper');
+  document.getElementById('storyRoomName').textContent =
+    previewText(room.name, 'Room ' + (roomIdx + 1));
+  document.getElementById('storyRoomIntro').textContent =
+    previewText(room.roomIntro, 'No room intro yet.');
+  document.getElementById('storyBacktrack').textContent =
+    previewText(room.roomBacktrackLine, 'No backtrack line yet.');
+  document.getElementById('storyComplete').textContent =
+    previewText(room.roomCompleteLine, 'No complete line yet.');
+  document.getElementById('storyVictory').textContent =
+    previewText(level.successLine, 'No custom victory line yet.');
+}
 function regenerateJson() {
   jsonEl.value = JSON.stringify(level, null, 2);
   jsonEl.classList.remove('bad');
   errEl.textContent = '';
+  updateStoryPreview();
 }
 function tryParseFromJson() {
   try {
@@ -636,7 +694,7 @@ function tryParseFromJson() {
     if (roomIdx >= level.rooms.length) roomIdx = 0;
     jsonEl.classList.remove('bad');
     errEl.textContent = '';
-    render(); updateRoomLabel();
+    render(); updateRoomLabel(); updateStoryPreview();
   } catch (e) {
     jsonEl.classList.add('bad');
     errEl.textContent = 'JSON: ' + e.message;
@@ -649,6 +707,7 @@ function updateRoomLabel() {
   document.getElementById('roomLabel').textContent =
     'Room ' + (roomIdx + 1) + ' / ' + level.rooms.length +
     ' — ' + (level.rooms[roomIdx].name || '');
+  updateStoryPreview();
 }
 document.getElementById('roomPrev').onclick = function() {
   if (roomIdx > 0) { roomIdx--; render(); updateRoomLabel(); }

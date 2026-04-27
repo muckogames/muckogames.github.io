@@ -325,13 +325,13 @@ function drawMobileControls(){
 const DIFFS=[
   {id:'easy',  label:'Puppy Nap',     col:'#88cc88',
    chargeWindow:4.5,donRate:0.5,timerMul:1.4,starMul:1.4,
-   desc:'Plenty of time. Great for first runs.'},
+   desc:'Plenty of time for deebing, snacks, and a safe trip home.'},
   {id:'medium',label:'Deeb Run',      col:C.gold,
    chargeWindow:3.0,donRate:1.0,timerMul:1.0,starMul:1.0,
-   desc:'Standard mission pace.'},
+   desc:'Standard mission pace. Keep it tidy before bedtime.'},
   {id:'hard',  label:'Maximum Deeb', col:C.donRed,
    chargeWindow:1.8,donRate:1.5,timerMul:0.75,starMul:0.7,
-   desc:'The Don is very angry.'},
+   desc:'The Don is stompy, smoky, and in no mood to share.'},
 ];
 let diff=DIFFS[1];
 
@@ -1573,7 +1573,7 @@ const H_ROOM_DEFS=(function(){
      floppies:[{x:hTX(9),y:hTY(6)},{x:hTX(14),y:hTY(4)}],
      containers:[{x:hTX(5),y:hTY(8)},{x:hTX(14),y:hTY(9)}],
      cigars:[],keycards:[],
-     notes:[{x:hTX(4),y:hTY(11),code:'4819',text:"Memo on desk: Don's access code is 4-8-1-9. Vault opens with 8 disks and 8 crates."}],
+     notes:[{x:hTX(4),y:hTY(11),code:'4819',text:"Desk memo: Don's front code is 4-8-1-9. Duck Dieb circled it and wrote: bring back 8 disks, 8 crates, and maybe a snack."}],
      keypads:[{tx:9,ty:0,code:'4819'}],
      guardDef:null,dark:false,
      startX:hTX(2),startY:hTY(13),timerSecs:120},
@@ -1581,7 +1581,7 @@ const H_ROOM_DEFS=(function(){
      floppies:[{x:hTX(5),y:hTY(6)},{x:hTX(13),y:hTY(6)}],
      containers:[{x:hTX(5),y:hTY(9)},{x:hTX(13),y:hTY(9)}],
      cigars:[],keycards:[],
-     notes:[{x:hTX(14),y:hTY(11),code:'7253',text:"Bookshelf label: storage unit code 7-2-5-3"}],
+     notes:[{x:hTX(14),y:hTY(11),code:'7253',text:"Bookshelf tag: storage room 7-2-5-3. Whoever filed these crates also filed a sandwich recipe in the margins."}],
      keypads:[{tx:9,ty:0,code:'7253'}],
      guardDef:null,dark:false,
      startX:hTX(9),startY:hTY(13),timerSecs:110},
@@ -1589,7 +1589,7 @@ const H_ROOM_DEFS=(function(){
      floppies:[{x:hTX(9),y:hTY(2)},{x:hTX(9),y:hTY(10)}],
      containers:[{x:hTX(4),y:hTY(10)},{x:hTX(14),y:hTY(10)}],
      cigars:[{x:hTX(9),y:hTY(6)}],keycards:[],
-     notes:[{x:hTX(3),y:hTY(11),code:'1648',text:"Crate manifest: duct bypass code 1-6-4-8"}],
+     notes:[{x:hTX(3),y:hTY(11),code:'1648',text:"Crate manifest: duct bypass 1-6-4-8. Digory sniffed this one first, so it must matter."}],
      keypads:[{tx:9,ty:0,code:'1648'}],
      guardDef:null,dark:false,
      startX:hTX(9),startY:hTY(13),timerSecs:130},
@@ -1597,7 +1597,7 @@ const H_ROOM_DEFS=(function(){
      floppies:[{x:hTX(4),y:hTY(2)},{x:hTX(4),y:hTY(7)}],
      containers:[{x:hTX(14),y:hTY(2)},{x:hTX(14),y:hTY(7)}],
      cigars:[],keycards:[{x:hTX(6),y:hTY(12),color:'yellow'}],
-     notes:[{x:hTX(3),y:hTY(8),code:'2847',text:"Sealed memo: security override code 2-8-4-7"}],
+     notes:[{x:hTX(3),y:hTY(8),code:'2847',text:"Sealed memo: security override 2-8-4-7. Yellow keycard nearby. Paws quiet, tail low."}],
      keypads:[{tx:9,ty:0,code:'2847'}],
      guardDef:null,dark:false,
      startX:hTX(9),startY:hTY(12),timerSecs:120},
@@ -1605,7 +1605,7 @@ const H_ROOM_DEFS=(function(){
      floppies:[{x:hTX(15),y:hTY(3)},{x:hTX(15),y:hTY(10)}],
      containers:[{x:hTX(5),y:hTY(3)},{x:hTX(5),y:hTY(10)}],
      cigars:[{x:hTX(9),y:hTY(10)}],keycards:[],
-     notes:[{x:hTX(4),y:hTY(6),code:'9163',text:"Guard logbook on desk: vault access 9-1-6-3"}],
+     notes:[{x:hTX(4),y:hTY(6),code:'9163',text:"Guard logbook: vault access 9-1-6-3. Also says 'NO STEAK IN LOCKERS.' Interesting."}],
      keypads:[{tx:9,ty:0,code:'9163'}],
      guardDef:{path:[{tx:2,ty:2},{tx:16,ty:2},{tx:16,ty:12},{tx:2,ty:12}],speed:52},
      dark:false,
@@ -1614,7 +1614,7 @@ const H_ROOM_DEFS=(function(){
      floppies:[{x:hTX(4),y:hTY(7)}],
      containers:[{x:hTX(14),y:hTY(9)}],
      cigars:[],keycards:[],
-     notes:[{x:hTX(15),y:hTY(12),code:'5731',text:"Archive index (lights must be on): vault seal 5-7-3-1"}],
+     notes:[{x:hTX(15),y:hTY(12),code:'5731',text:"Archive index: lights ON for 5-7-3-1. The Don labels everything, which is generous of him."}],
      keypads:[{tx:9,ty:0,code:'5731'}],
      guardDef:null,dark:true,
      startX:hTX(9),startY:hTY(13),timerSecs:120},
@@ -1663,7 +1663,10 @@ function parseLevel(input){
   return {
     rooms:rooms,
     playerChar:data.playerChar||'digory',
-    levelName:data.name||'Untitled'
+    levelName:data.name||'Untitled',
+    missionTitle:data.missionTitle||data.name||'BEDTIME MISSION',
+    missionSubtitle:data.missionSubtitle||'',
+    successLine:data.successLine||''
   };
 }
 
@@ -1684,6 +1687,9 @@ function parseRoom(rd,idx){
   }
   var room={
     name:rd.name||('Room '+(idx+1)),
+    roomIntro:typeof rd.roomIntro==='string'?rd.roomIntro:'',
+    roomBacktrackLine:typeof rd.roomBacktrackLine==='string'?rd.roomBacktrackLine:'',
+    roomCompleteLine:typeof rd.roomCompleteLine==='string'?rd.roomCompleteLine:'',
     map:map,
     floppies:[], containers:[], cigars:[], keycards:[],
     notes:[], keypads:[],
@@ -1796,6 +1802,9 @@ function encodeRoom(room){
   if(room.dark)out.dark=true;
   if(typeof room.timerSecs==='number'&&room.timerSecs!==120)out.timerSecs=room.timerSecs;
   if(room.complete)out.complete=true;
+  if(room.roomIntro)out.roomIntro=room.roomIntro;
+  if(room.roomBacktrackLine)out.roomBacktrackLine=room.roomBacktrackLine;
+  if(room.roomCompleteLine)out.roomCompleteLine=room.roomCompleteLine;
   return out;
 }
 
@@ -1830,6 +1839,9 @@ function hCopyRoom(d){
     guard,npcs:npcs,dark:d.dark||false,lightsOn:false,
     startX:d.startX,startY:d.startY,spawnFacing:d.spawnFacing||'up',
     timerSecs:d.timerSecs||0,
+    roomIntro:d.roomIntro||'',
+    roomBacktrackLine:d.roomBacktrackLine||'',
+    roomCompleteLine:d.roomCompleteLine||'',
     complete:d.complete||false};
 }
 // Convert pixel start coords (r.startX,r.startY) into tile col/row
@@ -1865,6 +1877,9 @@ function initHeist(){
   var pPlayer={dir:'down',vx:0,vy:0,facing:r.spawnFacing||'up'};
   MuckoGrid.init(pPlayer, hPxToCol(r.startX), hPxToRow(r.startY), H_TILE, H_ROOM_X, H_ROOM_Y);
   heist={rooms,roomIdx:0,room:r,
+    missionTitle:editorLevel?(editorLevel.missionTitle||editorLevel.levelName||'BEDTIME MISSION'):'',
+    missionSubtitle:editorLevel?(editorLevel.missionSubtitle||''):'',
+    successLine:editorLevel?(editorLevel.successLine||''):'',
     player:pPlayer,
     timer:r.timerSecs*(diff.timerMul||1),
     collected:{f:0,c:0,g:0},
@@ -1902,7 +1917,7 @@ function hTryOpenKD(nx,ny){
       heist.kInventory.yellow=false;
       heist.room.map[r*H_COLS+c]=TO;
       clearBackdropCache();
-      hShowMsg('Keycard used — sealed door unlocked!');
+      hShowMsg('Keycard used — sealed door unlocked. Nice sniffing.');
       return;
     }
   }
@@ -1925,7 +1940,7 @@ function hGuardUpdate(g,dt,p){
     // The guard is "looking the other way" briefly so the kid can recover.
     heist.guardStunned=true;heist.guardStunT=1.0;
     score=Math.max(0,score-10);
-    hShowMsg('Guard spotted you! Lay low. (-10 pts)');
+    hShowMsg('Guard spotted you! Freeze, breathe, and try again. (-10 pts)');
   }
 }
 // Update editor-authored NPCs each frame: walk their patrol path (if any)
@@ -1959,22 +1974,22 @@ function hNpcsUpdate(npcs,dt,p){
 function hShowMsg(m){heist.msg=m;heist.msgT=3.0;}
 // Digory's room-entry quips — keep the kid-friendly story-bible tone
 const DIGORY_QUIPS_FWD=[
-  "A nice yellow welcome mat. I might come back for a nap.",
-  "Storage room! Who hides crates next to disks? Don, that's who.",
-  "Mind the conveyors, Digory. Mind them.",
-  "Security wing. Sniff out a yellow keycard.",
-  "Guard up ahead. Tail down, paws light.",
-  "It's dark. Find the switch, then the secrets.",
-  "The Vault! Slippy floor, big prize.",
-  "Mission accomplished. Time to swim home."
+  "A nice yellow welcome mat. Deeb first, nap later.",
+  "Storage room! Crates, disks, and not a crumb of lunch left behind.",
+  "Mind the conveyors, Digory. Paws tidy, ears up.",
+  "Security wing. Sniff out that yellow keycard and keep moving.",
+  "Guard up ahead. Tail down, paws light, no heroic barking.",
+  "It's dark. Find the switch, then the secrets, then maybe a cookie.",
+  "The Vault! Slippy floor, big prize, definitely a bedtime story room.",
+  "Mission accomplished. Swim home, lock the house, find the blanket."
 ];
 const DIGORY_QUIPS_BACK=[
-  "Backtracking. Don't tell Duckdee.",
-  "Forgot something? It happens.",
-  "Conveyors again. Hop hop hop.",
-  "Back to the security wing. Quietly.",
-  "Patrol zone, take two.",
-  "Dark again. Where was that switch?"
+  "Backtracking. Don't tell Duckdee I missed a clue.",
+  "Forgot something? It happens in every good heist.",
+  "Conveyors again. Hop hop hop and don't skid into trouble.",
+  "Back to the security wing. Quietly now.",
+  "Patrol zone, take two. This time with extra sneaking.",
+  "Dark again. Nose first, paws second, switch third."
 ];
 
 function hEnterRoom(idx,entryDir){
@@ -1992,7 +2007,9 @@ function hEnterRoom(idx,entryDir){
   heist.player.facing=entryDir==='fromNorth'?'down':'up';
   if(r.timerSecs>0)heist.timer=r.timerSecs*diff.timerMul;
   clearBackdropCache();
-  const quip=entryDir==='fromNorth'?DIGORY_QUIPS_BACK[idx]:DIGORY_QUIPS_FWD[idx];
+  const quip=entryDir==='fromNorth'
+    ?(r.roomBacktrackLine||DIGORY_QUIPS_BACK[idx])
+    :(r.roomIntro||DIGORY_QUIPS_FWD[idx]);
   if(quip)hShowMsg(quip);
 }
 
@@ -2002,7 +2019,7 @@ function hKpTryConfirm(){
     kp.open=true;h.room.map[kp.ty*H_COLS+kp.tx]=TO;
     clearBackdropCache();
     h.kpOpen=false;h.kpInput='';h.kpIdx=-1;
-    score+=25;sfxCode();hShowMsg('Code accepted — door is open!');
+    score+=25;sfxCode();hShowMsg('Code accepted — door is open. Nice detective work.');
   } else {
     h.kpInput='';hShowMsg('Wrong code — try again.');
   }
@@ -2090,7 +2107,7 @@ function updateHeist(dt){
       h.kInventory.yellow=false;
       r.map[row*H_COLS+c]=TO;
       clearBackdropCache();
-      hShowMsg('Keycard used — sealed door unlocked!');
+      hShowMsg('Keycard used — sealed door unlocked. Nice sniffing.');
       return false;
     }
     return t===TW||t===TN||t===TD||t===TL||t===TKD;
@@ -2181,7 +2198,7 @@ function updateHeist(dt){
   // Timer
   if(r.timerSecs>0){
     h.timer-=dt;
-    if(h.timer<=0){h.timer=0;h.failed=true;h.failT=2.8;hShowMsg("Time's up!");}
+    if(h.timer<=0){h.timer=0;h.failed=true;h.failT=2.8;hShowMsg("Time's up! The bedtime window is closing.");}
   }
   if(h.msgT>0)h.msgT-=dt;
   // Room transition: stepped onto an open north door (row 0 TO tile)
@@ -2191,13 +2208,13 @@ function updateHeist(dt){
       if(!h.room.complete){
         h.room.complete=true;
         h.completeT=0;
-        hShowMsg('Exit reached!');
+        hShowMsg(h.room.roomCompleteLine||'Exit reached! Home, blanket, and dinner next.');
       }
       return;
     }
     if(h.roomIdx===6){
       if(h.collected.f>=8&&h.collected.c>=8){hEnterRoom(7);return;}
-      else if(h.msgT<=0)hShowMsg('Need '+(8-h.collected.f)+' more disks and '+(8-h.collected.c)+' more crates! Try the back door.');
+      else if(h.msgT<=0)hShowMsg('Need '+(8-h.collected.f)+' more disks and '+(8-h.collected.c)+' more crates before bedtime. Try the back door.');
     } else if(h.roomIdx<7){hEnterRoom(h.roomIdx+1);return;}
   }
   // Room transition: stepped onto a back door (row H_ROWS-1 TBO tile)
@@ -2457,8 +2474,24 @@ function drawHeistHUD(){
   ctx.fillStyle='rgba(8,14,28,0.97)';ctx.fillRect(hx,0,hw,H);
   ctx.strokeStyle='rgba(60,80,130,0.55)';ctx.lineWidth=1;
   ctx.beginPath();ctx.moveTo(hx,0);ctx.lineTo(hx,H);ctx.stroke();
-  ctx.fillStyle=C.gold;ctx.font='bold 13px Georgia,serif';ctx.textAlign='left';
-  ctx.fillText(h.room.name,hx+8,26);
+  var topY=26;
+  if(editorLevel&&h.missionTitle){
+    ctx.fillStyle=C.gold;ctx.font='bold 12px Georgia,serif';ctx.textAlign='left';
+    ctx.fillText(h.missionTitle,hx+8,topY);
+    topY+=14;
+    if(h.missionSubtitle){
+      ctx.fillStyle=C.dimTxt;ctx.font='12px Georgia,serif';
+      ctx.fillText(h.missionSubtitle,hx+8,topY);
+      topY+=16;
+    } else {
+      topY+=2;
+    }
+    ctx.fillStyle=C.cream;ctx.font='bold 12px Georgia,serif';
+    ctx.fillText(h.room.name,hx+8,topY);
+  } else {
+    ctx.fillStyle=C.gold;ctx.font='bold 13px Georgia,serif';ctx.textAlign='left';
+    ctx.fillText(h.room.name,hx+8,topY);
+  }
   const t=Math.max(0,h.timer);
   const tm=Math.floor(t/60),ts=Math.floor(t%60);
   const tStr=h.room.timerSecs>0?(tm<10?'0':'')+tm+':'+(ts<10?'0':'')+ts:'--:--';
@@ -2793,7 +2826,7 @@ function updateHome(dt){
   if(!h.kcard.found){
     var kx=hTX(h.kcard.col),ky=hTY(h.kcard.row);
     if(Math.hypot(p.x-kx,p.y-ky)<HM_PICK+H_TILE){
-      h.kcard.found=true;score+=15;sfxPickup();hmMsg('Found the garage keycard! +15');
+      h.kcard.found=true;score+=15;sfxPickup();hmMsg('Found the garage keycard! One less thing for the Don to rattle. +15');
     }
   }
 
@@ -2805,8 +2838,8 @@ function updateHome(dt){
       if(lk.locked)continue;
       var lx=hTX(lk.col),ly=hTY(lk.row);
       if(Math.hypot(p.x-lx,p.y-ly)<HM_IACT+H_TILE){
-        if(lk.needKey&&!h.kcard.found){hmMsg('Need the garage keycard first!');}
-        else{lk.locked=true;lk.pressure=0;score+=50;sfxLock();hmMsg(lk.name+' locked! +50');}
+        if(lk.needKey&&!h.kcard.found){hmMsg('Need the garage keycard first! Digory noses around for it.');}
+        else{lk.locked=true;lk.pressure=0;score+=50;sfxLock();hmMsg(lk.name+' locked! Cozy house points: +50');}
         acted=true;break;
       }
     }
@@ -2816,27 +2849,27 @@ function updateHome(dt){
         h.firelightCalled=true;h.firelightActive=true;h.firelightTimer=18;
         // Spawn FG at the next corner behind the Don so the chase reads.
         h.fg.t=h.don.t-0.6;
-        score+=30;hmMsg('Firelight Guy arrives — chasing the Don! +30');
-      } else hmMsg("He's still on the perimeter.");
+        score+=30;hmMsg('Firelight Guy arrives — the flaming distraction is officially underway! +30');
+      } else hmMsg("He's still out there buying you time.");
       acted=true;
     }
     // Crow computer (col 15, row 2)
     if(!acted&&Math.hypot(p.x-hTX(15),p.y-hTY(2))<HM_IACT+H_TILE){
-      if(!h.cmpUsed){h.cmpUsed=true;score+=8;hmMsg('Playing The Sims on the crow computer... +8');}
-      else hmMsg('The Sims is still loading.');
+      if(!h.cmpUsed){h.cmpUsed=true;score+=8;hmMsg('Playing The Sims on the crow computer while the house panics... +8');}
+      else hmMsg('The Sims is still loading. Crow tech takes its time.');
       acted=true;
     }
     // Fireplace robot (col 2, row 7) — reusable: light again whenever the
     // rug isn't currently on fire.
     if(!acted&&Math.hypot(p.x-hTX(2),p.y-hTY(7))<HM_IACT+H_TILE){
       if(h.fpFire){
-        h.fpFire=false;hmMsg('Fireplace Robot puts out the rug.');
+        h.fpFire=false;hmMsg('Fireplace Robot puts out the rug before it becomes a whole situation.');
       } else {
         h.fpFire=true;h.fpFireT=4.0;
         var first=!h.fpUsed; h.fpUsed=true;
         score+=first?8:2;
-        hmMsg(first?'Fireplace Robot lights a fire! The rug ignites! +8'
-                   :'Fireplace Robot lights another fire! +2');
+        hmMsg(first?'Fireplace Robot lights a fire! The rug ignites! Very cozy, slightly unhelpful. +8'
+                   :'Fireplace Robot lights another fire! Warmth bonus: +2');
       }
       acted=true;
     }
@@ -2867,7 +2900,7 @@ function updateHome(dt){
       if(lck.pressure>hottestPressure){hottestPressure=lck.pressure;hottestLock=lck;}
       if(lck.pressure>=1&&!h.don.inside){
         lck.pressure=0;h.donInside++;h.breachFlash=0.9;
-        hmMsg('The Don broke through the '+lck.name+'!');
+        hmMsg('The Don busted through the '+lck.name+'! This is why we lock things.');
         if(h.donInside>=2){
           // Don walks IN toward Digory instead of an instant fail.
           h.don.inside=true;
@@ -3099,7 +3132,7 @@ function drawHomeItems(){
   rnd(blx-18,bly-10,36,22,4,'#d0a010','#f5c830',2);
   rnd(blx-14,bly-6,28,14,3,'#f5d040',null,0);
   if(allLocked){
-    txt('Find the blanket!',blx,bly-24,C.gold,11,'center','bold Georgia');
+    txt('All locked. Blanket time!',blx,bly-24,C.gold,11,'center','bold Georgia');
   }
   ctx.restore();
 }
@@ -3296,7 +3329,7 @@ function drawHome(){
     ctx.save();ctx.globalAlpha=a;
     rnd(W/2-240,H/2-64,480,128,14,'rgba(70,8,8,0.95)',C.donRed,2.5);
     txt('The Don Got In!',W/2,H/2-18,'#ffaaaa',30,'center','bold Georgia');
-    txt('Starting over... -50 pts',W/2,H/2+22,C.cream,14,'center');
+    txt('Digory has to reset the whole bedtime routine... -50 pts',W/2,H/2+22,C.cream,14,'center');
     ctx.restore();
   }
 
@@ -3352,14 +3385,23 @@ function drawVictory(){
   ctx.fillStyle='#8a5030';
   ctx.beginPath();ctx.ellipse(dx+4,dy-10,5,4,0,0,Math.PI*2);ctx.fill(); // muzzle
 
-  txt('Digory climbs onto the yellow blanket and falls asleep.',W/2,H-154,C.dimTxt,12,'center');
+  txt('Digory climbs onto the yellow blanket, circles twice, and falls asleep.',W/2,H-154,C.dimTxt,12,'center');
 
   // Stars
   const starStr=(vicT>0.2?'★':'☆')+(vicT>0.7&&vic.stars>=2?'★':'☆')+(vicT>1.2&&vic.stars>=3?'★':'☆');
   const starCol=vic.stars===3?'#ffd700':vic.stars===2?'#e8e020':'#888888';
   txt(starStr,W/2,72,starCol,50,'center');
 
-  txt('Mission Complete!',W/2,120,C.gold,32,'center','bold Georgia');
+  txt(editorLevel&&heist&&heist.missionTitle?heist.missionTitle:'Mission Complete!',W/2,120,C.gold,32,'center','bold Georgia');
+  if(editorLevel&&heist&&heist.missionSubtitle){
+    txt(heist.missionSubtitle,W/2,136,C.dimTxt,14,'center','Georgia');
+  }
+  var bedtimeLine=
+    editorLevel&&heist&&heist.successLine?heist.successLine:
+    vic.stars===3?'Everything made it home before bedtime. Even the score did.':
+    vic.stars===2?'A little smoky, a little splashy, but everyone got home safely.':
+    'Digory made it home, which is the part that matters most.';
+  txt(bedtimeLine,W/2,148,C.cream,13,'center','Georgia');
 
   // Per-stage score breakdown
   var panelX=W/2-310, panelY=140, panelW=340, panelH=166;
@@ -3452,7 +3494,7 @@ function drawTitle(){
   txt("THE DON'S TOWER",W/2,104,'rgba(246,213,122,0.8)',46,'center','bold Georgia');
   ctx.restore();
 
-  txt('A Samster & Digory Mission',W/2,138,C.dimTxt,17,'center','Georgia');
+  txt('A Samster & Digory bedtime heist',W/2,138,C.dimTxt,17,'center','Georgia');
 
   // Mini sub
   ctx.save();ctx.translate(W/2-20,190);ctx.scale(0.55,0.55);
@@ -3461,11 +3503,11 @@ function drawTitle(){
 
   // Step list
   const steps=[
-    '1.  Drive the sub through Kraken’s city to the Don’s Tower',
-    '2.  Deeb his floppy disks and containers from 8 floors',
-    '3.  Escape through sonar pings and destroyer charges',
-    '4.  Lock down home before the Don gets inside',
-    '5.  Find the yellow blanket',
+    '1.  Sneak the yellow sub through Kraken waters to the Don’s tower',
+    '2.  Recover floppy disks, crates, and any especially suspicious cigars',
+    '3.  Escape through sonar pings, destroyers, and Don-level grumbling',
+    '4.  Race home and lock everything before the Don stomps inside',
+    '5.  Reach the yellow blanket before the story can get any later',
   ];
   for(let i=0;i<steps.length;i++){
     txt(steps[i],W/2,276+i*25,i===4?'#f5d090':C.cream,14,'center');
@@ -3477,7 +3519,7 @@ function drawTitle(){
   rnd(bx,by,260,62,12,hover?'rgba(246,213,122,0.22)':'rgba(246,213,122,0.09)',C.gold,hover?2.5:2);
   txt('START MISSION',W/2,by+39,C.gold,22,'center','bold Georgia');
 
-  txt('Press ENTER or tap to start',W/2,H-14,C.dimTxt,12,'center');
+  txt('Press ENTER or tap to start the bedtime mission',W/2,H-14,C.dimTxt,12,'center');
 }
 
 // ── Difficulty select ─────────────────────────────────────────────────────
@@ -3522,7 +3564,7 @@ function drawDiff(){
   txt('Difficulty affects:',W/2,166,C.dimTxt,13,'center');
   txt('•  Depth charge dodge window in the submarine escape',W/2,190,C.cream,13,'center');
   txt('•  How fast the Don tries to enter your house',W/2,210,C.cream,13,'center');
-  txt('•  Timer length in the Don’s mansion heist',W/2,230,C.cream,13,'center');
+  txt('•  Timer length in the Don’s tower heist',W/2,230,C.cream,13,'center');
   txt('•  Star thresholds (harder difficulty is easier to 3-star)',W/2,250,C.cream,13,'center');
 
   // Back button (visible on every device, also doubles as the touch target)
