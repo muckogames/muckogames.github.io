@@ -118,11 +118,11 @@ canvas{display:block;margin:0 auto;border:2px solid #5a4010;border-radius:5px;cu
 // ── DATA ──────────────────────────────────────────────────────────────────────
 
 const STOPS = [
-  {id:'southampton', name:'Southampton', flag:'🇬🇧', desc:'The grand sky-port of England. Brass horns sound as the R.M.A.S. Mucko is prepared for her maiden voyage.'},
-  {id:'cherbourg',   name:'Cherbourg',   flag:'🇫🇷', desc:'The French aerial harbour, where wealthy passengers and their mountains of luggage come aboard.'},
-  {id:'queenstown',  name:'Queenstown',  flag:'🇮🇪', desc:'Ireland\'s windswept sky-dock. The last stop before the vast open Atlantic sky-ocean.'},
-  {id:'atlantic',    name:'Mid-Atlantic',flag:'🌊',  desc:'The great open sky. Nothing but clouds and stars in every direction. Fishing conditions: excellent.'},
-  {id:'newyork',     name:'New York',    flag:'🗽',  desc:'The New World awaits — if you can survive the Iceberg Field!'},
+  {id:'southampton', name:'Southampton', flag:'🇬🇧', desc:'The grand sky-port of England. Brass horns sound, tea trays rattle, and the R.M.A.S. Mucko is made ready for departure.'},
+  {id:'cherbourg',   name:'Cherbourg',   flag:'🇫🇷', desc:'The French aerial harbour, where wealthy passengers, impossible hats, and mountains of luggage all insist on boarding at once.'},
+  {id:'queenstown',  name:'Queenstown',  flag:'🇮🇪', desc:'Ireland\'s windswept sky-dock. Last letters posted, last sandwiches packed, last stop before the open sky-ocean.'},
+  {id:'atlantic',    name:'Mid-Atlantic',flag:'🌊',  desc:'The great open sky. Nothing but clouds, stars, and shipboard routines in every direction. Fishing conditions: excellent.'},
+  {id:'newyork',     name:'New York',    flag:'🗽',  desc:'The New World awaits, with sky-docks, cheering crowds, and hopefully no more icebergs.'},
 ];
 
 const DIFFS = [
@@ -166,7 +166,7 @@ const EVENTS = [
     {i:'➡️',t:'Maintain current heading',        out:'Good to know regardless.',               fx:G=>{G.morale=c(G.morale+4,0,100)}},
   ]},
   // ── MIXED ─────────────────────────────────────────────────────────────────
-  {title:'🧍 Stowaway Found!', text:'A small child is discovered hiding in the steam-pipes! She says her name is Trudy and she just wanted to see America.',
+  {title:'🧍 Stowaway Found!', text:'A small child is discovered hiding in the steam-pipes with a biscuit tin, a blanket, and a plan that was optimistic in every detail. She says her name is Trudy and she just wanted to see America.',
    choices:[
     {i:'🤝',t:'Welcome her as honorary crew', out:'Trudy proves useful with the boiler gauges! She does eat, though.',  fx:G=>{G.food=c(G.food-10,0,80);G.morale=c(G.morale+10,0,100)}},
     {i:'🛏️',t:'Give her rations and a bed',   out:'She\'s grateful. A little less food, but your heart is full.',       fx:G=>{G.food=c(G.food-8,0,80)}},
@@ -178,13 +178,13 @@ const EVENTS = [
     {i:'🙅',t:'Politely decline',             out:'He huffs magnificently. But safety first!',                              fx:G=>{G.morale=c(G.morale-5,0,100)}},
     {i:'🍵',t:'Offer him tea instead',        out:'He grumbles, but the tea is excellent. Crisis averted.',                 fx:G=>{G.food=c(G.food-3,0,80);G.morale=c(G.morale+4,0,100)}},
   ]},
-  {title:'🍞 Ration Dispute!', text:'First Class passengers want more food. Third Class passengers want more food. The cook is hiding beneath his hat.',
+  {title:'🍞 Ration Dispute!', text:'First Class passengers want more food. Third Class passengers want more food. The cook is hiding beneath his hat and guarding the bread cart with a ladle.',
    choices:[
     {i:'⚖️',t:'Equal rations for all',          out:'Fair — but neither group is happy.',                        fx:G=>{G.food=c(G.food-10,0,80);G.morale=c(G.morale-5,0,100)}},
     {i:'🍲',t:'Cook a grand pot of sky-stew',   out:'Everyone gets extra! But the provisions take a hit.',      fx:G=>{G.food=c(G.food-20,0,80);G.morale=c(G.morale+15,0,100)}},
     {i:'📋',t:'Announce rationing immediately', out:'Unpopular but necessary. Morale dips.',                     fx:G=>{G.morale=c(G.morale-10,0,100)}},
   ]},
-  {title:'📡 SOS Signal Received!', text:'Your wireless crackles: "...SOS... sky-yacht Carpathia... engine failure..." Someone needs help!',
+  {title:'📡 SOS Signal Received!', text:'Your wireless crackles: "...SOS... sky-yacht Carpathia... engine failure..." Somewhere out in the clouds, another crew is having a far worse day than you are.',
    choices:[
     {i:'🆘',t:'Divert to help them',             out:'You find the Carpathia! They give you supplies in gratitude.',  fx:G=>{G.fuel=c(G.fuel-20,0,100);G.food=c(G.food+14,0,80);G.morale=c(G.morale+20,0,100)}},
     {i:'📡',t:'Radio their position to others',  out:'Another ship responds. You continue on course.',                fx:G=>{G.morale=c(G.morale+4,0,100)}},
@@ -321,7 +321,7 @@ function showMenu(el){
       New York City.<br><br>
       The North Atlantic sky-lanes are treacherous. <strong>Flying icebergs</strong> drift
       on the great sky-currents. Storms brew without warning. Sky-whales breach in the
-      moonlight. And somewhere out there, a stowaway named Trudy is hiding in the steam-pipes.<br><br>
+      moonlight. Somewhere below decks, tea sloshes in cups, cooks argue about supper, and a stowaway named Trudy is hiding in the steam-pipes.<br><br>
       <strong>Can you fly the Mucko safely to the New World?</strong>
     </div>
     <button class="btn-go" style="font-size:1.1em;padding:13px 32px" onclick="G.screen='diff';render()">✈️ Begin the Journey</button>
@@ -1562,6 +1562,9 @@ function showVictory(el){
     </div>`).join('');
   const hsNewMsg=rank<=3?`<div style="color:#ffd700;text-align:center;font-size:.82em;margin-top:6px">🌟 New personal best — #${rank}!</div>`:'';
   const survived=G.crewHp.filter(h=>h>0).length;
+  const arrivalLine = survived===4
+    ? 'The gangway drops, the crew finally unclench their shoulders, and somewhere nearby somebody is already insisting on hot food and a proper wash.'
+    : 'The gangway drops, the surviving crew breathe the strange solid relief of arrival, and the first order of business is blankets, broth, and somewhere quiet to sit down.';
   el.innerHTML=`
   <div style="text-align:center;padding:8px 0 14px">
     <div style="font-size:5em;line-height:1;margin:8px 0 4px">🏆 🎉</div>
@@ -1573,6 +1576,7 @@ function showVictory(el){
       safely across the Atlantic to the glittering brass towers of New York City.<br><br>
       The crowds cheer from the sky-docks! Newsboys in goggles wave their papers:<br>
       <em>"Sky-Marvel Arrives Safe! Greatest Ship Makes It! Captain ${G.name} a Hero!"</em><br><br>
+      ${arrivalLine}<br><br>
       Somewhere below, a small girl named Trudy presses her nose to the porthole
       and whispers: <em>"We made it."</em>
     </div>
@@ -1612,7 +1616,8 @@ function showGameOver(el){
       ${G.msg||'The great sky-vessel has been forced to land short of New York.'}<br><br>
       The crew is safe on the ground. Everyone is doing fine, and the R.M.A.S. Mucko
       will fly again — but this voyage has come to an unexpected end.<br><br>
-      <em>Take a deep breath, restock your supplies, and try the journey again!</em>
+      There will be hot drinks, repair lists, exaggerated retellings, and eventually another attempt.<br><br>
+      <em>Take a deep breath, restock your supplies, and try the journey again.</em>
     </div>
     ${crewRow()}
     <button class="btn-go" onclick="G={screen:'diff',sel:'first'};render()">🔄 Try Again</button>

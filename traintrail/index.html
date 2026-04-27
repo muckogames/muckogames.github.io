@@ -381,10 +381,10 @@ const JOURNEY = [
     type: 'event',
     title: '🚉 Departure from Boston',
     loc: 'Boston South Station',
-    desc: 'Your magnificent steam locomotive, the Iron Leviathan, rolls out of Boston\'s South Station at dawn. The Trans-Atlantic Bridge stretches ahead — a wonder of engineering spanning three thousand miles of open sea toward Germany.\n\nYour fireman, Otto, shovels coal with enthusiasm. The boiler glows with promise.',
+    desc: 'Your magnificent steam locomotive, the Iron Leviathan, rolls out of Boston\'s South Station at dawn. The Trans-Atlantic Bridge stretches ahead — a crow-tech wonder of engineering spanning three thousand miles of open sea toward Germany.\n\nYour fireman, Otto, shovels coal with enthusiasm. Someone on the platform hands up a paper bag of breakfast rolls for the crew.',
     choices: [
-      { text: '🔥 Full steam ahead!', result: 'The crowd cheers wildly as you blast your whistle! Magnificent, if a bit wasteful.', effect: gs => { gs.coal -= 8; gs.morale = cap(gs.morale + 10); } },
-      { text: '⚙️ Careful and steady', result: 'You ease onto the bridge at a measured pace, conserving fuel wisely.', effect: gs => { gs.coal += 5; } }
+      { text: '🔥 Full steam ahead!', result: 'The crowd cheers wildly as you blast your whistle and scatter breakfast crumbs all over the cab. Magnificent, if a bit wasteful.', effect: gs => { gs.coal -= 8; gs.morale = cap(gs.morale + 10); } },
+      { text: '⚙️ Careful and steady', result: 'You ease onto the bridge at a measured pace, saving fuel and preserving the breakfast rolls.', effect: gs => { gs.coal += 5; gs.food = cap(gs.food + 4); } }
     ]
   },
   {
@@ -439,7 +439,7 @@ const JOURNEY = [
     type: 'kraken',
     title: '🦑 Dinner with Gerald',
     loc: 'Underwater City of Krak\'ath',
-    desc: 'A colossal kraken named Gerald has pulled your entire train down to his glittering bioluminescent city for dinner. Your schedule is ruined. The pasta, however, smells incredible.'
+    desc: 'A colossal kraken named Gerald has pulled your entire train down to his glittering bioluminescent city for dinner. Your schedule is ruined. The pasta, however, smells incredible, and someone is already passing breadsticks through the window.'
   },
   {
     type: 'event',
@@ -461,9 +461,9 @@ const JOURNEY = [
     type: 'event',
     title: '⚓ The Azores Support Tower',
     loc: 'Azores Tower, Mile 2100',
-    desc: 'The great Azores Tower looms ahead — a colossal structure rising from the sea floor, supporting the bridge\'s midspan. There is a supply depot on Level 4.',
+    desc: 'The great Azores Tower looms ahead — a colossal structure rising from the sea floor, supporting the bridge\'s midspan. There is a supply depot on Level 4, plus a tiny canteen selling suspiciously good soup.',
     choices: [
-      { text: '🛒 Stock up on coal and food', result: 'The depot is expensive, but the crew grumbles less when well-fed.', effect: gs => { gs.coal = cap(gs.coal + 22); gs.food = cap(gs.food + 18); gs.morale -= 6; } },
+      { text: '🛒 Stock up on coal and food', result: 'The depot is expensive, but the crew comes back with coal, bread, soup, and dramatically improved attitudes.', effect: gs => { gs.coal = cap(gs.coal + 22); gs.food = cap(gs.food + 18); gs.morale -= 6; } },
       { text: '🎵 Give the crew one hour shore leave', result: 'Accordion music echoes up the tower stairwell. Morale soars.', effect: gs => { gs.morale = cap(gs.morale + 22); gs.water = cap(gs.water + 12); } },
       { text: '🚀 Skip it — no time to lose!', result: 'You blast past the tower at full speed. Efficient!', effect: gs => { gs.coal -= 4; gs.morale = cap(gs.morale + 5); } }
     ]
@@ -490,7 +490,7 @@ const JOURNEY = [
     type: 'event',
     title: '🎉 Arrival in Leipzig!',
     loc: 'Leipzig Central Station',
-    desc: 'The Iron Leviathan pulls into Leipzig Hauptbahnhof to thunderous applause. Banners wave. Brass bands play. Someone has baked a tremendous pretzel in your honor.\n\nYou have crossed the Trans-Atlantic Bridge. You have done the impossible.',
+    desc: 'The Iron Leviathan pulls into Leipzig Hauptbahnhof to thunderous applause. Banners wave. Brass bands play. Someone has baked a tremendous pretzel in your honor, and the crew looks ready for a meal, a bath, and twelve straight hours of sleep.\n\nYou have crossed the Trans-Atlantic Bridge. You have done the impossible.',
     last: true,
     choices: [
       { text: '🥨 Accept the pretzel graciously', result: 'You tip your conductor\'s hat to the roaring crowd. Journey complete!', effect: gs => { gs.arrived = true; gs.morale = cap(gs.morale + 15); } }
@@ -531,7 +531,7 @@ function buildTitle(app) {
     <canvas class="title-canvas" id="tc" width="820" height="620"></canvas>
     <div class="title-content">
       <div class="title-main">🚂 TRAIN TRAIL</div>
-      <div class="title-sub">A Trans-Atlantic Steam Adventure</div>
+      <div class="title-sub">A crow-tech steam adventure across the Atlantic</div>
       <div class="title-route">Boston, MA → Leipzig, Germany</div>
       <button class="btn-large" id="start-btn" style="font-size:18px;padding:12px 36px">▶ Board the Train</button>
     </div>
@@ -1764,8 +1764,8 @@ function buildEnding(app) {
 
   const title = arrived ? '🎉 Leipzig Reached!' : '💥 Journey Ended';
   const narrative = arrived
-    ? `The Iron Leviathan pulls into Leipzig Hauptbahnhof to the roar of the crowd. You've crossed the Trans-Atlantic Bridge — 3,200 miles, one kraken dinner, several track hazards, and a fish repairman — and arrived in Germany. Remarkable.`
-    : `The journey ends short of Leipzig. The Trans-Atlantic Bridge stretches on without you. Perhaps another day, another locomotive.`;
+    ? `The Iron Leviathan pulls into Leipzig Hauptbahnhof to the roar of the crowd. You have crossed the Trans-Atlantic Bridge — 3,200 miles, one kraken dinner, several track hazards, a fish repairman, and a great many emergency meals later — and arrived in Germany. The crew is tired, fed, and very ready for solid ground.`
+    : `The journey ends short of Leipzig. The Trans-Atlantic Bridge stretches on without you, and the crew is left with an unfinished route, a cooling engine, and stories no one will quite believe. Another day, another locomotive.`;
 
   const breakdownRows = breakdown.map(([l,v,cls])=>`<tr><td>${l}</td><td class="${cls}">${v>0?'+':''}${v}</td></tr>`).join('');
 

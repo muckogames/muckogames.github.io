@@ -206,7 +206,7 @@ const STOPS = [
     name: 'Leipzig',
     country: '🇩🇪',
     landmark: '🏆',
-    desc: "You made it! East Germany's vibrant city of music and history.",
+    desc: "You made it! Leipzig at last — music, history, pretzels, and finally no one asking how many hours are left.",
     bgTop: '#0a1a1a', bgBot: '#0d2020',
     gasToHere: 20,
     activities: [
@@ -222,7 +222,7 @@ const EVENTS = [
     id: 'traffic',
     emoji: '🚗',
     title: 'Traffic Jam!',
-    text: () => 'Bumper to bumper on the highway. The family groans as you inch forward...',
+    text: () => 'Bumper to bumper on the highway. Snack wrappers crinkle. Somebody sighs theatrically in the back seat...',
     choices: [
       { label: '😤 Wait it out',     effect: gs => { gs.gas-=4; gs.bladder+=12; gs.score-=3; }, desc: '-4⛽, +bladder' },
       { label: '🗺️ Take a detour',   effect: gs => { gs.gas-=8; },                              desc: '-8⛽' },
@@ -242,7 +242,7 @@ const EVENTS = [
     id: 'breakdown',
     emoji: '🔧',
     title: 'Car Trouble!',
-    text: () => 'The Ford Escape makes a worrying clunking noise...',
+    text: () => 'The Ford Escape makes a worrying clunking noise, like it has developed opinions about this route...',
     choices: [
       { label: '🔧 Fix it',         effect: gs => { gs.euros-=12; }, desc: '-12€',   canAfford: gs => gs.euros >= 12 },
       { label: '🙏 Hope for best',  effect: gs => { gs.gas-=12; },   desc: '-12⛽' },
@@ -252,7 +252,7 @@ const EVENTS = [
     id: 'duck_dieb',
     emoji: '🦆',
     title: 'Duck Dieb Attacks!',
-    text: gs => `A sneaky duck named Duck Dieb swoops through the window, eyeing ${gs.name}'s snacks!`,
+    text: gs => `A sneaky duck named Duck Dieb swoops through the window, eyeing ${gs.name}'s snacks and any unattended road-trip contraband!`,
     choices: [
       { label: '🍿 Defend the snacks!', effect: gs => { gs.snacks-=8;  }, desc: '-8🍿 (saved some!)' },
       { label: '😱 Too shocked!',       effect: gs => { gs.snacks-=20; }, desc: '-20🍿!' },
@@ -262,7 +262,7 @@ const EVENTS = [
     id: 'are_we_there',
     emoji: '😩',
     title: 'Are We There Yet?',
-    text: gs => `"Are we there yet?" asks ${gs.name} for the fifth time in a row...`,
+    text: gs => `"Are we there yet?" asks ${gs.name} for the fifth time in a row, somehow with fresh emotional force every time...`,
     choices: [
       { label: '🍿 Give a snack',    effect: gs => { gs.snacks-=10; gs.score+=3; }, desc: '-10🍿' },
       { label: '🎵 Put on a song',   effect: gs => { gs.score+=1; },               desc: 'Free!' },
@@ -281,7 +281,7 @@ const EVENTS = [
     id: 'scenic',
     emoji: '🌄',
     title: 'Scenic Overlook!',
-    text: () => 'A breathtaking view appears beside the road. The family gasps.',
+    text: () => 'A breathtaking view appears beside the road. The whole car goes quiet for one unusually nice moment.',
     choices: [
       { label: '📸 Stop for photos!', effect: gs => { gs.gas-=3; gs.score+=15; }, desc: '+15pts, -3⛽' },
       { label: '🚗 Keep driving',     effect: gs => {},                           desc: 'No stop' },
@@ -311,7 +311,7 @@ const EVENTS = [
     id: 'snack_vendor',
     emoji: '🍬',
     title: 'Roadside Snack Stand!',
-    text: () => 'A colorful snack vendor waves from the roadside.',
+    text: () => 'A colorful roadside snack stand appears like a miracle. Popcorn, candy, and fizzy drinks gleam in the sun.',
     choices: [
       { label: '🍬 Stock up',    effect: gs => { gs.euros-=7; gs.snacks=clamp(gs.snacks+25); }, desc: '-7€, +25🍿', canAfford: gs => gs.euros >= 7 },
       { label: '🚗 Drive on',   effect: gs => {},                                               desc: 'Pass it by' },
@@ -669,7 +669,7 @@ function universalActs(stop) {
     { id:`gas_${n}`,    emoji:'⛽', label:'Buy Gas',        cost:{euros:15}, effect:gs=>{gs.euros-=15; gs.gas=clamp(gs.gas+35);},       desc:'-15€, +35⛽' },
     { id:`snacks_${n}`, emoji:'🍿', label:'Buy Snacks',     cost:{euros:8},  effect:gs=>{gs.euros-=8;  gs.snacks=clamp(gs.snacks+30);},  desc:'-8€, +30🍿' },
     { id:`toilet_${n}`, emoji:'🚽', label:'Find Restroom',  cost:{},         effect:gs=>{gs.bladder=clamp(gs.bladder-60,0,100); gs.score+=2;}, desc:'Bladder relief!' },
-    { id:`rest_${n}`,   emoji:'😴', label:'Rest & Relax',   cost:{},         effect:gs=>{gs.snacks=clamp(gs.snacks+5); gs.score+=5;},    desc:'+5pts, +snacks' },
+      { id:`rest_${n}`,   emoji:'😴', label:'Rest & Relax',   cost:{},         effect:gs=>{gs.snacks=clamp(gs.snacks+5); gs.score+=5;},    desc:'+5pts, +snacks' },
   ];
 }
 
@@ -782,8 +782,8 @@ function buildStop(app, stopIdx) {
 
 function gameOverPanel() {
   const msg = gs.gas <= 0
-    ? "💀 You've run out of gas! The Ford Escape is stranded."
-    : "💶 You're nearly out of money and fuel. The trip is over...";
+    ? "💀 You've run out of gas! The Ford Escape is stranded and the snack situation has turned grim."
+    : "💶 You're nearly out of money and fuel. The trip is over, at least for today...";
   const canCont = !gs.continueUsed;
   return `
     <div style="text-align:center;padding:18px 10px">
@@ -1064,7 +1064,7 @@ function buildDriving(app, nextIdx) {
   gs.snacks  = clamp(gs.snacks - snackUsed);
   gs.bladder = clamp(gs.bladder + bladderAdd, 0, 100);
   addLog(`🚗 Driving ${from.name} → ${to.name}...`, 'info');
-  addLog(`⛽ Used ${gasUsed} gas · 🍿 Ate ${snackUsed} snacks en route.`, 'normal');
+  addLog(`⛽ Used ${gasUsed} gas · 🍿 Ate ${snackUsed} snacks en route · 🚻 Bladder +${bladderAdd}.`, 'normal');
 
   // Pick events
   const maxEvt = diff === 'easy' ? 1 : diff === 'hard' ? 3 : 2;
@@ -1214,6 +1214,9 @@ function buildEnding(app) {
   const entry = { score: finalScore, name: gs.name, diff: gs.difficulty, rating, date: gs.date };
   const rank  = saveHS(entry);
   const hsList = getHS();
+  const narrative = arrived
+    ? `You roll into Leipzig with a tired car, a lighter snack stash, and a road trip full of detours, Duck Dieb incidents, bathroom emergencies, and one final sense of relief. Everybody made it. That counts for a lot.`
+    : `The road trip ends early, somewhere short of Leipzig. The car is tired, the family is tired, and the snack situation is not helping. The route will still be there next time.`;
 
   app.style.background = 'linear-gradient(160deg,#0d1b2a,#0d1a0d)';
   app.innerHTML = `
@@ -1224,6 +1227,7 @@ function buildEnding(app) {
         <div style="font-size:15px;color:#c8901a;margin-top:5px">${rating}</div>
         ${rank<=3?`<div style="font-size:14px;color:#ffd700;margin-top:5px">★ New high score — rank #${rank}! ★</div>`:''}
       </div>
+      <div style="max-width:620px;margin:0 auto 18px auto;text-align:center;line-height:1.6;font-size:14px;color:#d8cfb0">${narrative}</div>
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:20px">
         <div style="background:rgba(0,0,0,0.4);border:1px solid #c8901a;border-radius:8px;padding:15px">

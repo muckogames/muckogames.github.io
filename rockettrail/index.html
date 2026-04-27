@@ -695,14 +695,14 @@ function drawPad() {
    PHASE: TRAVEL  (Oregon Trail progress — sleep/wake cycles + mining)
    ══════════════════════════════════════════════════════════════════════════ */
 var TRAVEL_TEXTS_OUT = [
-  'Leaving Earth behind! The crew can see the whole planet out the window.',
-  'Asteroid field ahead! Time to mine some rocks and collect minerals!',
-  'Almost there! The Moon is getting bigger and bigger outside the window.',
+  'Leaving Earth behind! The crew can see the whole planet out the window and keeps arguing about who packed the best snacks.',
+  'Asteroid field ahead! Time to mine some rocks, collect minerals, and try not to spill anything in zero-G.',
+  'Almost there! The Moon is getting bigger and bigger outside the window, and everybody is already planning what to eat after landing.',
 ];
 var TRAVEL_TEXTS_BACK = [
-  'Mission accomplished! Now the long trip home begins.',
-  'Earth is getting closer every minute! Almost back home!',
-  'Home stretch! The crew can see the blue oceans from up here.',
+  'Mission accomplished! Now the long trip home begins, with tired astronauts and a growing interest in beds.',
+  'Earth is getting closer every minute! Almost back home, almost back to ordinary gravity, almost back to normal food.',
+  'Home stretch! The crew can see the blue oceans from up here and starts sounding like people who would like a bath and a nap.',
 ];
 
 function initTravel(dest) {
@@ -1625,7 +1625,7 @@ function drawTitle() {
   txt('\uD83D\uDE80',0,48,'#fff',40,'center');
   ctx.restore();
 
-  txt('A Space Adventure',W/2,200,'#8899bb',16,'center','Georgia');
+  txt('A Moon mission with minerals, mishaps, and the promise of getting everybody home',W/2,200,'#8899bb',14,'center','Georgia');
 
   // Start button
   var hover1 = mx>W/2-120&&mx<W/2+120&&my>240&&my<285;
@@ -2700,10 +2700,10 @@ function initVictory() {
     chime();
   }
   if (apollo13Mode) {
-    showRadio('Columbia, you brought those astronauts home. Greatest rescue in space history!');
-  } else if (stars===3) showRadio('Incredible mission! Perfect score across the board!');
-  else if (stars===2) showRadio('Great mission crew! The whole world is watching!');
-  else showRadio('Welcome home, Columbia. Recovery team is en route!');
+    showRadio('Columbia, you brought those astronauts home. Recovery ships, hot coffee, and a lot of cheering are waiting.');
+  } else if (stars===3) showRadio('Incredible mission! Perfect score across the board, and everyone gets a hero\'s welcome.');
+  else if (stars===2) showRadio('Great mission, crew! The whole world is watching, and the recovery team has the blankets ready.');
+  else showRadio('Welcome home, Columbia. Recovery team is en route, and supper is going to taste unbelievable.');
   phase = 'victory';
 }
 function updateVictory(dt) {

@@ -101,18 +101,23 @@ As the primary Digory-story expression, `don/` needs to feel like a bedtime adve
 - Rewrite events toward concrete comic logistics rather than abstract danger.
 - Add more food/rest/reset punctuation between tense beats.
 - Use crow-tech or Dieb-planning explanations where impossible mechanics need a story excuse.
+- Add more route-specific support-cast flavor: depot cooks, tower crews, bridge inspectors, ticket sharks, and Gerald-adjacent hospitality staff.
+- Make the ending and setup screens carry more of the "tired but fed and homeward-bound" feeling after arrival.
 
 #### `cartrail/index.html` — event-writing pass
 
 - Add more specific comic logistics in travel events rather than generic hardship text.
 - Give reward and setback text more flavor tied to food, cargo, and named characters.
 - Add a stronger ending/debrief beat so the run lands as a story episode.
+- Add more road-trip micro-drama: cramped-car moods, miraculous snack finds, bathroom diplomacy, and family relief when a stop finally appears.
 
 #### `contraband/index.html` — absurd-logistics pass
 
 - Add more named factions, clue trails, and seized-item specificity rather than generic contraband.
 - Emphasize comic stealth logistics over abstract chase energy.
 - Use crow-tech or Dieb-planning explanations where impossible mechanics need a story excuse.
+- Give the port/customs lane more recurring human texture: notebook men, discreet buyers, suspicious warehouse clerks, and officials with selective principles.
+- Make the Rotterdam finish and arrest states feel more like complete capers with aftermath, not just score screens.
 
 #### `rockettrail/` — cozy epic polish
 
@@ -121,6 +126,7 @@ As the primary Digory-story expression, `don/` needs to feel like a bedtime adve
 - Strengthen the arrival/celebration beats so the ending feels cozier and less score-only.
 - Keep the tone earnest and child-logical even when the scope is huge.
 - Prioritize event-writing and ending polish ahead of any broader HUD reskin.
+- Keep the space-program triumph grounded in recovery-team warmth: blankets, coffee, debriefs, and the relief of getting everybody home.
 
 #### `airplanetrail.html` and `ttrail/onlineGame/` — narrated-travel rewrite pass
 
@@ -128,6 +134,7 @@ As the primary Digory-story expression, `don/` needs to feel like a bedtime adve
 - Soften failure text and warm up arrival text.
 - Add more child-logical specificity to authority figures, delays, and travel rituals.
 - Add stronger destination/debrief coziness instead of ending on pure progress accounting.
+- Add more shipboard domesticity: cooks, blankets, tea trays, engine-room routines, and passengers behaving like a floating household.
 
 #### `hippo/index.html` — adjacent-lane warmth pass
 

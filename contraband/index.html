@@ -157,24 +157,24 @@ function dist(a,b){var dx=a.x-b.x,dy=a.y-b.y;return Math.sqrt(dx*dx+dy*dy);}
 
 /* ── DATA ────────────────────────────────────────────────────────────────── */
 const CARGO_TYPES=[
-  {id:'books',name:'Banned Books',icon:'📚',baseValue:180,riskMod:0,desc:'Texts of reason and philosophy, outlawed by the state. Heavy, but essential.'},
-  {id:'jazz',name:'Jazz Records',icon:'🎷',baseValue:240,riskMod:15,desc:'Decadent American jazz — illegal, irresistible, and in high demand.'},
-  {id:'art',name:'Stolen Masterpiece',icon:'🖼️',baseValue:380,riskMod:30,desc:'A painting seized by the authorities. Worth a fortune to the right buyer.'},
+  {id:'books',name:'Banned Books',icon:'📚',baseValue:180,riskMod:0,desc:'Philosophy, poems, and politically unhelpful novels packed in dull paper so the crates look boring.'},
+  {id:'jazz',name:'Jazz Records',icon:'🎷',baseValue:240,riskMod:15,desc:'Imported American jazz hidden under shipping blankets. Illegal, irresistible, and impossible not to dance to.'},
+  {id:'art',name:'Recovered Masterpiece',icon:'🖼️',baseValue:380,riskMod:30,desc:'A painting "temporarily seized" by the authorities. Worth a fortune to the right buyer with the curtains closed.'},
 ];
 
 const STOPS=[
-  {id:'basel',  name:'Basel',       flag:'🇨🇭', desc:'Where the Rhine bends north. Your warehouse, your barge, your contraband.'},
-  {id:'stras',  name:'Strasbourg',  flag:'🇫🇷', desc:'A border city — French in tongue but German in feeling. Customs here is... thorough.'},
-  {id:'mainz',  name:'Mainz',       flag:'🇩🇪', desc:'Wine city. The inspectors here are fond of a good Riesling. Keep that in mind.'},
-  {id:'cologne',name:'Cologne',     flag:'🇩🇪', desc:'Cathedral city. The inspector general operates from here. Extra caution.'},
-  {id:'rotter', name:'Rotterdam',   flag:'🇳🇱', desc:'The mouth of the Rhine. Your buyer waits. Do not be late.'},
+  {id:'basel',  name:'Basel',       flag:'🇨🇭', desc:'Where the Rhine bends north. Your warehouse smells like rope, paper dust, and trouble.'},
+  {id:'stras',  name:'Strasbourg',  flag:'🇫🇷', desc:'A border city full of paperwork, suspicious eyebrows, and dockworkers who know when not to ask questions.'},
+  {id:'mainz',  name:'Mainz',       flag:'🇩🇪', desc:'Wine city. The inspectors here appreciate Riesling, plausible invoices, and being treated like geniuses.'},
+  {id:'cologne',name:'Cologne',     flag:'🇩🇪', desc:'Cathedral city. The inspector general lurks here, along with half the gossip on the river.'},
+  {id:'rotter', name:'Rotterdam',   flag:'🇳🇱', desc:'The mouth of the Rhine. Your buyer waits with cash, caution, and a wagon that definitely belongs to someone else.'},
 ];
 
 const RIVER_EVENTS=[
   {title:'🌫️ Rhine Fog',text:'A thick fog rolls in overnight. You cannot see ten meters from the bow. But then again — neither can anyone else.',
    choices:[{i:'🚀',t:'Push through (full speed)',out:'You navigate by instinct. Progress gained, but the hull scrapes a hidden sandbar.',fx:function(){G.coal=c(G.coal-8,0,100);G.progress+=15;G.integrity=c(G.integrity-12,0,100);}},
             {i:'⚓',t:'Anchor and wait',out:'You wait till dawn. Lost time, but the barge and her cargo are intact.',fx:function(){G.day++;G.msg='You lost a day to fog — but the Weimar fog was worse.'}}]},
-  {title:'🚓 River Police Patrol',text:'A police launch cuts across your bow. The officer shines a light. You have three options.',
+  {title:'🚓 River Police Patrol',text:'A police launch cuts across your bow. The officer shines a light straight into the tarps and asks the sort of cheerful questions nobody likes.',
    choices:[{i:'💰',t:'Bribe (30 Marks)',out:'The officer pockets your note without a word. You sail on.',fx:function(){if(G.marks>=30){G.marks-=30;G.heat=c(G.heat-5,0,100);}else{G.heat=c(G.heat+25,0,100);G.msg='No money for bribes — they log your name.'}}},
             {i:'😇',t:'Act innocent',out:'Your papers are in order. They let you pass — but something felt off.',fx:function(){G.heat=c(G.heat+10,0,100);}}]},
   {title:'💨 Favorable Current',text:'The current shifts and carries you forward faster than the charts said. A gift from the river.',
@@ -183,7 +183,7 @@ const RIVER_EVENTS=[
   {title:'⚙️ Engine Trouble',text:'A knock from below decks. The mechanic shrugs. "Probably nothing. Probably."',
    choices:[{i:'🔧',t:'Stop and fix (costs 20 Marks)',out:'Three hours of work. But she runs clean now.',fx:function(){if(G.marks>=20){G.marks-=20;G.coal=c(G.coal+15,0,100);}else{G.heat=c(G.heat+5,0,100);G.coal=c(G.coal-15,0,100);G.msg='Ran without repairs — efficiency suffered.'}}},
             {i:'🙏',t:'Keep moving, keep praying',out:'She holds... for now. The knocking stops. Mostly.',fx:function(){G.coal=c(G.coal-20,0,100);}}]},
-  {title:'🤝 Fellow Traveler',text:'A small boat pulls alongside. The skipper has the look of a man who moves things. He nods at your cargo.',
+  {title:'🤝 Fellow Traveler',text:'A small boat pulls alongside. The skipper has the look of a man who moves things without invoicing them. He nods at your cargo as if complimenting a hat.',
    choices:[{i:'🙈',t:'Ignore him',out:'He shrugs and peels away. Maybe a missed connection. Maybe not.',fx:function(){}},
             {i:'🗣️',t:'Talk (he offers a tip)',out:'He names a contact in the next port. Your heat drops — someone smooth the way.',fx:function(){G.heat=c(G.heat-15,0,100);G.marks=c(G.marks+10,0,9999);}}]},
   {title:'⛈️ Rhine Storm',text:'The sky goes dark in an hour. By midnight the waves are throwing spray across the deck.',
@@ -192,16 +192,16 @@ const RIVER_EVENTS=[
   {title:'👂 Someone Is Listening',text:'At the tavern dock, you notice a man writing in a small notebook. He watches your barge too carefully.',
    choices:[{i:'🌙',t:'Change berth, move quietly',out:'You relocate before dawn. He does not follow.',fx:function(){G.marks=c(G.marks-15,0,9999);G.heat=c(G.heat-10,0,100);}},
             {i:'😶',t:'Do nothing, stay calm',out:'He may be nothing. He may not. You sleep badly.',fx:function(){G.heat=c(G.heat+20,0,100);}}]},
-  {title:'💊 Sympathetic Custom Official',text:'An official flags you down, then leans in quietly. "I know what you carry. I know why. Here." He hands you a clearance stamp.',
+  {title:'💊 Sympathetic Custom Official',text:'An official flags you down, glances both ways, and lowers his voice. "My sister likes books. My brother likes jazz. Take this and keep moving."',
    choices:[{i:'🙏',t:'Accept it gratefully',out:'The stamp gets you through three checkpoints without question.',fx:function(){G.heat=c(G.heat-25,0,100);G.marks=c(G.marks+20,0,9999);}},
             {i:'👎',t:'Refuse — too risky',out:'You cannot trust gifts from officials. But you remember his face.',fx:function(){}}]},
   {title:'🧱 Bridge Toll',text:'The toll keeper demands papers AND money. The bridge is the only crossing for forty kilometers.',
    choices:[{i:'💰',t:'Pay the toll (25 Marks)',out:'You pay. You pass. No further complications.',fx:function(){G.marks=c(G.marks-25,0,9999);}},
             {i:'😠',t:'Argue the charge',out:'You argue and lose. He charges double and notes your registration.',fx:function(){G.marks=c(G.marks-45,0,9999);G.heat=c(G.heat+10,0,100);}}]},
-  {title:'🎻 River Festival',text:'A village holds its summer festival on the banks. Lanterns float. An accordion plays. The police are busy with crowd control.',
+  {title:'🎻 River Festival',text:'A village holds its summer festival on the banks. Lanterns float. An accordion plays. Even the police look distracted and slightly hungry.',
    choices:[{i:'🎉',t:'Dock and blend in',out:'You spend the evening among farmers and river workers. Your cargo moves unmolested.',fx:function(){G.heat=c(G.heat-20,0,100);G.marks=c(G.marks+15,0,9999);}},
             {i:'🚀',t:'Keep moving — no time',out:'You push on through the music and lights.',fx:function(){G.progress+=12;}}]},
-  {title:'🔧 Coal Barge Alongside',text:'A passing coal barge offers to sell. The price is fair. The skipper does not ask questions.',
+  {title:'🔧 Coal Barge Alongside',text:'A passing coal barge offers to sell. The price is fair. The skipper does not ask questions, which is one of the finest qualities a man can have.',
    choices:[{i:'⛽',t:'Buy coal (20 Marks)',out:'Your bunkers are full. The barge departs without a word.',fx:function(){G.marks=c(G.marks-20,0,9999);G.coal=c(G.coal+30,0,100);}},
             {i:'👎',t:'Decline',out:'You wave him off. You have enough for now.',fx:function(){}}]},
   {title:'🌙 Night Crossing',text:'You can make the next checkpoint tonight or wait until morning. Night crossings avoid the day shift — but they are technically illegal.',
@@ -305,9 +305,8 @@ function showTitle(){
     '<div class="page-title" style="font-size:2.8em">CONTRABAND TRAIL</div>'+
     '<div class="page-sub" style="font-size:1.1em">Rhine River, 1922 — Weimar Germany</div>'+
     '<div class="card" style="max-width:460px;text-align:left;font-size:0.88em;color:#b8aa88;line-height:1.6;">'+
-    'The republic wobbles. The censors grow bold. Someone must move the books, the records, the art. '+
-    'Down the Rhine from Basel to Rotterdam — through checkpoints, fog, and the particular attention of the river police.<br><br>'+
-    'That someone is you.'+
+    'The republic wobbles. The censors grow bold. Somebody has to move the books, the records, the paintings, and the other things that governments suddenly become very interested in.<br><br>'+
+    'So you load the barge in Basel and aim north for Rotterdam, where a buyer with good taste and worse paperwork is waiting. Between here and there: fog, checkpoints, dock gossip, and the particular attention of the river police.'+
     '</div>'+
     '<button class="btn primary" style="font-size:1.1em;padding:14px 40px" onclick="startNewGame()">⛵ Begin the Run</button>'+
     '<a href="../index.html" style="color:#5a4a28;font-size:0.8em;text-decoration:none">← Back to Mucko\'s Games</a>'+
@@ -342,7 +341,7 @@ function showCargoSelect(){
 
 function selectCargo(id){
   G.cargo=CARGO_TYPES.find(function(ct){return ct.id===id;});
-  G.msg='Your cargo is loaded. The Rhine awaits.';
+  G.msg='Your cargo is loaded, tarped, and described on paper as something much duller.';
   G.screen='travel'; render();
 }
 
@@ -354,7 +353,7 @@ function showTravel(){
     '<button class="btn'+(th==='normal'?' primary':'')+'" style="'+btnStyle+'" onclick="setThrottle(\'normal\')">⛵ Normal</button>'+
     '<button class="btn'+(th==='full'?' primary':'')+'" style="'+btnStyle+'" onclick="setThrottle(\'full\')">🔥 Full Speed</button>'+
     '</div>';
-  var thDesc={'careful':'Less coal, slower progress, lower risk of events.','normal':'Balanced. The Rhine way.','full':'Burn coal hard — faster but more wear on everything.'};
+  var thDesc={'careful':'Less coal, slower progress, fewer chances to look suspicious.','normal':'Balanced. The Rhine way: steady smoke, steady nerve.','full':'Burn coal hard. Faster, louder, and more memorable.'};
   el().innerHTML='<div class="page">'+
     statusBar()+
     routeStrip()+
@@ -446,8 +445,8 @@ function showShop(){
   var items=[
     {icon:'⛽',name:'Coal (top up)',cost:18,eff:'+25% coal',canBuy:G.coal<90,fx:function(){G.marks-=18;G.coal=c(G.coal+25,0,100);}},
     {icon:'🔧',name:'Cargo Re-packing',cost:12,eff:'+20% integrity',canBuy:G.integrity<90,fx:function(){G.marks-=12;G.integrity=c(G.integrity+20,0,100);}},
-    {icon:'🤐',name:'Bribe Local Official',cost:30,eff:'-25% heat',canBuy:G.heat>10,fx:function(){G.marks-=30;G.heat=c(G.heat-25,0,100);}},
-    {icon:'📋',name:'Forged Papers',cost:45,eff:'-35% heat + safer port',canBuy:G.marks>=45,fx:function(){G.marks-=45;G.heat=c(G.heat-35,0,100);}},
+    {icon:'🤐',name:'Smooth a Local Official',cost:30,eff:'-25% heat',canBuy:G.heat>10,fx:function(){G.marks-=30;G.heat=c(G.heat-25,0,100);}},
+    {icon:'📋',name:'Fresh Forged Papers',cost:45,eff:'-35% heat + safer port',canBuy:G.marks>=45,fx:function(){G.marks-=45;G.heat=c(G.heat-35,0,100);}},
     {icon:'💰',name:'Sell side cargo',cost:0,eff:'+40 Marks',canBuy:true,fx:function(){G.marks+=40;}},
   ];
   var grid=items.map(function(it){
@@ -473,11 +472,11 @@ function showShop(){
 
 function shopBuy(name){
   var item=window._shopItems.find(function(it){return it.name===name;});
-  if(item&&item.canBuy&&G.marks>=item.cost){item.fx();G.msg='Purchased: '+item.name;render();}
+  if(item&&item.canBuy&&G.marks>=item.cost){item.fx();G.msg='Handled at port: '+item.name;render();}
 }
 
 function depart(){
-  G.screen='travel';G.msg='You cast off from '+STOPS[G.leg].name+'. The Rhine runs north.';render();
+  G.screen='travel';G.msg='You cast off from '+STOPS[G.leg].name+'. Ropes free, boiler hot, papers hopefully convincing.';render();
 }
 
 /* ── PORT CUSTOMS (CANVAS STEALTH) ───────────────────────────────────────── */
@@ -639,18 +638,18 @@ function updatePort(dt){
   if(!p.cargo.delivered){
     if(!p.cargo.carried){
       if(dist(p.player,{x:p.cargo.x+8,y:p.cargo.y+8})<28&&doAction){
-        p.cargo.carried=true;p.msg='Carrying cargo — move slow, stay hidden!';p.msgTimer=3;beep(660,0.1,0.15);
+        p.cargo.carried=true;p.msg='Cargo in hand. Slow steps, no heroics.';p.msgTimer=3;beep(660,0.1,0.15);
       }
     } else {
       p.cargo.x=p.player.x-8;p.cargo.y=p.player.y+8;
       if(doAction){
-        p.cargo.carried=false;p.msg='Cargo set down.';p.msgTimer=2;beep(440,0.1,0.1);
+        p.cargo.carried=false;p.msg='Cargo set down. Nobody saw a thing.';p.msgTimer=2;beep(440,0.1,0.1);
       }
     }
     // Check delivery to exit
     if(p.cargo.carried&&p.player.x>p.exit.x&&p.player.y>p.exit.y&&p.player.y<p.exit.y+p.exit.h){
       p.cargo.delivered=true;p.done=true;p.success=true;p.doneTimer=0;
-      chime(); showPortMsg('CARGO DELIVERED!');
+      chime(); showPortMsg('CARGO AWAY!');
     }
   }
 
@@ -699,7 +698,7 @@ function caughtInPort(){
   el().classList.remove('hidden');
   G.heat=c(G.heat+30,0,100);
   G.cargo=null;
-  G.msg='The customs officer seized your cargo and logged your name. Heat +30.';
+  G.msg='The customs officer seized the cargo, wrote your name in a notebook, and looked very pleased about it. Heat +30.';
   shake(10, 600);
   if(G.heat>=100){G.screen='arrested';render();return;}
   G.screen='shop';render();
@@ -717,7 +716,7 @@ function finishPort(){
     G.marks+=sale;
     G.heat=c(G.heat+riskMod-5,0,100); // risk from cargo type, minus success bonus
     G.cargo=null;
-    G.msg='Cargo delivered! Received '+sale+' Marks. The buyer asks no questions.';
+    G.msg='Cargo delivered. Received '+sale+' Marks. The buyer asks no questions and offers coffee.';
     chime();
   }
   G.screen='shop';render();
@@ -912,6 +911,7 @@ function showArrested(){
     '<div class="page-title" style="color:#cc4444">ARRESTED</div>'+
     '<div class="card" style="max-width:480px;text-align:left">'+
     '<div style="font-size:0.9em;color:#aa8888;line-height:1.6">'+G.msg+'</div>'+
+    '<div style="font-size:0.82em;color:#8f7a66;line-height:1.6;margin-top:10px">The cargo is gone, the barge is searched, and several officials are suddenly very proud of themselves. The Rhine will still be there tomorrow, but not tonight.</div>'+
     '</div>'+
     '<div style="font-size:0.85em;color:#7a5a40">Day '+G.day+' · '+STOPS[Math.min(G.leg,4)].name+'</div>'+
     '<button class="btn primary" onclick="startNewGame()">🔄 Try Again</button>'+
@@ -924,10 +924,16 @@ function showVictory(){
   var final=Math.round(G.marks+(G.heat<30?80:G.heat<60?40:0));
   var grade=final>500?'S':final>350?'A':final>220?'B':'C';
   var gradeCol={'S':'#f0d060','A':'#88ff88','B':'#aaddff','C':'#cc9966'}[grade];
+  var narrative=G.heat<30
+    ?'You slip into Rotterdam nearly invisible. The buyer counts the cash, the cargo disappears into a warehouse, and by supper everyone is already pretending this never happened.'
+    :G.heat<60
+      ?'It is a close-run finish. The buyer pays, the crew exhales, and the barge finally gets a quiet evening tied up where nobody is asking difficult questions.'
+      :'You make it with smoke in the air and gossip at your heels, but you make it. The cargo is gone, the money is real, and tomorrow can worry about itself tomorrow.';
   el().innerHTML='<div class="page" style="justify-content:center;align-items:center;text-align:center;">'+
     '<div style="font-size:5em;line-height:1">🏆 🎉</div>'+
     '<div class="page-title" style="color:#ffd700;text-shadow:0 0 12px rgba(255,215,0,.4)">ROTTERDAM</div>'+
     '<div class="page-sub">You made it. The Rhine is behind you. The buyer is pleased.</div>'+
+    '<div style="max-width:520px;margin:10px auto 4px;color:#b8aa88;font-size:0.88em;line-height:1.6">'+narrative+'</div>'+
     '<div class="card" style="max-width:480px">'+
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;text-align:left">'+
     '<div><span style="color:#7a6840;font-size:0.75em">DAYS AT SEA</span><br><span style="font-size:1.4em;color:#c8a84a">'+G.day+'</span></div>'+
