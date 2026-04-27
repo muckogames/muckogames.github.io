@@ -264,16 +264,16 @@ var HOUSE_COLORS  = ['#c8b090','#d0b8a0','#b8a888','#ccb898','#d4bc9c','#bfaa88'
 var ROOF_COLORS   = ['#8b5c3a','#7a4c2a','#9a6c4a','#6b4c2a','#8a5c3a','#7b4e2e'];
 
 var LOREM = [
-  'Lorem ipsum dolor sit amet.',
-  'Consectetur adipiscing elit.',
-  'Sed do eiusmod tempor.',
-  'Ut labore et dolore magna.',
-  'Aliqua ut enim ad minim.',
-  'Quis nostrud exercitation.',
-  'Ullamco laboris nisi ut.',
-  'Duis aute irure dolor in.',
-  'Voluptate velit esse cillum.',
-  'Excepteur sint occaecat.',
+  'Case note: check the back hallway.',
+  'Blueprint scrap: pantry shelf squeaks.',
+  'Reminder: hide the Deeb Bag upstairs.',
+  'Do not leave cigars near curtains.',
+  'Police scanner battery low again.',
+  'Lunch receipt: sandwich missing.',
+  'Crow Tech invoice: paid in cash.',
+  'Sticky note: vault room after sunset.',
+  'Suspicious map fragment. Very suspicious.',
+  'Duck clue: try the other room first.',
 ];
 
 var COLORS = ['red','blue','green','yellow','purple','orange'];
@@ -954,7 +954,7 @@ function updateHouse(dt) {
     returnPhase = 'alley';
     initChase();
     phase = 'chase';
-    showPopup('THE OWNERS CAME HOME!', 2);
+    showPopup('The owners came home. Duck first, deeb later!', 2);
     return;
   }
   if (player.gridCol == null) ddInitGridAt(0, 7); // first frame after entering
@@ -967,7 +967,7 @@ function updateHouse(dt) {
     if (!s.collected && dist(player, s) < 22) {
       s.collected = true;
       energy = Math.min(ENERGY_MAX, energy + SEED_BONUS);
-      showPopup('Seeds! +' + SEED_BONUS + ' energy \uD83C\uDF3E', 1.5);
+      showPopup('Snack stash! +' + SEED_BONUS + ' energy \uD83C\uDF3E', 1.5);
     }
   }
 
@@ -1010,7 +1010,7 @@ function renderHouse() {
   // Room label
   txt('Room ' + (currentRoom + 1) + ' of ' + numRooms, 72, 44, '#7a5030', 13, 'left', 'bold monospace');
   // Instruction
-  txt('Find the code on a paper, then enter it at the door \u25B6', W / 2, 44, '#7a5030', 11, 'center');
+  txt('Read the clue papers, find the code, then punch it in at the door \u25B6', W / 2, 44, '#7a5030', 11, 'center');
 
   // Door
   rndRect(W - 62, DOOR_Y - 42, 62, 84, 6, '#8b5c3a');
@@ -1018,7 +1018,7 @@ function renderHouse() {
   circ(W - 16, DOOR_Y, 4, '#ffd700');
   // Door prompt
   if (dist(player, {x: DOOR_X, y: DOOR_Y}) < 55) {
-    drawPrompt('[E] Enter code', DOOR_X - 20, DOOR_Y - 50);
+    drawPrompt('[E] Enter clue code', DOOR_X - 20, DOOR_Y - 50);
   }
 
   // Papers
@@ -1130,7 +1130,7 @@ function renderChase() {
 
   var timeLeft = Math.ceil(chaseTimer);
   var timerColor = timeLeft <= 10 ? '#ff4444' : '#ffee44';
-  txt('POLICE CHASE!  Run for ' + timeLeft + 's', W / 2, 38, timerColor, 22, 'center', 'bold monospace');
+  txt('POLICE CHASE!  Keep the plan alive for ' + timeLeft + 's', W / 2, 38, timerColor, 22, 'center', 'bold monospace');
 
   for (var j = 0; j < police.length; j++) drawPolice(police[j]);
 
@@ -1340,14 +1340,14 @@ function renderJail() {
   if (jailFlash > 0) {
     ctx.fillStyle = 'rgba(255,40,40,' + (jailFlash * 0.5) + ')';
     ctx.fillRect(0, 0, W, H);
-    txt('WRONG RUG!', W / 2, H / 2, '#fff', 28, 'center', 'bold monospace');
+    txt('WRONG RUG! Botched clue!', W / 2, H / 2, '#fff', 28, 'center', 'bold monospace');
   }
 
   // Big unambiguous loss banner (for non-readers)
   ctx.font = '56px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText('\uD83D\uDE35 \uD83D\uDD12', W / 2, 36);
   ctx.textBaseline = 'alphabetic';
-  txt('JAIL — Escape through the correct tunnel!', W / 2, 78, '#884444', 12, 'center', 'bold monospace');
+  txt('JAIL — Find the right tunnel and deeb your way back out!', W / 2, 78, '#884444', 12, 'center', 'bold monospace');
 
   drawMobileControls();
   drawHUD();
@@ -1373,11 +1373,12 @@ function renderVictory() {
   ctx.fillText('\uD83C\uDFC6 \uD83C\uDF89', W / 2, 80);
   ctx.textBaseline = 'alphabetic';
 
-  txt('CONTRABAND SECURED!', W / 2, 135, '#ffd700', 28, 'center', 'bold Georgia');
+  txt('SHUCKY DUCKY! CONTRABAND SECURED!', W / 2, 135, '#ffd700', 28, 'center', 'bold Georgia');
 
   var score = Math.max(0, Math.floor(energy));
   var pct = Math.max(0, energy / ENERGY_MAX);
   txt('Energy: ' + score + ' / ' + ENERGY_MAX, W / 2, 170, '#88ff88', 16, 'center', 'bold monospace');
+  txt('Duck Dieb gets clear with the loot, the clues, and just enough energy to plan the next deeb.', W / 2, 194, '#c8d4b0', 12, 'center', 'Georgia');
 
   var bw = 280, bh = 18, bx = (W - bw) / 2, by = 178;
   rect(bx, by, bw, bh, '#1a1a1a');
@@ -1389,8 +1390,8 @@ function renderVictory() {
   ctx.fillText((stars >= 1 ? '\u2B50' : '\u2606') + (stars >= 2 ? '\u2B50' : '\u2606') + (stars >= 3 ? '\u2B50' : '\u2606'), W / 2, 226);
   ctx.textBaseline = 'alphabetic';
 
-  if (jailCount > 0) txt('Trips to jail: ' + jailCount, W / 2, 258, '#ff8888', 13, 'center');
-  if (powerOff)      txt('\u26A1 Power-off bonus used', W / 2, 276, '#ffff88', 12, 'center');
+  if (jailCount > 0) txt('Jail detours: ' + jailCount, W / 2, 258, '#ff8888', 13, 'center');
+  if (powerOff)      txt('\u26A1 Raccoon power-cut plan used', W / 2, 276, '#ffff88', 12, 'center');
 
   // High score table
   var hsAll = getHS();
@@ -1447,7 +1448,7 @@ function renderTitle() {
   txt('DUCK DIEB', W / 2 + 4, 119, '#000', 68, 'center', 'bold Georgia');
   ctx.globalAlpha = 1;
 
-  txt('A Duck Thief Adventure', W / 2, 148, '#88cc88', 17, 'center', 'italic Georgia');
+  txt('A clue-hunting duck heist through Burglar Alley', W / 2, 148, '#88cc88', 17, 'center', 'italic Georgia');
 
   // Big duck
   ctx.save();
@@ -1458,9 +1459,9 @@ function renderTitle() {
 
   rndRect(W/2 - 260, 300, 520, 120, 10, 'rgba(0,0,0,0.4)');
   txt('\u2022  Walk to the target house and press DIEB!', W / 2, 326, '#ccc', 13, 'center');
-  txt('\u2022  Search rooms for the door code', W / 2, 350, '#ccc', 13, 'center');
-  txt('\u2022  Grab the Contraband and escape the police!', W / 2, 374, '#ccc', 13, 'center');
-  txt('\u2022  Raccoons can help cut the power \uD83E\uDD9D', W / 2, 398, '#ccc', 13, 'center');
+  txt('\u2022  Read clue papers and recover the door code', W / 2, 350, '#ccc', 13, 'center');
+  txt('\u2022  Recover the contraband and beat the police to the getaway!', W / 2, 374, '#ccc', 13, 'center');
+  txt('\u2022  Raccoons can cut the power and shorten the code \uD83E\uDD9D', W / 2, 398, '#ccc', 13, 'center');
 
   txt('Arrow keys / WASD to move  \u2022  E to interact', W / 2, 440, '#888', 12, 'center');
 
@@ -1508,7 +1509,7 @@ function renderHighScores() {
 
   var hsAll = getHS();
   if (hsAll.length === 0) {
-    txt('No scores yet — steal something!', W / 2, H / 2, '#888', 18, 'center');
+    txt('No scores yet — time to deeb something back.', W / 2, H / 2, '#888', 18, 'center');
   } else {
     var cols = [W/2 - 200, W/2 - 80, W/2 + 60, W/2 + 170];
     var hdrs = ['#', 'Energy', 'Stars', 'Date'];

@@ -266,9 +266,9 @@ const C={
 
 /* --- DIFFICULTY --- */
 const DIFFS=[
-  {id:'easy',  label:'Fluffy Friend',   col:'#88cc88',noiseRate:0.6,laserSpd:0.5,contrabandCount:8, cartObstFreq:0.4,qteSpeed:2.0, desc:'A gentle burgle for beginners.'},
-  {id:'medium',label:'Rascally Rodent', col:'#e8b820',noiseRate:1.0,laserSpd:1.0,contrabandCount:14,cartObstFreq:0.7,qteSpeed:1.4, desc:'A fair challenge for any hamster.'},
-  {id:'hard',  label:'Burgling Boss',   col:'#dd4444',noiseRate:1.5,laserSpd:1.5,contrabandCount:20,cartObstFreq:1.0,qteSpeed:0.9, desc:'Only the bravest rodents survive.'},
+  {id:'easy',  label:'Fluffy Friend',   col:'#88cc88',noiseRate:0.6,laserSpd:0.5,contrabandCount:8, cartObstFreq:0.4,qteSpeed:2.0, desc:'A gentle bedtime burgle with room for snacks.'},
+  {id:'medium',label:'Rascally Rodent', col:'#e8b820',noiseRate:1.0,laserSpd:1.0,contrabandCount:14,cartObstFreq:0.7,qteSpeed:1.4, desc:'A proper household heist for a capable hamster.'},
+  {id:'hard',  label:'Burgling Boss',   col:'#dd4444',noiseRate:1.5,laserSpd:1.5,contrabandCount:20,cartObstFreq:1.0,qteSpeed:0.9, desc:'The full Dieb operation, no squeaking allowed.'},
 ];
 let diff=DIFFS[1];
 
@@ -427,6 +427,9 @@ function drawPfluegerSleeping(x,y){
   txt('z',10,-18+zOff,'rgba(255,255,255,0.4)',10,'center');
   txt('z',18,-26+zOff*1.2,'rgba(255,255,255,0.3)',13,'center');
   txt('Z',26,-36+zOff*1.5,'rgba(255,255,255,0.25)',16,'center');
+  txt('☕',34,10,'',16);
+  txt('🧦',46,0,'',14);
+  txt('📖',52,16,'',13);
   ctx.restore();
 }
 
@@ -466,7 +469,7 @@ function drawTitle(){
   txt('Samster',W/2,100,C.gold,52,'center','Georgia');
   txt('Diebs from the Diebs',W/2,148,'#c8a060',28,'center','Georgia');
   ctx.restore();
-  txt('A hamster heist adventure',W/2,178,'#8899aa',16,'center','Georgia');
+  txt('A bedtime hamster heist through vents, sewers, and stolen snacks',W/2,178,'#8899aa',16,'center','Georgia');
   rnd(10,10,W-20,H-20,22,null,'rgba(200,160,96,0.2)',2);
   // high scores button
   const hx=W-168,hy=H-52,hw=154,hh=36;
@@ -530,7 +533,7 @@ function drawDiff(){
   fillRect(0,0,W,H,g);
   rnd(14,14,W-28,H-28,22,null,'rgba(200,160,96,0.22)',2.5);
   txt('Choose Your Challenge',W/2,60,C.gold,30,'center','Georgia');
-  txt('Affects noise sensitivity, laser speed, and more.',W/2,88,C.dimTxt,14,'center',"'Courier New',monospace");
+  txt('Affects noise sensitivity, laser speed, and how bold the Diebs get.',W/2,88,C.dimTxt,14,'center',"'Courier New',monospace");
   DIFFS.forEach((d,i)=>{
     const bx=W/2-200,by=120+i*115,bw=400,bh=95;
     const hov=mx>=bx&&mx<=bx+bw&&my>=by&&my<=by+bh;
@@ -777,7 +780,7 @@ function drawStealth(){
   ctx.arc(s.player.x,s.player.y,visR,-0,TAU,true);
   ctx.fill();
   ctx.restore();
-  // Pflueger sleeping
+  // sleeping owner
   drawPfluegerSleeping(3.5*TILE,2.5*TILE);
   // player
   drawSamster(s.player.x,s.player.y,0.8,s.player.anim,s.player.dir);
@@ -791,8 +794,8 @@ function drawStealth(){
   strokeCirc(0,0,0,'transparent',0); // reset
   txt(`${Math.round(s.noise)}%`,UI_X+UI_W/2,94,C.cream,13,'center',"'Courier New',monospace");
   // Pflueger status
-  const pStatus=s.noise<50?'💤 Sleeping':s.noise<80?'😐 Stirring...':'😡 Waking up!';
-  txt('PFLUEGER',UI_X+UI_W/2,126,C.dimTxt,12,'center',"'Courier New',monospace");
+  const pStatus=s.noise<50?'💤 Fast asleep':s.noise<80?'😐 Blanket rustle...':'😡 Definitely waking!';
+  txt('SLEEPING OWNER',UI_X+UI_W/2,126,C.dimTxt,12,'center',"'Courier New',monospace");
   txt(pStatus,UI_X+UI_W/2,146,s.noise<50?'#88bb88':'#dd8844',13,'center','Georgia');
   // controls
   txt('CONTROLS',UI_X+UI_W/2,178,C.dimTxt,12,'center',"'Courier New',monospace");
@@ -803,12 +806,12 @@ function drawStealth(){
     ctx.globalAlpha=0.85;fillRect(0,0,MAP_W,H,'#1a0808');ctx.globalAlpha=1;
     ctx.fillStyle='#ff8844';ctx.font='bold 40px Georgia';ctx.textAlign='center';
     ctx.fillText('BUSTED!',MAP_W/2,H/2-30);
-    txt('"SAMSTER! Go back to your cage!"',MAP_W/2,H/2+10,'#ffaa88',16,'center','Georgia');
-    txt('Pflueger woke up...',MAP_W/2,H/2+40,C.dimTxt,14,'center',"'Courier New',monospace");
+    txt('"SAMSTER! Back to bed, tiny burglar!"',MAP_W/2,H/2+10,'#ffaa88',16,'center','Georgia');
+    txt('The whole bedroom routine has gone sideways...',MAP_W/2,H/2+40,C.dimTxt,14,'center',"'Courier New',monospace");
   }
   if(s.hint&&s.hintTimer-->0){
     rnd(10,H-60,MAP_W-20,44,8,'rgba(0,0,0,0.85)',C.dialogBdr,1);
-    txt('Sneak to the vent (→) without waking Pflueger! Creaky boards are noisy!',MAP_W/2,H-32,C.cream,12,'center','Georgia');
+    txt('Sneak to the vent (→) without waking the sleeping owner. Creaky boards are noisy!',MAP_W/2,H-32,C.cream,12,'center','Georgia');
   }
 }
 function drawStealthWin(){
@@ -816,7 +819,7 @@ function drawStealthWin(){
   ctx.save();ctx.translate(W/2,H/2-20);drawSamster(0,0,2,t,0);ctx.restore();
   ctx.fillStyle=C.gold;ctx.font='bold 36px Georgia';ctx.textAlign='center';
   ctx.fillText('ESCAPED!',W/2,120);
-  txt('Samster slips through the vent into the sewers...',W/2,170,'#c8c0a0',16,'center','Georgia');
+  txt('Samster slips through the vent, past the coffee pods, and into the sewers below...',W/2,170,'#c8c0a0',16,'center','Georgia');
   const bx=W/2-120,by=H-80,bw=240,bh=50;
   const bh2=mx>=bx&&mx<=bx+bw&&my>=by&&my<=by+bh;
   rnd(bx,by,bw,bh,8,bh2?'#3a4a3a':'#2a3a2a',C.dialogBdr,2);
@@ -924,7 +927,7 @@ const HIDEOUT_ROOMS=[
     [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
     [1,1,1,1,1,1,1,1,1,7,7,1,1,1,1,1,1,1,1,1],
   ]},
-  {name:'Storage Room',map:[
+  {name:'Dieb Storage Room',map:[
     [1,1,1,1,1,1,1,1,1,7,7,1,1,1,1,1,1,1,1,1],
     [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
     [1,0,2,2,0,0,0,0,2,2,0,0,0,0,2,2,0,0,0,1],
@@ -941,7 +944,7 @@ const HIDEOUT_ROOMS=[
     [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
     [1,1,1,1,1,1,1,1,1,7,7,1,1,1,1,1,1,1,1,1],
   ]},
-  {name:'The Vault',map:[
+  {name:'The Dieb Vault',map:[
     [1,1,1,1,1,1,1,1,1,7,7,1,1,1,1,1,1,1,1,1],
     [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
     [1,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,1],
@@ -960,16 +963,16 @@ const HIDEOUT_ROOMS=[
   ]},
 ];
 const ALL_CONTRABAND=[
-  {name:'Rubber Duck',emoji:'🦆',pts:10,room:0,x:5,y:5,hidden:false},
-  {name:'Traffic Cone',emoji:'🦺',pts:15,room:0,x:15,y:3,hidden:true},
-  {name:'Garden Gnome',emoji:'🧑‍🌾',pts:15,room:0,x:10,y:10,hidden:false},
-  {name:"Someone's Lunch",emoji:'🥪',pts:10,room:0,x:3,y:8,hidden:true},
+  {name:'Duck Dieb Rubber Duck',emoji:'🦆',pts:10,room:0,x:5,y:5,hidden:false},
+  {name:'Crow-Tech Traffic Cone',emoji:'🦺',pts:15,room:0,x:15,y:3,hidden:true},
+  {name:'Garden Gnome Decoy',emoji:'🧑‍🌾',pts:15,room:0,x:10,y:10,hidden:false},
+  {name:"Someone's Sandwich",emoji:'🥪',pts:10,room:0,x:3,y:8,hidden:true},
   {name:'Stolen Bicycle',emoji:'🚲',pts:20,room:1,x:5,y:5,hidden:false},
-  {name:'Video Game',emoji:'🎮',pts:20,room:1,x:14,y:3,hidden:true},
-  {name:'Teddy Bear',emoji:'🧸',pts:15,room:1,x:10,y:9,hidden:false},
-  {name:'Gold Bars',emoji:'🥇',pts:30,room:1,x:3,y:7,hidden:true},
+  {name:'Floppy-Disk Game Box',emoji:'🎮',pts:20,room:1,x:14,y:3,hidden:true},
+  {name:'Teddy Bear Hostage',emoji:'🧸',pts:15,room:1,x:10,y:9,hidden:false},
+  {name:'Gold Deeb Bag',emoji:'🥇',pts:30,room:1,x:3,y:7,hidden:true},
   {name:'Cash Bundle',emoji:'💵',pts:25,room:1,x:16,y:11,hidden:false},
-  {name:'Diamond Jewels',emoji:'💎',pts:50,room:2,x:5,y:3,hidden:true},
+  {name:'Diamond Contraband',emoji:'💎',pts:50,room:2,x:5,y:3,hidden:true},
   {name:'Fancy Painting',emoji:'🖼️',pts:40,room:2,x:14,y:2,hidden:false},
   {name:'Ancient Vase',emoji:'🏺',pts:35,room:2,x:9,y:6,hidden:true},
   {name:'Crown',emoji:'👑',pts:50,room:2,x:10,y:8,hidden:true},
@@ -977,7 +980,7 @@ const ALL_CONTRABAND=[
   {name:'Stolen Toys',emoji:'🧩',pts:15,room:0,x:12,y:7,hidden:false},
   {name:'Pearl Necklace',emoji:'📿',pts:30,room:1,x:8,y:12,hidden:true},
   {name:'Skateboard',emoji:'🛹',pts:15,room:0,x:17,y:12,hidden:false},
-  {name:'Trophy',emoji:'🏆',pts:25,room:2,x:16,y:12,hidden:false},
+  {name:'Suspicious Don Trophy',emoji:'🏆',pts:25,room:2,x:16,y:12,hidden:false},
   {name:'Piggy Bank',emoji:'🐷',pts:20,room:1,x:17,y:5,hidden:false},
   {name:'Rare Coin',emoji:'🪙',pts:45,room:2,x:15,y:10,hidden:true},
 ];
@@ -1125,7 +1128,7 @@ function updateHideout(dt){
       if(rc.room!==h.room)return;
       if(Math.hypot(h.player.x-rc.x,h.player.y-rc.y)<50&&rc.cooldown<=0){
         rc.powerOff=powerDur;rc.cooldown=cooldownDur;rc.chatAnim=2.5;
-        showHideoutMsg('🦝 *chews cable* Lasers offline!');
+        showHideoutMsg('🦝 *chews cable* Dieb lasers offline. Nice raccoon work.');
       }
     });
   }
@@ -1134,8 +1137,8 @@ function updateHideout(dt){
     const ix=it.x*TILE+16,iy=it.y*TILE+16;
     const near=Math.hypot(h.player.x-ix,h.player.y-iy)<40;
     if(near&&(!it.hidden||action)){
-      if(!it.hidden){it.found=true;h.foundCount++;score+=it.pts;showHideoutMsg(`Found: ${it.name} (+${it.pts})`);if(h.foundCount>=h.totalCount&&!h.diebsHome&&!h.easyGraceActive){if(diff.id==='easy'){h.easyGraceActive=true;h.easyGraceTimer=25;showHideoutMsg('All found! 🏃 Diebs coming in 25s!');}else{triggerDiebsHome(h);}}}
-      else if(action){it.found=true;h.foundCount++;score+=it.pts;showHideoutMsg(`Found hidden: ${it.name} (+${it.pts})`);if(h.foundCount>=h.totalCount&&!h.diebsHome&&!h.easyGraceActive){if(diff.id==='easy'){h.easyGraceActive=true;h.easyGraceTimer=25;showHideoutMsg('All found! 🏃 Diebs coming in 25s!');}else{triggerDiebsHome(h);}}}
+      if(!it.hidden){it.found=true;h.foundCount++;score+=it.pts;showHideoutMsg(`Recovered: ${it.name} (+${it.pts})`);if(h.foundCount>=h.totalCount&&!h.diebsHome&&!h.easyGraceActive){if(diff.id==='easy'){h.easyGraceActive=true;h.easyGraceTimer=25;showHideoutMsg('All recovered! 🏃 Diebs coming in 25s!');}else{triggerDiebsHome(h);}}}
+      else if(action){it.found=true;h.foundCount++;score+=it.pts;showHideoutMsg(`Recovered hidden: ${it.name} (+${it.pts})`);if(h.foundCount>=h.totalCount&&!h.diebsHome&&!h.easyGraceActive){if(diff.id==='easy'){h.easyGraceActive=true;h.easyGraceTimer=25;showHideoutMsg('All recovered! 🏃 Diebs coming in 25s!');}else{triggerDiebsHome(h);}}}
     }
   });
   // laser collision (skip if raccoon cut power for this room)
@@ -1703,16 +1706,17 @@ function drawVictory(){
   // samster
   drawSamster(v.player.x,v.player.y,1,v.player.anim,v.player.dir);
   // score banner
-  rnd(W/2-180,4,360,56,10,'rgba(0,0,0,0.8)',C.dialogBdr,2);
+  rnd(W/2-260,4,520,88,10,'rgba(0,0,0,0.8)',C.dialogBdr,2);
   txt('🎉 MISSION COMPLETE! 🎉',W/2,28,C.gold,18,'center','Georgia');
   txt(`Final Score: ${score}  |  🍩 ${v.donutsEaten}/12`,W/2,50,C.cream,15,'center','Georgia');
+  txt('Samster, Digory, and a police-station donut break before everybody finally heads home.',W/2,74,'#d8d0bc',13,'center','Georgia');
   if(v.rank>0&&v.rank<=3){
     const medals=['🥇','🥈','🥉'];
     txt(`${medals[v.rank-1]} High Score #${v.rank}!`,W/2,H-120,C.gold,16,'center','Georgia');
   }
   // instructions
   rnd(W/2-130,H-40,260,32,6,'rgba(0,0,0,0.6)',null);
-  txt('Walk around & eat donuts! 🍩',W/2,H-18,C.cream,14,'center','Georgia');
+  txt('Walk around, eat donuts, and enjoy the safe reset. 🍩',W/2,H-18,C.cream,14,'center','Georgia');
   // play again button
   const bx=10,by=H-44,bw=130,bh=36;
   const bh2=mx>=bx&&mx<=bx+bw&&my>=by&&my<=by+bh;

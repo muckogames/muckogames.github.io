@@ -227,35 +227,65 @@ var CHARACTERS = {
   samster: { name: 'Samster',        color: '#dfc18e', accent: '#8d5f35', outline: '#4f311d', sprite: 'hamster' },
   duck:    { name: 'Duck Dieb',      color: '#8b6030', accent: '#2a7a38', outline: '#3c2814', sprite: 'duck',
              special: { type: 'airFlap', lift: 2100, maxRise: 280, flapRate: 7.5,
-                        label: 'FLAP', caption: 'Hold: fly' } },
+                        label: 'FLAP', caption: 'Keep deebing aloft' } },
   hippo:   { name: 'Hippo',          color: '#8f7ea8', accent: '#63557b', outline: '#40324c', sprite: 'hippo',
              special: { type: 'margaritaville', damage: 11, launchX: 380, launchY: 220,
-                        label: 'SHIELD', caption: 'Hold: pool' } },
+                        label: 'SHIELD', caption: 'Pool up and lounge' } },
   nik:     { name: 'Nik',            color: '#6b4a2e', accent: '#c9a47a', outline: '#3a2612', sprite: 'monkey' },
   lekan:   { name: 'Lekan',          color: '#f4f4f4', accent: '#242424', outline: '#202020', sprite: 'panda' },
   basil:   { name: 'Basil',          color: '#6b4527', accent: '#d8b985', outline: '#3b2614', sprite: 'otter' },
   mandy:   { name: 'Mandy Mouse',    color: '#d9a0a3', accent: '#b87e80', outline: '#5b3d40', sprite: 'mouse',
              special: { type: 'scurry', cooldown: 1.8, speed: 640, active: 0.16, range: 22, damage: 7, launchX: 240, launchY: 185,
-                        label: 'ZOOM!', caption: 'Scurry' } },
+                        label: 'ZOOM!', caption: 'Hallway scurry' } },
   // Kept defined so he can return to the roster later without rebuilding the art/spec.
   mucko:   { name: 'Captain Mucko',  color: '#d8a95a', accent: '#8f2f2f', outline: '#5f3914', sprite: 'captain' },
   rocket:  { name: 'Saturn V',       color: '#ededed', accent: '#d76039', outline: '#373737', sprite: 'rocket',
              special: { type: 'abortShot', cooldown: 1.0, speed: 430, radius: 10, damage: 8, launchX: 260, launchY: 135, maxAge: 1.1,
-                        label: 'ABORT', caption: 'Fire rocket' } },
+                        label: 'ABORT', caption: 'Crow-tech panic shot' } },
   digory:  { name: 'Digory',         color: '#f7f5f0', accent: '#18181c', outline: '#3a2c20', sprite: 'digory',
              special: { type: 'bulldogBounce', bounceRate: 8.5, massMul: 2,
-                        label: 'BOUNCE', caption: 'Heavy stance' } },
+                        label: 'BOUNCE', caption: 'Dig in and bounce' } },
   jlong:   { name: 'J. Long',        color: '#f0c84d', accent: '#bf8834', outline: '#5a3a14', sprite: 'giraffe',
              special: { type: 'neckHammer', cooldown: 0.75, active: 0.16, range: 50, radius: 18, damage: 10, launchX: 310, launchY: 170,
-                        label: 'NECK!', caption: 'Swing neck' } },
+                        label: 'NECK!', caption: 'Long-neck wallop' } },
   pras:    { name: 'Pras the Koala', color: '#9aa1a8', accent: '#3a3f48', outline: '#2c2f36', sprite: 'koala',
              moveMul: 0.06, jumpMul: 0.18, dashMul: 0.10 },
   natasha: { name: 'Natasha',        color: '#45b95c', accent: '#ef6944', outline: '#245a2d', sprite: 'parrot',
              special: { type: 'screech', cooldown: 1.2, active: 0.28, range: 68, radius: 32, damage: 9, launchX: 270, launchY: 145,
-                        label: 'SQWK!', caption: 'Screech' } }
+                        label: 'SQWK!', caption: 'Full parrot alarm' } }
 };
 var CHAR_IDS = ['samster', 'duck', 'hippo', 'nik', 'lekan', 'basil', 'mandy', 'rocket', 'digory', 'jlong', 'pras', 'natasha'];
 var SLOT_COLORS = ['#2c7ae8', '#e8862c', '#3ab83a', '#9b4ce8'];
+var CHAR_FLAVOR = {
+  samster: 'Vent runner. Wheel jammer. Tiny household professional.',
+  duck: 'Clue-hunting deeb expert with strong getaway instincts.',
+  hippo: 'Heavy lounge fighter. Hits hard, then sits in the kiddie pool.',
+  nik: 'Quick monkey troublemaker who likes chaos on purpose.',
+  lekan: 'Calm planner. Panda brain. Rarely in a hurry.',
+  basil: 'Otter scrapper with tidy footwork and sneaky confidence.',
+  mandy: 'Fast mouse hallway blur. Brief, sharp, and hard to catch.',
+  mucko: 'Captain energy and dramatic entrances. Not currently in the active roster.',
+  rocket: 'Technically a rocket. Somehow still a valid Smash pick.',
+  digory: 'Real terrier energy: bounce first, nap later.',
+  jlong: 'Giraffe reach specialist with a neck built for trouble.',
+  pras: 'Mostly asleep. Somehow still entered the bracket.',
+  natasha: 'Parrot alarm system with no indoor voice whatsoever.'
+};
+var CHAR_WIN_LINES = {
+  samster: 'Tiny paws, clean getaway.',
+  duck: 'Shucky Ducky. Another deeb complete.',
+  hippo: 'Pool deployed. Bracket handled.',
+  nik: 'Monkey business wins again.',
+  lekan: 'Planned, paced, and finished.',
+  basil: 'Otter composure. Otter victory.',
+  mandy: 'Fast in, fast out, no notes.',
+  mucko: 'Captain-level theatrics, successful as advertised.',
+  rocket: 'Abort button unnecessary. Mission somehow successful.',
+  digory: 'Good dog. Good bounce. Time for the yellow blanket.',
+  jlong: 'Long neck, long reach, short argument.',
+  pras: 'Still sleepy. Still won.',
+  natasha: 'One screech and the room belonged to her.'
+};
 
 // ── Hue-shift helpers ────────────────────────────────────────────────────────
 // When two slots pick the same character, we rotate the duplicates 90° around
@@ -653,37 +683,43 @@ function drawCharacterSidescrollSprite(cx, ch, facing, bob, pose) {
     cx.save();
     if (dir < 0) cx.scale(-1, 1);
     var flap = pose && pose.flap != null ? pose.flap : 0;
-    drawEllipse(cx, -2, 4, 16, 12, '#8b6030', ch.outline, 2);
-    drawEllipse(cx, -2, 5, 12, 7, '#7a5020');
+    var airborne = flap > 0.01;
+    var flapLift = airborne ? (flap * 7 - 2) : 0;
+    drawEllipse(cx, -2, 4 - flapLift * 0.35, 16, 12, '#8b6030', ch.outline, 2);
+    drawEllipse(cx, -2, 5 - flapLift * 0.35, 12, 7, '#7a5020');
     cx.save();
-    cx.translate(-3, 2);
-    cx.rotate(-0.55 - flap * 0.45);
-    drawEllipse(cx, 0, 0, 7, 3.8, '#6f481d', '#3c2814', 1.2);
+    cx.translate(-4, 1 - flapLift * 0.15);
+    cx.rotate(airborne ? (-1.05 + flap * 1.2) : -0.55);
+    drawEllipse(cx, 0, 0, airborne ? 11.5 : 7, airborne ? 4.8 : 3.8, airborne ? '#8b6030' : '#6f481d', '#3c2814', 1.4);
     cx.restore();
     cx.save();
-    cx.translate(1, 2);
-    cx.rotate(0.25 + flap * 0.55);
-    drawEllipse(cx, 0, 0, 7.5, 3.4, '#986531', '#3c2814', 1.2);
+    cx.translate(2, 1 - flapLift * 0.15);
+    cx.rotate(airborne ? (0.95 - flap * 1.1) : 0.25);
+    drawEllipse(cx, 0, 0, airborne ? 12 : 7.5, airborne ? 4.6 : 3.4, airborne ? '#8b6030' : '#986531', '#3c2814', 1.4);
     cx.restore();
+    if (airborne) {
+      drawLine(cx, -12, -4 - flapLift * 0.2, -22, -12 - flapLift * 0.35, 'rgba(255,244,207,0.75)', 1.6);
+      drawLine(cx, -4, -7 - flapLift * 0.15, -12, -17 - flapLift * 0.3, 'rgba(255,244,207,0.55)', 1.2);
+    }
     cx.fillStyle = '#3c2814';
-    cx.beginPath(); cx.moveTo(-12, 2); cx.lineTo(-22, 14); cx.lineTo(-6, 10); cx.closePath(); cx.fill();
-    drawCircle(cx, 10, -7, 8, '#2a7a38', ch.outline, 2);
-    drawCircle(cx, 8, -9, 3.4, 'rgba(0,200,160,0.32)');
+    cx.beginPath(); cx.moveTo(-12, 2 - flapLift * 0.15); cx.lineTo(-22, 14 - flapLift * 0.1); cx.lineTo(-6, 10 - flapLift * 0.08); cx.closePath(); cx.fill();
+    drawCircle(cx, 10, -7 - flapLift * 0.4, 8, '#2a7a38', ch.outline, 2);
+    drawCircle(cx, 8, -9 - flapLift * 0.4, 3.4, 'rgba(0,200,160,0.32)');
     cx.fillStyle = '#111';
-    cx.fillRect(4, -9, 13, 4);
-    drawCircle(cx, 11, -7, 1.4, '#fff');
-    drawEllipse(cx, 20, -3, 7, 3.5, '#e8b800', '#9c7900', 1.4);
+    cx.fillRect(4, -9 - flapLift * 0.4, 13, 4);
+    drawCircle(cx, 11, -7 - flapLift * 0.4, 1.4, '#fff');
+    drawEllipse(cx, 20, -3 - flapLift * 0.35, 7, 3.5, '#e8b800', '#9c7900', 1.4);
     cx.restore();
   } else if (ch.sprite === 'hippo') {
     if (pose && pose.margarita) {
-      fillRoundRect(cx, -18, 8, 36, 11, 5, '#6ec7d5', '#356c78', 2);
-      drawEllipse(cx, 0, 15, 18, 5.2, 'rgba(255,255,255,0.18)');
       drawEllipse(cx, -1, 6, 17, 11, '#b79ace', ch.outline, 2);
       drawCircle(cx, 9 * dir, -1, 8.2, ch.color, ch.outline, 2);
       drawCircle(cx, 4 * dir, -7, 4, ch.color, ch.outline, 2);
       drawCircle(cx, 12 * dir, -8, 3.4, ch.color, ch.outline, 2);
       fillRoundRect(cx, 6 * dir - 5, -5, 10, 3.2, 1.6, '#1e1e22', '#111', 1);
       drawLine(cx, 12 * dir, -2, 14 * dir, 6, '#6f5b88', 1.2);
+      fillRoundRect(cx, -18, 8, 36, 11, 5, '#6ec7d5', '#356c78', 2);
+      drawEllipse(cx, 0, 15, 18, 5.2, 'rgba(255,255,255,0.18)');
       cx.fillStyle = '#5f4b75';
       cx.font = 'bold 12px Georgia,serif';
       cx.textAlign = 'center';
@@ -1168,9 +1204,9 @@ function checkMatchEnd() {
 function playerLeft()  { return K.ArrowLeft  || K.KeyA || touchState.leftBtn; }
 function playerRight() { return K.ArrowRight || K.KeyD || touchState.rightBtn; }
 function jumpHeld()    { return K.Space || K.ArrowUp || K.KeyW || touchState.jumpBtn; }
-function specialHeld() { return K.KeyF || K.KeyJ || touchState.specialBtn; }
+function specialHeld() { return K.KeyF || K.KeyJ || K.ArrowDown || K.KeyS || touchState.specialBtn; }
 function specialPressed() {
-  var kp = eat('KeyF') || eat('KeyJ');
+  var kp = eat('KeyF') || eat('KeyJ') || eat('ArrowDown') || eat('KeyS');
   if (touchState.specialJustPressed) { touchState.specialJustPressed = false; return true; }
   return kp;
 }
@@ -2054,17 +2090,26 @@ function cycleMode(slot) {
     }
   }
 }
+function slotCharId(slot) {
+  return CHAR_IDS[slot.charIdx];
+}
+function slotFlavorText(slot) {
+  return CHAR_FLAVOR[slotCharId(slot)] || '';
+}
 
 function drawSelect() {
   drawBackground();
-  fillRoundRect(ctx, 20, 8, W - 40, 72, 18, 'rgba(16,30,46,0.82)', 'rgba(255,239,190,0.5)', 2);
+  fillRoundRect(ctx, 20, 8, W - 40, 84, 18, 'rgba(16,30,46,0.82)', 'rgba(255,239,190,0.5)', 2);
   drawText(ctx, 'PICK YOUR CHARACTERS', W / 2, 40, '#ffd86f', 26, 'center', 'bold');
   drawText(ctx, 'Tap a character to select • tap a slot strip to focus it • tap LIVES or difficulty to change',
-    W / 2, 64, '#d9e6ef', 11, 'center', 'bold');
+    W / 2, 62, '#d9e6ef', 11, 'center', 'bold');
 
   var L = selectLayout();
   var activeSlotIdx = state.selectActiveSlot;
   var activeSlot = state.slots[activeSlotIdx];
+  var activeName = slotActive(activeSlot) ? CHARACTERS[slotCharId(activeSlot)].name.toUpperCase() : 'NO FIGHTER YET';
+  var activeFlavor = slotActive(activeSlot) ? slotFlavorText(activeSlot) : 'Pick anyone from the Mucko lineup and start a backyard-quality mess.';
+  drawText(ctx, activeName + ' • ' + activeFlavor, W / 2, 82, '#fff4cf', 10, 'center', 'bold');
 
   // Shared character grid
   for (var j = 0; j < L.tiles.length; j++) {
@@ -2425,7 +2470,7 @@ function drawPlay() {
 
   // HUD: back hint (top-right so it doesn't collide with character cards)
   fillRoundRect(ctx, W / 2 - 160, H - 30, 320, 18, 9, 'rgba(16,30,46,0.42)', null, 0);
-  drawText(ctx, 'Esc: select • R: restart • F/J: special', W / 2, H - 17, '#e8f1e2', 11, 'center', 'bold');
+  drawText(ctx, 'Esc: select • R: restart • F/J or Down/S: special move', W / 2, H - 17, '#e8f1e2', 11, 'center', 'bold');
   var rr = restartLayout(false);
   fillRoundRect(ctx, rr.x, rr.y, rr.w, rr.h, 12, 'rgba(16,30,46,0.76)', 'rgba(255,239,190,0.4)', 1.5);
   drawText(ctx, 'RESTART (R)', rr.x + rr.w / 2, rr.y + 20, '#fff4cf', 13, 'center', 'bold');
@@ -2723,9 +2768,11 @@ function drawResults() {
     drawText(ctx, 'WINNER!', W / 2, 128, '#ffd86f', 56, 'center', 'bold');
     drawText(ctx, CHARACTERS[winner.charId].name.toUpperCase(),
       W / 2, 168, '#fff4cf', 24, 'center', 'bold');
+    drawText(ctx, CHAR_WIN_LINES[winner.charId] || 'The backyard bracket has spoken.',
+      W / 2, 196, '#d9e6ef', 14, 'center', 'bold');
   } else {
     drawText(ctx, 'ALL DONE!', W / 2, 180, '#ffb070', 56, 'center', 'bold');
-    drawText(ctx, 'Everyone took a tumble!', W / 2, 220, '#fff4cf', 20, 'center', 'bold');
+    drawText(ctx, 'Everyone took a tumble and somebody probably needs a snack.', W / 2, 220, '#fff4cf', 20, 'center', 'bold');
   }
 
   var rr = resultsRestartLayout(playerLost);
