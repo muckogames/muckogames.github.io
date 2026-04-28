@@ -1823,9 +1823,9 @@ function loop(ts){
   lastTs=ts;simDebt=Math.min(simDebt+elapsed,MAX_SIM_CATCHUP);
   while(simDebt>=SIM_STEP){
     stepSimulation(SIM_STEP);simDebt-=SIM_STEP;
-    // Consume one-shot inputs only after a sim step ran. Resetting at
-    // end-of-frame instead would wipe keypresses on high-refresh displays.
-    mclk=false;Object.keys(JP).forEach(k=>JP[k]=false);
+    // Keyboard one-shots still clear per sim step; pointer taps clear after
+    // render so menu/difficulty screens can reliably consume touch input.
+    Object.keys(JP).forEach(k=>JP[k]=false);
   }
   const fps=targetFps();
   if(fps<60){const min=1000/fps;if(lastRenderTs&&ts-lastRenderTs<min){requestAnimationFrame(loop);return;}}
@@ -1834,6 +1834,7 @@ function loop(ts){
   ctx.clearRect(0,0,W,H);canvas.style.cursor='default';
   renderPhase();
   drawMobileControls();
+  mclk=false;
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);

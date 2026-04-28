@@ -4743,6 +4743,7 @@ let simDebt=0;
 const SIM_STEP=1/60;
 const MAX_SIM_CATCHUP=SIM_STEP*6;
 function targetFps(){
+  if(phase==='title'||phase==='diff'||phase==='highscores')return 24;
   if(LOW_FPS_PHASES.has(phase))return 30;
   if(phase==='escape'&&esc&&(esc.won||esc.zone===1))return 30;
   if(phase==='stealth'&&stl&&(stl.won||stl.caught||stl.sandwichEaten))return 30;
@@ -4793,9 +4794,6 @@ function loop(ts){
   while(simDebt>=SIM_STEP){
     stepSimulation(SIM_STEP);
     simDebt-=SIM_STEP;
-    // Consume one-shot inputs only after a sim step ran. Resetting at
-    // end-of-frame instead would wipe keypresses on high-refresh displays.
-    mclk=false;
     Object.keys(JP).forEach(k=>JP[k]=false);
   }
   const fps=targetFps();
@@ -4814,6 +4812,7 @@ function loop(ts){
   drawMobileControls();
   if(phase!=='title'&&phase!=='diff'&&phase!=='dialog_harness')drawSuspicionNotice();
   drawFade();
+  mclk=false;
   requestAnimationFrame(loop);
 }
 if(DEBUG_HARNESS==='dialog'){

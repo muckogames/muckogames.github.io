@@ -251,10 +251,11 @@ canvas.addEventListener('touchstart',e=>{
     my=(e.touches[0].clientY-r.top)*(H/r.height);
     mclk=true;
   }
+  e.preventDefault();
 },{passive:false});
-canvas.addEventListener('touchmove',syncTouchControls,{passive:false});
-canvas.addEventListener('touchend',syncTouchControls,{passive:false});
-canvas.addEventListener('touchcancel',e=>{clearTouch();},{passive:false});
+canvas.addEventListener('touchmove',e=>{syncTouchControls(e);e.preventDefault();},{passive:false});
+canvas.addEventListener('touchend',e=>{syncTouchControls(e);e.preventDefault();},{passive:false});
+canvas.addEventListener('touchcancel',e=>{clearTouch();e.preventDefault();},{passive:false});
 window.addEventListener('blur',clearTouch);
 
 // ── Drawing helpers ───────────────────────────────────────────────────────
@@ -3627,10 +3628,6 @@ function loop(ts){
   while(simDebt>=SIM_STEP){
     stepSimulation(SIM_STEP);
     simDebt-=SIM_STEP;
-    // Consume one-shot inputs only after a sim step actually ran.
-    // Resetting at end-of-frame instead would wipe keypresses on
-    // high-refresh displays where most frames render without simulating.
-    mclk=false;
     for(const k in JP)JP[k]=false;
   }
 
@@ -3644,6 +3641,7 @@ function loop(ts){
   ctx.clearRect(0,0,W,H);
   renderPhase();
   drawMobileControls();
+  mclk=false;
 
   requestAnimationFrame(loop);
 }
