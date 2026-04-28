@@ -1848,27 +1848,16 @@ const SCENES=[
    TITLE SCREEN
    ================================================================ */
 let titleSel=1; // selected difficulty
-function drawTitle(){
-  // Sky: deep night at top → dusk glow at horizon
+function drawTitleBackdrop(){
+  // Sky: deep night at top -> dusk glow at horizon
   const g=ctx.createLinearGradient(0,0,0,H);
   g.addColorStop(0,'#0f1a30');
   g.addColorStop(0.42,'#3a2e5e');
   g.addColorStop(0.75,'#a35a7a');
   g.addColorStop(1,'#f6b77c');
   fillRect(0,0,W,H,g);
-  // Twinkling stars
-  for(let i=0;i<72;i++){
-    const sx=(i*137+20)%W, sy=(i*97+10)%(H*0.52);
-    const tw=0.25+pulse(t+i*7,0,1,0.05)*0.75;
-    ctx.globalAlpha=tw;
-    const sz=0.6+(i%3)*0.5;
-    ctx.fillStyle='#fff';
-    ctx.beginPath(); ctx.arc(sx,sy,sz,0,TAU); ctx.fill();
-  }
-  ctx.globalAlpha=1;
-  // Moon with soft glow and craters
+  // Moon with craters
   const mnx=W-118,mny=86;
-  radialGlow(mnx,mny,120,'rgba(255,241,204,0.22)','rgba(255,241,204,0)');
   circ(mnx,mny,46,'#fff1cc');
   ctx.save();
   ctx.globalAlpha=0.3;
@@ -1901,32 +1890,8 @@ function drawTitle(){
       }
     }
   }
-  // Animated grass at bottom
+  // Grass strip
   fillRect(0,H-32,W,32,'#1a2a14');
-  for(let i=0;i<W;i+=5){
-    const h=4+((i*911)%7);
-    const sway=Math.sin(t*0.04+i*0.12)*1.3;
-    ctx.strokeStyle='#4a8840'; ctx.lineWidth=1;
-    ctx.beginPath(); ctx.moveTo(i,H-32); ctx.lineTo(i+sway,H-32-h); ctx.stroke();
-  }
-  // Fireflies
-  for(let i=0;i<8;i++){
-    const fx=(i*97+t*0.7)%W;
-    const fy=H-100+Math.sin(t*0.03+i)*22;
-    ctx.globalAlpha=0.4+pulse(t+i*17,0,1,0.12)*0.6;
-    radialGlow(fx,fy,12,'rgba(255,240,150,0.9)','rgba(255,240,150,0)');
-  }
-  ctx.globalAlpha=1;
-  // Characters with ground shadows
-  const bob=Math.sin(t*0.04)*6;
-  softShadow(W/2-80,H-220+bob+68,44,7,0.26);
-  softShadow(W/2+110,H-190+bob*0.7+60,36,6,0.26);
-  ctx.save(); ctx.translate(W/2-80,H-220+bob);
-  drawHippoFriendly(0,0,1.25,t);
-  ctx.restore();
-  ctx.save(); ctx.translate(W/2+110,H-190+bob*0.7);
-  drawPflueger(0,0,1.1,false,t*0.6);
-  ctx.restore();
   // Title logo with glow
   ctx.save();
   ctx.shadowColor='rgba(255,220,150,0.65)';
@@ -1957,6 +1922,44 @@ function drawTitle(){
   txt('— a storybook adventure —',W/2,216,'#fde8c6',15,'center','italic Georgia');
   // Ornate frame
   rnd(10,10,W-20,H-20,22,null,'rgba(255,248,227,0.32)',3);
+}
+
+function drawTitle(){
+  drawCachedBackdrop('title-shell',drawTitleBackdrop);
+  // Twinkling stars
+  for(let i=0;i<72;i++){
+    const sx=(i*137+20)%W, sy=(i*97+10)%(H*0.52);
+    const tw=0.25+pulse(t+i*7,0,1,0.05)*0.75;
+    ctx.globalAlpha=tw;
+    const sz=0.6+(i%3)*0.5;
+    ctx.fillStyle='#fff';
+    ctx.beginPath(); ctx.arc(sx,sy,sz,0,TAU); ctx.fill();
+  }
+  ctx.globalAlpha=1;
+  radialGlow(W-118,86,120,'rgba(255,241,204,0.22)','rgba(255,241,204,0)');
+  for(let i=0;i<W;i+=5){
+    const h=4+((i*911)%7);
+    const sway=Math.sin(t*0.04+i*0.12)*1.3;
+    ctx.strokeStyle='#4a8840'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(i,H-32); ctx.lineTo(i+sway,H-32-h); ctx.stroke();
+  }
+  for(let i=0;i<8;i++){
+    const fx=(i*97+t*0.7)%W;
+    const fy=H-100+Math.sin(t*0.03+i)*22;
+    ctx.globalAlpha=0.4+pulse(t+i*17,0,1,0.12)*0.6;
+    radialGlow(fx,fy,12,'rgba(255,240,150,0.9)','rgba(255,240,150,0)');
+  }
+  ctx.globalAlpha=1;
+  // Characters with ground shadows
+  const bob=Math.sin(t*0.04)*6;
+  softShadow(W/2-80,H-220+bob+68,44,7,0.26);
+  softShadow(W/2+110,H-190+bob*0.7+60,36,6,0.26);
+  ctx.save(); ctx.translate(W/2-80,H-220+bob);
+  drawHippoFriendly(0,0,1.25,t);
+  ctx.restore();
+  ctx.save(); ctx.translate(W/2+110,H-190+bob*0.7);
+  drawPflueger(0,0,1.1,false,t*0.6);
+  ctx.restore();
   // Start prompt pulsing
   const startAlpha=0.7+pulse(t,0,0.3,0.09);
   ctx.save();
@@ -2010,20 +2013,12 @@ function drawTitle(){
 /* ================================================================
    HIGH SCORES SCREEN
    ================================================================ */
-function drawHighScores(){
+function drawHighScoresBackdrop(){
   // Velvet backdrop
   const g=ctx.createLinearGradient(0,0,0,H);
   g.addColorStop(0,'#1a1030');
   g.addColorStop(1,'#0a0518');
   fillRect(0,0,W,H,g);
-  // stars
-  for(let i=0;i<30;i++){
-    const sx=(i*211+40)%W, sy=(i*97+20)%(H*0.8);
-    ctx.globalAlpha=0.25+pulse(t+i*11,0,1,0.05)*0.5;
-    ctx.fillStyle='#fff';
-    ctx.beginPath(); ctx.arc(sx,sy,0.8+(i%3)*0.3,0,TAU); ctx.fill();
-  }
-  ctx.globalAlpha=1;
   // Parchment scroll
   const px=70,py=48,pw=W-140,ph=H-120;
   // scroll ends (rolled)
@@ -2056,7 +2051,18 @@ function drawHighScores(){
   ctx.strokeStyle='rgba(160,110,50,0.55)';
   ctx.lineWidth=1.5;
   ctx.beginPath(); ctx.moveTo(px+30,py+78); ctx.lineTo(px+pw-30,py+78); ctx.stroke();
+}
 
+function drawHighScores(){
+  drawCachedBackdrop('highscores-shell',drawHighScoresBackdrop);
+  for(let i=0;i<30;i++){
+    const sx=(i*211+40)%W, sy=(i*97+20)%(H*0.8);
+    ctx.globalAlpha=0.25+pulse(t+i*11,0,1,0.05)*0.5;
+    ctx.fillStyle='#fff';
+    ctx.beginPath(); ctx.arc(sx,sy,0.8+(i%3)*0.3,0,TAU); ctx.fill();
+  }
+  ctx.globalAlpha=1;
+  const px=70,py=48,pw=W-140,ph=H-120;
   const hsAll=getHS('mucko_hs_hippo');
   if(hsAll.length===0){
     txt('No scores yet — play a game!',W/2,py+ph/2,'#8a6030',18,'center','italic Georgia');
@@ -2100,14 +2106,20 @@ function drawHighScores(){
 /* ================================================================
    DIFFICULTY SCREEN
    ================================================================ */
-function drawDiff(){
+function drawDiffBackdrop(){
   // Backdrop
   const g=ctx.createLinearGradient(0,0,0,H);
   g.addColorStop(0,'#1e2a48');
   g.addColorStop(0.6,'#2a1e40');
   g.addColorStop(1,'#120a1e');
   fillRect(0,0,W,H,g);
-  // Subtle starfield
+  rnd(14,14,W-28,H-28,22,null,'rgba(255,247,230,0.28)',2.5);
+  glowText('Choose Your Challenge',W/2,62,C.gold,30,'center','bold Georgia','rgba(246,213,122,0.5)',14);
+  txt('This setting affects the Zoo Escape mini-game.',W/2,90,C.dimTxt,14,'center',"'Courier New',monospace");
+}
+
+function drawDiff(){
+  drawCachedBackdrop('diff-shell',drawDiffBackdrop);
   for(let i=0;i<40;i++){
     const sx=(i*211+t*0.2)%W, sy=(i*97+30)%(H*0.85);
     ctx.globalAlpha=0.25+pulse(t+i*9,0,1,0.06)*0.45;
@@ -2115,10 +2127,6 @@ function drawDiff(){
     ctx.beginPath(); ctx.arc(sx,sy,0.9+(i%3)*0.4,0,TAU); ctx.fill();
   }
   ctx.globalAlpha=1;
-  rnd(14,14,W-28,H-28,22,null,'rgba(255,247,230,0.28)',2.5);
-  glowText('Choose Your Challenge',W/2,62,C.gold,30,'center','bold Georgia','rgba(246,213,122,0.5)',14);
-  txt('This setting affects the Zoo Escape mini-game.',W/2,90,C.dimTxt,14,'center',"'Courier New',monospace");
-
   const icons=['🌴','🦝','🐼'];
   let cursor='default';
   DIFFS.forEach((d,i)=>{
@@ -4752,7 +4760,9 @@ function targetFps(){
   return 60;
 }
 function phaseUsesBackdropLayer(){
-  return phase==='story'||phase==='escape'||phase==='stealth'||phase==='cleanup'||phase==='closet_game'||phase==='credits';
+  return phase==='title'||phase==='diff'||phase==='highscores'||
+    phase==='story'||phase==='escape'||phase==='stealth'||
+    phase==='cleanup'||phase==='closet_game'||phase==='credits';
 }
 function stepSimulation(dt){
   t++;
