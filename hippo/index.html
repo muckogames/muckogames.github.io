@@ -2405,7 +2405,8 @@ function hippoGridFromPx(p, start){
 function hippoStealthBlocked(map, col, row){
   if(row<0||row>=map.length||col<0||col>=map[0].length)return true;
   var t=map[row][col];
-  return t===TT.WALL||t===TT.FURNITURE||t===TT.BED;
+  // Stealth maps reuse the shared tile enum: walls and furniture block movement.
+  return t===T.WALL||t===T.BUSH;
 }
 function initStealth(){
   var hp={dir:0,anim:0,stepCd:0,facing:'up'};
