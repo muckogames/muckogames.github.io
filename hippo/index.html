@@ -46,7 +46,7 @@ body::before{
    PFLUEGER AND THE HIPPO  —  a web game
    =================================================================== */
 const W=800,H=560;
-const MAX_RENDER_DPR=1.5;
+const MAX_RENDER_DPR=1;
 const PLAYER_SPEED_SCALE=1.15;
 const LOW_FPS_PHASES=new Set(['title','diff','story','dialog_harness','credits']);
 const DIALOG_DATA=window.HIPPO_DIALOG;
@@ -1892,6 +1892,16 @@ function drawTitleBackdrop(){
   }
   // Grass strip
   fillRect(0,H-32,W,32,'#1a2a14');
+  // Title characters are static on the cached layer to avoid redrawing the
+  // full vector cast every frame on menu idle.
+  softShadow(W/2-80,H-220+68,44,7,0.26);
+  softShadow(W/2+110,H-190+60,36,6,0.26);
+  ctx.save(); ctx.translate(W/2-80,H-220);
+  drawHippoFriendly(0,0,1.25,0);
+  ctx.restore();
+  ctx.save(); ctx.translate(W/2+110,H-190);
+  drawPflueger(0,0,1.1,false,0.6);
+  ctx.restore();
   // Title logo with glow
   ctx.save();
   ctx.shadowColor='rgba(255,220,150,0.65)';
@@ -1950,16 +1960,6 @@ function drawTitle(){
     radialGlow(fx,fy,12,'rgba(255,240,150,0.9)','rgba(255,240,150,0)');
   }
   ctx.globalAlpha=1;
-  // Characters with ground shadows
-  const bob=Math.sin(t*0.04)*6;
-  softShadow(W/2-80,H-220+bob+68,44,7,0.26);
-  softShadow(W/2+110,H-190+bob*0.7+60,36,6,0.26);
-  ctx.save(); ctx.translate(W/2-80,H-220+bob);
-  drawHippoFriendly(0,0,1.25,t);
-  ctx.restore();
-  ctx.save(); ctx.translate(W/2+110,H-190+bob*0.7);
-  drawPflueger(0,0,1.1,false,t*0.6);
-  ctx.restore();
   // Start prompt pulsing
   const startAlpha=0.7+pulse(t,0,0.3,0.09);
   ctx.save();
