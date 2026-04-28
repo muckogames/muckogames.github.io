@@ -389,7 +389,7 @@ canvas.addEventListener('touchstart', function(e) {
     const px = (tch.clientX - rect.left) * sx;
     const py = (tch.clientY - rect.top) * sy;
     const hit = hitMobileControl(px, py);
-    if (!hit && !mclk) {
+    if (!hit) {
       mx = px;
       my = py;
       mclk = true;
@@ -405,6 +405,19 @@ canvas.addEventListener('touchmove', function(e) {
 }, { passive: false });
 
 canvas.addEventListener('touchend', function(e) {
+  const rect = canvas.getBoundingClientRect();
+  const sx = W / rect.width;
+  const sy = H / rect.height;
+  Array.from(e.changedTouches).forEach(function(tch) {
+    const px = (tch.clientX - rect.left) * sx;
+    const py = (tch.clientY - rect.top) * sy;
+    const hit = hitMobileControl(px, py);
+    if (!hit) {
+      mx = px;
+      my = py;
+      mclk = true;
+    }
+  });
   syncTouchControls(e);
   e.preventDefault();
 }, { passive: false });
