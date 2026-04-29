@@ -191,20 +191,52 @@ var CX = W / 2, CY = H / 2;
 function sx(x) { return CX + x * SCALE; }
 function sy(y) { return CY - y * SCALE; } // y-axis flip
 
+// View transform: maps a world-space point (x, y) at simulation time t to
+// screen pixels. For presets with rotatingView=true we rotate by -ma so the
+// Moon stays pinned at +x and Earth stays at the origin, revealing the
+// figure-8 pattern in the Earth–Moon co-rotating frame.
+function vsx(x, y, t) {
+  if (curOrbit && curOrbit.rotatingView) {
+    var ma = moonAngle0 + MOON_W * t;
+    var c = Math.cos(ma), s = Math.sin(ma);
+    return CX + (x * c + y * s) * SCALE;
+  }
+  return CX + x * SCALE;
+}
+function vsy(x, y, t) {
+  if (curOrbit && curOrbit.rotatingView) {
+    var ma = moonAngle0 + MOON_W * t;
+    var c = Math.cos(ma), s = Math.sin(ma);
+    return CY - (-x * s + y * c) * SCALE;
+  }
+  return CY - y * SCALE;
+}
+// Rotate a heading angle (physics radians) into the view frame.
+function viewAngle(angle, t) {
+  if (curOrbit && curOrbit.rotatingView) return angle - (moonAngle0 + MOON_W * t);
+  return angle;
+}
+
 // ── Orbit presets — computed analytically ───────────────────────────────────
 // LEO: circular at r = 0.12 DU (clear of Earth's display radius)
 var R_LEO = 0.12;
 var V_LEO = Math.sqrt(GM_E / R_LEO); // circular velocity ≈ 18.1 DU/TU
 
-// Figure-8 encounter: retrograde ellipse, peri=0.30 DU, apo=0.96 DU
-// Semi-major axis = 0.63 DU → period = 0.5 TU (2:1 retrograde resonance with Moon)
-// Apoapsis reaches near Moon's orbit; Moon phased so spacecraft sweeps past it ~every 0.25 TU
-var R_F8_PERI = 0.30;
-var R_F8_APO  = 0.96;
-var A_F8      = (R_F8_PERI + R_F8_APO) / 2;                          // 0.63 DU → T = 0.5 TU
-var V_F8_PERI = Math.sqrt(GM_E * (2 / R_F8_PERI - 1 / A_F8));        // ≈ 14.16 DU/TU
-// Moon phased so it is near apoapsis position on first pass (~0.25 TU); +0.05 for safe clearance
-var F8_MOON_ANGLE0 = Math.PI / 2 + 0.05;                              // ≈ 1.621 rad
+// Figure-8 encounter: a free-return-style retrograde trajectory whose path,
+// viewed in the Earth–Moon co-rotating frame, traces the iconic Apollo
+// figure-8 — a small lobe around Earth and a larger lobe around the Moon.
+// peri=0.12 DU (just above Earth), apo=1.10 DU (just past the Moon's orbit).
+// Period ≈ 0.476 TU; Moon phased so the spacecraft skims the Moon on the
+// outbound leg and is bent back by lunar gravity, repeating the pattern.
+var R_F8_PERI = 0.12;
+var R_F8_APO  = 1.10;
+var A_F8      = (R_F8_PERI + R_F8_APO) / 2;                          // 0.61 DU
+var V_F8_PERI = Math.sqrt(GM_E * (2 / R_F8_PERI - 1 / A_F8));        // ≈ 24.36 DU/TU
+var F8_HALF_T = Math.PI * Math.sqrt(A_F8 * A_F8 * A_F8 / GM_E);      // ≈ 0.238 TU
+// Moon phased so its position at first apoapsis is just past where the
+// spacecraft's apoapsis lands — the +0.20 rad offset gives a clean lunar
+// flyby that swings the craft back toward Earth.
+var F8_MOON_ANGLE0 = Math.PI - MOON_W * F8_HALF_T + 0.20;             // ≈ 1.845 rad
 
 // Hohmann ellipse: periapsis 0.12 DU, apoapsis 0.55 DU — inside Moon's orbit
 var R_HOH_PERI = 0.12;
@@ -262,15 +294,17 @@ var ORBITS = [
   },
   {
     name:  'Figure-8 Encounter',
-    desc:  'Retrograde ellipse — apoapsis reaches near the Moon on every pass',
+    desc:  'Apollo-style free return — viewed in the Earth–Moon rotating frame',
     color: '#fa4',
     trailRGB: [255, 170, 68],
-    // Retrograde ellipse: peri 0.30 DU, apo 0.96 DU, period 0.5 TU
-    // Moon phased to be near (-0.96, 0) on the first apoapsis pass at t ≈ 0.25 TU
+    // Retrograde free-return: peri 0.12 DU, apo 1.10 DU. The Moon's gravity
+    // bends the outbound leg into a return leg; the path traces a figure-8
+    // when the camera rotates with the Moon (Earth and Moon both held fixed).
     sx: R_F8_PERI, sy: 0, vx: 0, vy: -V_F8_PERI,
     moonAngle0: F8_MOON_ANGLE0,
-    speed: 3,
-    trailEvery: 3
+    rotatingView: true,
+    speed: 2,
+    trailEvery: 2
   },
   {
     name:  'Hohmann Ellipse',
@@ -496,7 +530,7 @@ var NARRATION_EVENTS = [
       var mp = moonPos(simT); var dx = scX - mp.x, dy = scY - mp.y;
       return dx * dx + dy * dy < 0.12 * 0.12;
     },
-    text: "Samster: 'Whoa! The Moon went RIGHT past us!'",
+    text: "Lekan: 'Lunar flyby — that loop is half of your figure-8.'",
     ach:  { id: 'fig8_flyer', label: 'Figure-8 Flyer' } },
   { id: 'hohmann_done',
     check: function() {
@@ -654,8 +688,10 @@ function applyImpulsiveBurn(burn) {
   scVY += dy * dvMag;
 
   // Visual flash — spawn a fat flame burst in the exhaust direction (-dx,-dy)
-  var spx0 = sx(scX), spy0 = sy(scY);
-  var ndx0 = dx, ndy0 = -dy; // to screen
+  var spx0 = vsx(scX, scY, simT), spy0 = vsy(scX, scY, simT);
+  // dx/dy are inertial-physics; rotate into the view frame for the burst.
+  var burnHead = viewAngle(Math.atan2(dy, dx), simT);
+  var ndx0 = Math.cos(burnHead), ndy0 = -Math.sin(burnHead); // to screen
   for (var p = 0; p < 14; p++) {
     spawnFlameBurst(spx0 - ndx0 * 6, spy0 - ndy0 * 6,
                     -ndx0 * 90, -ndy0 * 90,
@@ -857,10 +893,10 @@ function computePredictor() {
     py  += pvy * pdt;
     pt  += pdt;
     var dr = px * pvx + py * pvy;
-    if (nApo  < 2 && prevDr > 0 && dr <= 0) { predMkrs.push({ sx: sx(px), sy: sy(py), type: 'apo'  }); nApo++;  }
-    if (nPeri < 2 && prevDr < 0 && dr >= 0) { predMkrs.push({ sx: sx(px), sy: sy(py), type: 'peri' }); nPeri++; }
+    if (nApo  < 2 && prevDr > 0 && dr <= 0) { predMkrs.push({ sx: vsx(px, py, pt), sy: vsy(px, py, pt), type: 'apo'  }); nApo++;  }
+    if (nPeri < 2 && prevDr < 0 && dr >= 0) { predMkrs.push({ sx: vsx(px, py, pt), sy: vsy(px, py, pt), type: 'peri' }); nPeri++; }
     prevDr = dr;
-    if (i % PRED_SKIP === 0) predPts.push({ sx: sx(px), sy: sy(py), f: i / PRED_STEPS });
+    if (i % PRED_SKIP === 0) predPts.push({ sx: vsx(px, py, pt), sy: vsy(px, py, pt), f: i / PRED_STEPS });
   }
 }
 
@@ -1391,12 +1427,15 @@ function drawSim() {
   ctx.fillRect(0, 0, W, H);
   drawStars(130, 0.45);
 
-  // Moon orbit guide
-  ctx.beginPath();
-  ctx.arc(CX, CY, MOON_R * SCALE, 0, PI2);
-  ctx.strokeStyle = 'rgba(255,255,255,0.07)';
-  ctx.lineWidth = 1;
-  ctx.stroke();
+  // Moon orbit guide — only meaningful in the inertial frame; in the rotating
+  // frame the Moon is held stationary so the ring would be misleading.
+  if (!(curOrbit && curOrbit.rotatingView)) {
+    ctx.beginPath();
+    ctx.arc(CX, CY, MOON_R * SCALE, 0, PI2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
 
   // Trail
   if (trail.length > 1 && curOrbit) {
@@ -1424,9 +1463,10 @@ function drawSim() {
   ctx.textBaseline = 'top';
   ctx.fillText('Earth', ex, ey + 28);
 
-  // Moon
+  // Moon — drawn at its real position in the inertial frame, or pinned to
+  // (1, 0) DU in the rotating frame. vsx/vsy handles both via curOrbit.
   var mp  = moonPos(simT);
-  var mpx = sx(mp.x), mpy = sy(mp.y);
+  var mpx = vsx(mp.x, mp.y, simT), mpy = vsy(mp.x, mp.y, simT);
   drawMoonSprite(mpx, mpy, 7);
 
   ctx.fillStyle = 'rgba(255,255,255,0.55)';
@@ -1441,10 +1481,11 @@ function drawSim() {
   // Flame particles (behind spacecraft)
   drawFlameParts();
 
-  // Spacecraft — points toward scAngle (absolute heading, skin-aware)
-  var spx = sx(scX), spy = sy(scY);
-  var ndx = Math.cos(scAngle);
-  var ndy = -Math.sin(scAngle); // y-flip: physics y-up → screen y-down
+  // Spacecraft — points toward scAngle in physics, rotated into view frame.
+  var spx = vsx(scX, scY, simT), spy = vsy(scX, scY, simT);
+  var viewHeading = viewAngle(scAngle, simT);
+  var ndx = Math.cos(viewHeading);
+  var ndy = -Math.sin(viewHeading); // y-flip: physics y-up → screen y-down
   drawSpacecraftShape(spx, spy, ndx, ndy);
 
   // HUD buttons
@@ -1503,6 +1544,10 @@ function drawSim() {
     ctx.textAlign = 'right';
     ctx.fillStyle = curOrbit.color;
     ctx.fillText(curOrbit.name, W - 10, H - 10);
+    if (curOrbit.rotatingView) {
+      ctx.fillStyle = 'rgba(255,255,255,0.45)';
+      ctx.fillText('Earth–Moon rotating frame', W - 10, H - 24);
+    }
   }
 
   // Auto-circularize badge (takes precedence over flight-program badge)
@@ -1731,10 +1776,14 @@ function loop(ts) {
         Math.hypot(mx - RIGHT_BTN.cx, my - RIGHT_BTN.cy) <= RIGHT_BTN.r + 8 ||
         Math.hypot(mx - AUTO_BTN.cx,  my - AUTO_BTN.cy)  <= AUTO_BTN.r  + 8;
       if (!overCtrl) {
-        var aimSpx = sx(scX), aimSpy = sy(scY);
+        var aimSpx = vsx(scX, scY, simT), aimSpy = vsy(scX, scY, simT);
         var aimDx = mx - aimSpx, aimDy = my - aimSpy;
         if (aimDx * aimDx + aimDy * aimDy > 25) {
-          scAngle = Math.atan2(-aimDy, aimDx); // screen→physics: flip y
+          // Aim is in the view frame; un-rotate to get the inertial heading.
+          var aimView = Math.atan2(-aimDy, aimDx); // screen→physics: flip y
+          scAngle = (curOrbit && curOrbit.rotatingView)
+            ? aimView + (moonAngle0 + MOON_W * simT)
+            : aimView;
           if (dvBudget > 0) thrustFwd = 1;
           mouseAiming = true;
           if (autopilot === 'on') { autopilot = 'off'; autoLockFrames = 0; }
@@ -1792,7 +1841,7 @@ function loop(ts) {
       var everyN = curOrbit ? curOrbit.trailEvery : 1;
       trailSkip++;
       if (trailSkip >= everyN) {
-        trail.push({ x: sx(scX), y: sy(scY) });
+        trail.push({ x: vsx(scX, scY, simT), y: vsy(scX, scY, simT) });
         if (trail.length > TRAIL_MAX) trail.shift();
         trailSkip = 0;
       }
@@ -1816,8 +1865,9 @@ function loop(ts) {
     if (thrustFwd !== 0 && dvBudget > 0) unlockAch('first_burn', 'First Burn');
 
     // Spawn flame particles — tied to real time so visual rate is independent of time mult.
-    var fhx = Math.cos(scAngle), fhy = -Math.sin(scAngle); // heading in screen coords (y-flip)
-    var spx2 = sx(scX), spy2 = sy(scY);
+    var fheading = viewAngle(scAngle, simT);
+    var fhx = Math.cos(fheading), fhy = -Math.sin(fheading); // heading in screen coords (y-flip)
+    var spx2 = vsx(scX, scY, simT), spy2 = vsy(scX, scY, simT);
     // Main engine flames (exhaust opposite to thrust direction)
     if (dvBudget > 0 && thrustFwd !== 0) {
       if (thrustFwd === 1) {
