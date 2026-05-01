@@ -121,6 +121,7 @@ var pointerDown = false;    // true while primary pointer is pressed
 var pointerJust = false;    // true for one frame on press edge
 var pointerUp   = false;    // true for one frame on release edge
 var pointerDX   = 0, pointerDY = 0;  // position at pressdown
+var pointerAimActive = false;        // true when pointer is hold-aiming the ship
 
 // Multi-touch tracking — every active touch keeps a canvas-space (x,y) so the
 // burn buttons can read held state per frame.
@@ -412,7 +413,7 @@ var trailSkip     = 0;
 // ── Burn engine ───────────────────────────────────────────────────────────────
 // 1 DU/TU ≈ 0.163 km/s, so 18 DU/TU ≈ 2.9 km/s starting budget.
 var DV_START      = 18;
-var THRUST_MAG    = 15;   // DU/TU² main (prograde/retro) — ×5 from original for responsive manual burns
+var THRUST_MAG    = 75;   // DU/TU² main (prograde/retro) — punchy enough that a held burn meaningfully reshapes the orbit
 var DU_PER_TU_TO_KMPS = 0.1629; // 384400 km / (27.32*86400 s)
 var dvBudget      = DV_START;
 var thrustFwd     = 0;    // -1 retro, 0 off, +1 prograde — set per frame
@@ -1084,18 +1085,18 @@ function hitRect(bx, by, bw, bh) {
   return mx >= bx && mx <= bx + bw && my >= by && my <= by + bh;
 }
 
-var BACK_BTN  = { x: 10,      y: 10, w: 74, h: 28, label: '\u2190 Back' };
-var TIME_BTN  = { x: W - 94,  y: 10, w: 84, h: 28, label: '1\u00d7' };
-var OPT_BTN   = { x: W - 184, y: 10, w: 80, h: 28, label: 'OPT' };
-var RESET_BTN  = { x: W - 94,  y: 10, w: 84, h: 28, label: 'Reset' };
-var LAUNCH_BTN = { x: (W - 220) / 2, y: H - 82, w: 220, h: 54, label: 'LAUNCH' };
+var BACK_BTN  = { x: 10,      y: 10, w: 96,  h: 44, label: '\u2190 Back' };
+var TIME_BTN  = { x: W - 102, y: 10, w: 92,  h: 44, label: '1\u00d7' };
+var OPT_BTN   = { x: W - 214, y: 10, w: 108, h: 44, label: 'OPT' };
+var RESET_BTN  = { x: W - 102, y: 10, w: 92,  h: 44, label: 'Reset' };
+var LAUNCH_BTN = { x: (W - 240) / 2, y: H - 90, w: 240, h: 60, label: 'LAUNCH' };
 
 // Burn buttons — held-touch controls for iPad
 var BURN_BTN  = { cx: W - 100, cy: H - 110, r: 58 };  // main prograde
-var RETRO_BTN = { cx: W - 100, cy: H - 220, r: 34 };
+var RETRO_BTN = { cx: W - 100, cy: H - 226, r: 44 };
 var LEFT_BTN  = { cx:   80,    cy: H - 110, r: 48 };
 var RIGHT_BTN = { cx:  190,    cy: H - 110, r: 48 };
-var AUTO_BTN  = { cx:   80,    cy: H - 220, r: 34 };   // mirrors RETRO on the left
+var AUTO_BTN  = { cx:   80,    cy: H - 226, r: 44 };   // mirrors RETRO on the left
 
 // ── Drawing helpers ───────────────────────────────────────────────────────────
 function fillCircle(x, y, r, color) {
@@ -1486,6 +1487,27 @@ function drawSim() {
   var viewHeading = viewAngle(scAngle, simT);
   var ndx = Math.cos(viewHeading);
   var ndy = -Math.sin(viewHeading); // y-flip: physics y-up → screen y-down
+
+  // Aim line — show the player exactly where their tap-and-hold is steering.
+  if (pointerAimActive) {
+    ctx.save();
+    ctx.strokeStyle = dvBudget > 0 ? 'rgba(255,200,90,0.55)' : 'rgba(180,180,180,0.4)';
+    ctx.lineWidth = 1.5;
+    if (ctx.setLineDash) ctx.setLineDash([6, 6]);
+    ctx.beginPath();
+    ctx.moveTo(spx, spy);
+    ctx.lineTo(mx, my);
+    ctx.stroke();
+    ctx.restore();
+    // Crosshair at the tap point.
+    fillCircle(mx, my, 6, 'rgba(255,200,90,0.18)');
+    ctx.beginPath();
+    ctx.arc(mx, my, 8, 0, PI2);
+    ctx.strokeStyle = 'rgba(255,200,90,0.7)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
   drawSpacecraftShape(spx, spy, ndx, ndy);
 
   // HUD buttons
@@ -1557,7 +1579,7 @@ function drawSim() {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     var tgtLabel = autoTarget === 'moon' ? 'MOON' : 'EARTH';
-    ctx.fillText('\u2022 AUTO CIRC \u2192 ' + tgtLabel + ' \u2022', W / 2, 54);
+    ctx.fillText('\u2022 AUTO CIRC \u2192 ' + tgtLabel + ' \u2022', W / 2, 62);
   }
 
   // Flight-program autopilot badge + burn announcement
@@ -1566,7 +1588,7 @@ function drawSim() {
     ctx.font = 'bold 10px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.fillText('\u2022 AUTOPILOT \u2022', W / 2, 54);
+    ctx.fillText('\u2022 AUTOPILOT \u2022', W / 2, 62);
 
     if (programAnnounceT > 0 && programAnnounce) {
       var aAlpha = Math.min(1, programAnnounceT / 0.6);
@@ -1623,18 +1645,21 @@ function drawSim() {
 // Chip-list layout helper shared by draw and click.
 // Rows 2/3/4 (Earth/Moon mass, Thrust) show tappable chips for direct value selection.
 var OPT_PX = 0;
-var OPT_PW = 330, OPT_ROW_H = 38;
+var OPT_PW = 380, OPT_ROW_H = 52;
 function optChipLayout(N) {
-  var leftEdge = OPT_PX + 108;
-  var chipGap  = 3;
-  var chipW    = Math.floor((OPT_PW - 120 - (N - 1) * chipGap) / N);
-  var chipH    = OPT_ROW_H - 12;
-  return { leftEdge: leftEdge, chipW: chipW, chipH: chipH, chipGap: chipGap };
+  // leftEdge is relative to the panel's PX (the caller adds PX). Reserve the
+  // first 130px of the panel for the row label.
+  var labelGutter = 130;
+  var rightPad    = 14;
+  var chipGap     = 4;
+  var chipW       = Math.floor((OPT_PW - labelGutter - rightPad - (N - 1) * chipGap) / N);
+  var chipH       = OPT_ROW_H - 12;
+  return { leftEdge: labelGutter, chipW: chipW, chipH: chipH, chipGap: chipGap };
 }
 
 function drawOptionsPanel() {
-  OPT_PX = W / 2 - 165;
-  var PX = OPT_PX, PY = 48, PW = OPT_PW, rowH = OPT_ROW_H;
+  OPT_PX = W / 2 - OPT_PW / 2;
+  var PX = OPT_PX, PY = 60, PW = OPT_PW, rowH = OPT_ROW_H;
   var skinNames = ['Capsule', 'Saturn V', 'Duck Dieb', 'Samster'];
   var nRows = 6;
   var PH = 54 + nRows * rowH;
@@ -1660,8 +1685,8 @@ function drawOptionsPanel() {
 
   for (var i = 0; i < nRows; i++) {
     var ry = PY + 36 + i * rowH;
-    ctx.fillStyle = 'rgba(255,255,255,0.45)';
-    ctx.font = '13px sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.font = '15px sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.fillText(rowLabels[i], PX + 18, ry + (rowH - 2) / 2);
@@ -1679,7 +1704,7 @@ function drawOptionsPanel() {
       else if (i === 1) { tval = showPred   ? 'ON' : 'OFF'; tcol = showPred   ? '#8ef' : '#aaa'; }
       else              { tval = skinNames[skinIdx];         tcol = '#bdf'; }
       ctx.fillStyle = tcol;
-      ctx.font = 'bold 13px sans-serif';
+      ctx.font = 'bold 15px sans-serif';
       ctx.textAlign = 'right';
       ctx.fillText(tval, PX + PW - 18, ry + (rowH - 2) / 2);
     } else {
@@ -1705,7 +1730,7 @@ function drawOptionsPanel() {
           ctx.fill();
         }
         ctx.fillStyle = active ? '#fff' : 'rgba(255,255,255,0.42)';
-        ctx.font = (active ? 'bold ' : '') + '11px sans-serif';
+        ctx.font = (active ? 'bold ' : '') + '14px sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(steps[j] + '×', chipX + L.chipW / 2, chipY + L.chipH / 2);
@@ -1721,8 +1746,8 @@ function drawOptionsPanel() {
 }
 
 function handleOptsClick() {
-  OPT_PX = W / 2 - 165;
-  var PX = OPT_PX, PY = 48, PW = OPT_PW, rowH = OPT_ROW_H;
+  OPT_PX = W / 2 - OPT_PW / 2;
+  var PX = OPT_PX, PY = 60, PW = OPT_PW, rowH = OPT_ROW_H;
   var nRows = 6;
   var stepArrays = [null, null, EARTH_MASS_STEPS, MOON_MASS_STEPS, THRUST_STEPS, null];
 
@@ -1762,6 +1787,7 @@ function loop(ts) {
 
   // ── Burn / rotation input ─────────────────────────────────────────────────
   thrustFwd = 0; rotDir = 0;
+  pointerAimActive = false;
   if (phase === 'sim') {
     // Mouse/pointer aim: hold on playfield → orient toward cursor and fire.
     var mouseAiming = false;
@@ -1778,7 +1804,9 @@ function loop(ts) {
       if (!overCtrl) {
         var aimSpx = vsx(scX, scY, simT), aimSpy = vsy(scX, scY, simT);
         var aimDx = mx - aimSpx, aimDy = my - aimSpy;
-        if (aimDx * aimDx + aimDy * aimDy > 25) {
+        // Dead-zone of 28px around the ship: ignore taps that essentially
+        // land on the spacecraft so a finger covering it doesn't jitter.
+        if (aimDx * aimDx + aimDy * aimDy > 784) {
           // Aim is in the view frame; un-rotate to get the inertial heading.
           var aimView = Math.atan2(-aimDy, aimDx); // screen→physics: flip y
           scAngle = (curOrbit && curOrbit.rotatingView)
@@ -1786,6 +1814,7 @@ function loop(ts) {
             : aimView;
           if (dvBudget > 0) thrustFwd = 1;
           mouseAiming = true;
+          pointerAimActive = true;
           if (autopilot === 'on') { autopilot = 'off'; autoLockFrames = 0; }
         }
       }
