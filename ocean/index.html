@@ -31,8 +31,6 @@ var ctx   = gc.getContext('2d');
 var dpr   = Math.min(window.devicePixelRatio || 1, MAX_DPR);
 gc.width  = Math.round(W * dpr);
 gc.height = Math.round(H * dpr);
-gc.style.width  = W + 'px';
-gc.style.height = H + 'px';
 ctx.scale(dpr, dpr);
 
 function vw() { var v = window.visualViewport; return v ? v.width  : window.innerWidth;  }
@@ -44,6 +42,9 @@ function onResize() {
   stage.style.height = ph + 'px';
   stage.style.left   = Math.round((sw - pw) / 2) + 'px';
   stage.style.top    = Math.round((sh - ph) / 2) + 'px';
+  // Canvas CSS must match stage so it doesn't overflow on small screens
+  gc.style.width  = pw + 'px';
+  gc.style.height = ph + 'px';
 }
 window.addEventListener('resize', onResize);
 if (window.visualViewport) window.visualViewport.addEventListener('resize', onResize);
