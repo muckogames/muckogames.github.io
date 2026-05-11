@@ -93,6 +93,19 @@ var subPitch  = 0, subPitchT = 0;
 var propAng   = 0;
 var hitFlash  = 0;
 
+// ── fuel & air ────────────────────────────────────────────────────────────────
+var fuel = 1.0;           // 0–1; drained by fwd/rev thrust
+var air  = 1.0;           // 0–1; drained always, refilled at surface
+var FUEL_DRAIN  = 1 / 30;  // 30 s of continuous thrust empties tank
+var AIR_DRAIN   = 1 / 240; // 4-minute air supply
+var FUEL_FILL   = 1 / 4;   // 4 s to fully refuel at station
+var AIR_FILL    = 1 / 5;   // 5 s to fully top-off at surface
+var STATION_GAP = 1800;    // px between stations
+var STATION_OFF = 900;     // world x of first station (±)
+var nearStation  = false;  // sub within docking range this frame
+var atSurface    = false;  // sub at wave surface this frame
+var airFillTimer = 0;      // drives surface air-fill visual
+
 var camX = sub.x - W / 2;
 
 // ── scenery (coral + wrecks) ──────────────────────────────────────────────────
@@ -240,16 +253,26 @@ function tri(cx, cy, sz, dir) {
 function update(dt) {
   wt += dt;
   if (hitFlash > 0) hitFlash -= dt;
+  if (airFillTimer > 0) airFillTimer -= dt;
+
+  // Air drains passively; refills when at surface
+  air = Math.max(0, air - AIR_DRAIN * dt);
 
   var fwd = K['Space'];
   var rev = K['ShiftLeft'] || K['ShiftRight'];
   var up  = K['ArrowUp']   || K['KeyW'];
   var dn  = K['ArrowDown'] || K['KeyS'];
 
+  // No thrust when tank empty (up/dn diving planes still work)
+  if (fuel <= 0) { fwd = false; rev = false; }
+
   if (fwd) sub.vx += ACCEL_X * dt;
   if (rev) sub.vx -= ACCEL_X * dt;
   if (up)  sub.vy -= ACCEL_Y * dt;
   if (dn)  sub.vy += ACCEL_Y * dt;
+
+  // Drain fuel only when propulsion thrusters fire
+  if (fwd || rev) fuel = Math.max(0, fuel - FUEL_DRAIN * dt);
 
   if (!fwd && !rev) sub.vx *= Math.exp(-DRAG_X * dt);
   if (!up  && !dn)  sub.vy *= Math.exp(-DRAG_Y * dt);
@@ -275,6 +298,27 @@ function update(dt) {
   }
   var floorLim = minFloor - SUB_HH - 2;
   if (sub.y > floorLim) { sub.y = floorLim; if (sub.vy > 0) sub.vy = 0; }
+
+  // Surface air refill
+  atSurface = (sub.y <= wave(sub.x) + SUB_HH + 20);
+  if (atSurface) {
+    air = Math.min(1, air + AIR_FILL * dt);
+    airFillTimer = 0.5;
+  }
+
+  // Fuel station docking
+  nearStation = false;
+  var minSn = Math.floor((sub.x - 180) / STATION_GAP);
+  var maxSn = Math.ceil( (sub.x + 180) / STATION_GAP);
+  for (var sn = minSn; sn <= maxSn; sn++) {
+    var stWx = sn * STATION_GAP + STATION_OFF;
+    var stCy = terrain(stWx) - 32;
+    var sdx  = sub.x - stWx, sdy = sub.y - stCy;
+    if (Math.sqrt(sdx * sdx + sdy * sdy) < 115) {
+      nearStation = true;
+      fuel = Math.min(1, fuel + FUEL_FILL * dt);
+    }
+  }
 
   // Facing & pitch
   if (Math.abs(sub.vx) > 12) subFace = sub.vx > 0 ? 1 : -1;
@@ -651,6 +695,192 @@ function drawSquid(sx, sy, c) {
   ctx.restore();
 }
 
+// ── draw fuel stations ────────────────────────────────────────────────────────
+function drawStations() {
+  var minSn = Math.floor(camX / STATION_GAP) - 1;
+  var maxSn = Math.ceil((camX + W) / STATION_GAP) + 1;
+  for (var sn = minSn; sn <= maxSn; sn++) {
+    var stWx = sn * STATION_GAP + STATION_OFF;
+    var sx = stWx - camX;
+    if (sx < -200 || sx > W + 200) continue;
+    var ty = terrain(stWx);
+    var isNear = nearStation && Math.abs(sub.x - stWx) < 180;
+    drawFuelStation(sx, ty, isNear);
+  }
+}
+
+function drawFuelStation(sx, ty, active) {
+  ctx.save();
+  ctx.translate(sx, ty);
+
+  // Platform deck
+  ctx.fillStyle = '#5a4a2e';
+  rRect(-46, -10, 92, 10, 2);
+  ctx.fill();
+  ctx.fillStyle = '#7a6a4e';
+  rRect(-44, -8, 88, 4, 1);
+  ctx.fill();
+
+  // Fuel tank (right side of platform)
+  ctx.fillStyle = '#556677';
+  ctx.beginPath();
+  ctx.arc(28, -26, 10, Math.PI, 0); // dome top
+  ctx.fill();
+  ctx.fillStyle = '#667788';
+  ctx.fillRect(18, -26, 20, 24);
+  ctx.fillStyle = '#445566';
+  ctx.fillRect(18, -2, 20, 2);
+  // Gauge on tank
+  ctx.fillStyle = active ? '#44ff88' : '#449944';
+  ctx.beginPath();
+  ctx.arc(28, -18, 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#222';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  // FUEL label
+  ctx.fillStyle = '#aaccbb';
+  ctx.font = '6px monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('FUEL', 28, -10);
+
+  // Fuel hose (toward lobster)
+  ctx.strokeStyle = active ? '#44cc66' : '#446644';
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(18, -14);
+  ctx.quadraticCurveTo(8, -8, 0, -10);
+  ctx.stroke();
+  ctx.lineCap = 'butt';
+
+  // Lobster (left side of platform)
+  drawLobster(-24, -10, active);
+
+  // "REFUEL" banner when in range
+  if (active) {
+    ctx.save();
+    ctx.globalAlpha = 0.75 + 0.25 * Math.sin(wt * 6);
+    ctx.fillStyle = '#44ff88';
+    ctx.font = 'bold 10px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('REFUEL', 0, -62);
+    // small arrow pointing down
+    ctx.fillStyle = '#44ff88';
+    tri(0, -56, 5, 3);
+    ctx.restore();
+  }
+
+  ctx.restore();
+}
+
+function drawLobster(x, y, active) {
+  ctx.save();
+  ctx.translate(x, y); // y=0 is platform top; lobster stands upward (negative y)
+
+  var t   = wt;
+  var wav = active ? Math.sin(t * 5) * 0.45 : 0.1; // right-claw wave angle
+
+  // Walking legs (drawn first, behind body)
+  ctx.strokeStyle = '#992010';
+  ctx.lineWidth = 1.5;
+  var legs = [[-8,-14,-16,-8],[-8,-20,-17,-14],[-7,-26,-16,-20],
+               [8,-14, 16,-8],[ 8,-20, 17,-14],[ 7,-26, 16,-20]];
+  for (var l = 0; l < legs.length; l++) {
+    ctx.beginPath();
+    ctx.moveTo(legs[l][0], legs[l][1]); ctx.lineTo(legs[l][2], legs[l][3]);
+    ctx.stroke();
+  }
+
+  // Tail fan (below body, splayed at bottom)
+  ctx.fillStyle = '#bb2818';
+  for (var tf = -2; tf <= 2; tf++) {
+    ctx.save();
+    ctx.translate(0, -2);
+    ctx.rotate(tf * 0.22);
+    ctx.beginPath();
+    ctx.moveTo(-3, 0); ctx.lineTo(-5, 10); ctx.lineTo(5, 10); ctx.lineTo(3, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Abdomen segments
+  ctx.fillStyle = '#cc2820';
+  for (var sg = 0; sg < 4; sg++) {
+    var sw2 = 8.5 - sg * 1.0;
+    ctx.beginPath();
+    ctx.ellipse(0, -4 - sg * 6, sw2, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Carapace (main shell)
+  ctx.fillStyle = '#e03830';
+  ctx.beginPath();
+  ctx.ellipse(0, -30, 12, 13, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Right (waving) claw
+  ctx.save();
+  ctx.translate(12, -28);
+  ctx.rotate(-wav);
+  ctx.fillStyle = '#dd3828';
+  ctx.beginPath();
+  ctx.moveTo(0, 0); ctx.lineTo(16, -5); ctx.lineTo(19, 4);
+  ctx.lineTo(12, 8); ctx.lineTo(5, 3); ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#aa2010';
+  ctx.beginPath(); // pincer upper
+  ctx.moveTo(16, -5); ctx.lineTo(22, -10); ctx.lineTo(19, 4); ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  // Left claw (relaxed)
+  ctx.save();
+  ctx.translate(-12, -28);
+  ctx.rotate(0.15);
+  ctx.fillStyle = '#dd3828';
+  ctx.beginPath();
+  ctx.moveTo(0, 0); ctx.lineTo(-14, -4); ctx.lineTo(-16, 4);
+  ctx.lineTo(-10, 8); ctx.lineTo(-4, 3); ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#aa2010';
+  ctx.beginPath();
+  ctx.moveTo(-14, -4); ctx.lineTo(-20, -9); ctx.lineTo(-16, 4); ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  // Eye stalks
+  ctx.strokeStyle = '#cc2820';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(-5, -42); ctx.lineTo(-8, -50);
+  ctx.moveTo( 5, -42); ctx.lineTo( 8, -50);
+  ctx.stroke();
+  ctx.fillStyle = '#111';
+  ctx.beginPath();
+  ctx.arc(-8, -50, 3, 0, Math.PI * 2);
+  ctx.arc( 8, -50, 3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(-7, -51, 1, 0, Math.PI * 2);
+  ctx.arc( 9, -51, 1, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Antennae
+  ctx.strokeStyle = '#aa1808';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(-5, -44); ctx.lineTo(-22, -64);
+  ctx.moveTo( 5, -44); ctx.lineTo( 22, -64);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
 // ── draw bubbles ──────────────────────────────────────────────────────────────
 function drawBubbles() {
   ctx.strokeStyle = 'rgba(160,220,255,0.32)';
@@ -782,6 +1012,28 @@ function drawTouchControls() {
 }
 
 // ── draw HUD ──────────────────────────────────────────────────────────────────
+function drawGauge(x, y, w, h, val, label) {
+  var flash = val < 0.15 && Math.floor(wt * 4) % 2 === 0;
+  ctx.fillStyle = 'rgba(5,20,35,0.55)';
+  ctx.strokeStyle = 'rgba(80,180,230,0.3)';
+  ctx.lineWidth = 1;
+  rRect(x, y, w, h, 3); ctx.fill(); ctx.stroke();
+
+  var fill = Math.max(0, val) * (w - 4);
+  var col = val > 0.5 ? '#3de87a'
+          : val > 0.25 ? '#f0c040'
+          : '#e84040';
+  if (flash) col = '#ff8888';
+  ctx.fillStyle = col;
+  rRect(x + 2, y + 2, fill, h - 4, 2); ctx.fill();
+
+  ctx.fillStyle = flash ? '#ffaaaa' : '#a0d8f0';
+  ctx.font = '8px monospace';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, x + w + 4, y + h / 2);
+}
+
 function drawHUD() {
   ctx.save();
   var hudH = isTouch() ? 38 : 50;
@@ -802,6 +1054,40 @@ function drawHUD() {
     ctx.font = '9px monospace';
     ctx.fillText('SPACE fwd  SHIFT rev  UP/DN dive', 15, 42);
   }
+
+  // Fuel gauge
+  drawGauge(8, hudH + 14, 90, 10, fuel, 'FUEL');
+  // Air gauge
+  drawGauge(8, hudH + 30, 90, 10, air,  'AIR');
+
+  // NO FUEL overlay
+  if (fuel <= 0) {
+    var flash2 = Math.floor(wt * 3) % 2 === 0;
+    if (flash2) {
+      ctx.fillStyle = 'rgba(200,40,40,0.82)';
+      rRect(W / 2 - 72, H / 2 - 18, 144, 36, 6); ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 18px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('NO FUEL', W / 2, H / 2);
+    }
+  }
+
+  // Low air warning
+  if (air < 0.15 && fuel > 0) {
+    var flash3 = Math.floor(wt * 3) % 2 === 0;
+    if (flash3) {
+      ctx.fillStyle = 'rgba(20,80,160,0.82)';
+      rRect(W / 2 - 72, H / 2 - 18, 144, 36, 6); ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 16px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('SURFACE NOW', W / 2, H / 2);
+    }
+  }
+
   ctx.restore();
 }
 
@@ -811,6 +1097,7 @@ function render() {
   drawSky();
   drawOcean();
   drawTerrain();
+  drawStations();
   drawBubbles();
   drawCreatures();
   drawSub();
