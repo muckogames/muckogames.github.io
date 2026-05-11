@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Pfluegerville Ocean</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #0a1828; }
+#stage { position: absolute; }
+canvas { display: block; touch-action: none; -webkit-tap-highlight-color: transparent; }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="gc"></canvas></div>
+<script>
+// Pfluegerville Ocean
+
+// ── dimensions ───────────────────────────────────────────────────────────────
+var W = 800, H = 500, CELL = 40;
+var OCEAN_BASE  = CELL * 2;            // y=80  wave baseline
+var FLOOR_BASE  = H - CELL;            // y=460 floor baseline
+var OCEAN_DEPTH = FLOOR_BASE - OCEAN_BASE; // 380px
+var TERRAIN_MAX = OCEAN_DEPTH * 0.15;  // 57px max mountain height
+var MAX_DPR     = 1.5;
+
+// ── canvas setup ─────────────────────────────────────────────────────────────
+var stage = document.getElementById('stage');
+var gc    = document.getElementById('gc');
+var ctx   = gc.getContext('2d');
+var dpr   = Math.min(window.devicePixelRatio || 1, MAX_DPR);
+gc.width  = Math.round(W * dpr);
+gc.height = Math.round(H * dpr);
+gc.style.width  = W + 'px';
+gc.style.height = H + 'px';
+ctx.scale(dpr, dpr);
+
+function vw() { var v = window.visualViewport; return v ? v.width  : window.innerWidth;  }
+function vh() { var v = window.visualViewport; return v ? v.height : window.innerHeight; }
+function onResize() {
+  var sw = vw(), sh = vh(), s = Math.min(sw / W, sh / H);
+  var pw = Math.round(W * s), ph = Math.round(H * s);
+  stage.style.width  = pw + 'px';
+  stage.style.height = ph + 'px';
+  stage.style.left   = Math.round((sw - pw) / 2) + 'px';
+  stage.style.top    = Math.round((sh - ph) / 2) + 'px';
+}
+window.addEventListener('resize', onResize);
+if (window.visualViewport) window.visualViewport.addEventListener('resize', onResize);
+onResize();
+
+// ── input ─────────────────────────────────────────────────────────────────────
+var K = {}, JP = {};
+document.addEventListener('keydown', function(e) {
+  if (!K[e.code]) JP[e.code] = true;
+  K[e.code] = true;
+  if (e.code === 'Space' || e.code === 'ShiftLeft' || e.code === 'ShiftRight' ||
+      e.code === 'ArrowUp' || e.code === 'ArrowDown') e.preventDefault();
+});
+document.addEventListener('keyup', function(e) { K[e.code] = false; });
+
+// ── surface wave ─────────────────────────────────────────────────────────────
+var wt = 0;
+function wave(wx) {
+  return OCEAN_BASE
+    + 8  * Math.sin(0.018 * wx + wt * 0.85)
+    + 5  * Math.sin(0.043 * wx + wt * 1.45)
+    + 3  * Math.sin(0.099 * wx + wt * 0.60);
+}
+
+// ── seafloor terrain ──────────────────────────────────────────────────────────
+// Deterministic sine-sum terrain; mountains/valleys up to TERRAIN_MAX above floor
+function terrain(wx) {
+  var h = 0.42 * Math.sin(wx * 0.0071 + 1.23)
+        + 0.28 * Math.sin(wx * 0.018  + 4.51)
+        + 0.18 * Math.sin(wx * 0.053  + 2.78)
+        + 0.12 * Math.sin(wx * 0.137  + 0.44);
+  // h in (-1,1) -> normalise to (0,1) -> scale
+  return FLOOR_BASE - (h + 1) * 0.5 * TERRAIN_MAX;
+}
+
+// ── submarine ─────────────────────────────────────────────────────────────────
+var MAX_VX = 200, MAX_VY = 110;
+var ACCEL_X = 350, ACCEL_Y = 300;
+var DRAG_X  = 0.9, DRAG_Y  = 1.8;
+var SUB_HW = 40, SUB_HH = 14;   // half-width / half-height
+var SUB_RADIUS = 32;             // collision radius
+
+var sub = { x: 0, y: OCEAN_BASE + CELL * 3, vx: 0, vy: 0 };
+var subFace   = 1;               // 1=right -1=left
+var subPitch  = 0, subPitchT = 0;
+var propAng   = 0;
+var hitFlash  = 0;
+
+var camX = sub.x - W / 2;
+
+// ── scenery (coral + wrecks) ──────────────────────────────────────────────────
+var CORALS = [], WRECKS = [];
+(function() {
+  var coralCols = ['#e85570','#ff8c42','#d43a8a','#9b5de5','#00bbf9','#ff6b6b','#ffd166'];
+  for (var i = -50; i <= 50; i++) {
+    var wx  = i * 178 + (((Math.abs(i) * 97 + 13) * 57) % 80) - 40;
+    var col = coralCols[Math.abs(i) % coralCols.length];
+    CORALS.push({ wx: wx, col: col, h: 18 + Math.abs((i * 73) % 22), type: Math.abs(i) % 3 });
+  }
+  for (var j = -8; j <= 8; j++) {
+    if (j === 0) continue;
+    WRECKS.push({ wx: j * 920 + ((Math.abs(j) * 139) % 200) - 100 });
+  }
+}());
+
+// ── sea life ──────────────────────────────────────────────────────────────────
+var CREATURES = [];
+(function() {
+  // Deterministic RNG seeded for reproducibility
+  var rng = 0xdeadbeef;
+  function rand() {
+    rng = ((rng >>> 0) * 1664525 + 1013904223) >>> 0;
+    return rng / 0xffffffff;
+  }
+
+  var fishCols  = ['#3a7aaa','#2a5888','#4a9aaa','#226688','#1a6080'];
+  var squidCols = ['#8844aa','#aa44cc','#662288','#993399','#bb66dd'];
+
+  for (var i = 0; i < 40; i++) {
+    var wx = (rand() * 2 - 1) * 5000;
+    var yr = 0.15 + rand() * 0.65;
+    CREATURES.push({
+      wx:   wx,
+      y:    OCEAN_BASE + CELL + yr * (OCEAN_DEPTH - CELL * 2),
+      vx:   (22 + rand() * 48) * (rand() > 0.5 ? 1 : -1),
+      vy:   0,
+      r:    12 + rand() * 10,
+      type: 'fish',
+      col:  fishCols[i % fishCols.length],
+      hit:  0
+    });
+  }
+  for (var j = 0; j < 20; j++) {
+    var wx2 = (rand() * 2 - 1) * 5000;
+    var yr2 = 0.1 + rand() * 0.55;
+    CREATURES.push({
+      wx:   wx2,
+      y:    OCEAN_BASE + CELL + yr2 * (OCEAN_DEPTH - CELL * 2),
+      vx:   (6 + rand() * 18) * (rand() > 0.5 ? 1 : -1),
+      vy:   (rand() * 2 - 1) * 12,
+      r:    16 + rand() * 12,
+      type: 'squid',
+      col:  squidCols[j % squidCols.length],
+      hit:  0,
+      tentTimer: rand() * Math.PI * 2
+    });
+  }
+}());
+
+// ── bubbles ───────────────────────────────────────────────────────────────────
+var BUBBLES = [];
+(function() {
+  for (var i = 0; i < 22; i++) {
+    BUBBLES.push({
+      wx:  (i - 11) * 210,
+      y:   OCEAN_BASE + CELL + (i % 9) * 35,
+      spd: 20 + i % 5 * 8,
+      r:   1.5 + i % 3
+    });
+  }
+}());
+
+// ── touch buttons ─────────────────────────────────────────────────────────────
+var BTNS = [], btnTouch = {};
+(function() {
+  var by = H - 65;
+  BTNS = [
+    { id: 'fwd', cx: W - 65,  cy: by,      r: 40, key: 'Space'      },
+    { id: 'rev', cx: W - 148, cy: by,      r: 40, key: 'ShiftLeft'  },
+    { id: 'up',  cx: 65,      cy: by - 40, r: 32, key: 'ArrowUp'    },
+    { id: 'dn',  cx: 65,      cy: by + 10, r: 32, key: 'ArrowDown'  }
+  ];
+}());
+
+function touchCoord(touch) {
+  var r = gc.getBoundingClientRect();
+  return { x: (touch.clientX - r.left) * (W / r.width),
+           y: (touch.clientY - r.top)  * (H / r.height) };
+}
+gc.addEventListener('touchstart', function(e) {
+  e.preventDefault();
+  for (var i = 0; i < e.changedTouches.length; i++) {
+    var t = e.changedTouches[i], c = touchCoord(t);
+    for (var j = 0; j < BTNS.length; j++) {
+      var b = BTNS[j];
+      if (Math.hypot(c.x - b.cx, c.y - b.cy) < b.r + 10) { btnTouch[b.id] = t.identifier; K[b.key] = true; }
+    }
+  }
+}, { passive: false });
+gc.addEventListener('touchend', function(e) {
+  e.preventDefault();
+  for (var i = 0; i < e.changedTouches.length; i++) {
+    var tid = e.changedTouches[i].identifier;
+    for (var j = 0; j < BTNS.length; j++) {
+      var b = BTNS[j];
+      if (btnTouch[b.id] === tid) { delete btnTouch[b.id]; K[b.key] = false; }
+    }
+  }
+}, { passive: false });
+gc.addEventListener('touchcancel', function() {
+  for (var i = 0; i < BTNS.length; i++) K[BTNS[i].key] = false;
+  btnTouch = {};
+}, { passive: false });
+gc.addEventListener('touchmove', function(e) { e.preventDefault(); }, { passive: false });
+function isTouch() { return navigator.maxTouchPoints > 0 || 'ontouchstart' in window; }
+
+// ── draw helpers ──────────────────────────────────────────────────────────────
+function rRect(x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);         ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y,     x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function tri(cx, cy, sz, dir) {
+  ctx.beginPath();
+  if (dir === 0) { ctx.moveTo(cx-sz, cy-sz); ctx.lineTo(cx+sz, cy); ctx.lineTo(cx-sz, cy+sz); }
+  else if (dir===1) { ctx.moveTo(cx+sz, cy-sz); ctx.lineTo(cx-sz, cy); ctx.lineTo(cx+sz, cy+sz); }
+  else if (dir===2) { ctx.moveTo(cx-sz, cy+sz); ctx.lineTo(cx, cy-sz); ctx.lineTo(cx+sz, cy+sz); }
+  else { ctx.moveTo(cx-sz, cy-sz); ctx.lineTo(cx, cy+sz); ctx.lineTo(cx+sz, cy-sz); }
+  ctx.closePath();
+  ctx.fill();
+}
+
+// ── update ────────────────────────────────────────────────────────────────────
+function update(dt) {
+  wt += dt;
+  if (hitFlash > 0) hitFlash -= dt;
+
+  var fwd = K['Space'];
+  var rev = K['ShiftLeft'] || K['ShiftRight'];
+  var up  = K['ArrowUp']   || K['KeyW'];
+  var dn  = K['ArrowDown'] || K['KeyS'];
+
+  if (fwd) sub.vx += ACCEL_X * dt;
+  if (rev) sub.vx -= ACCEL_X * dt;
+  if (up)  sub.vy -= ACCEL_Y * dt;
+  if (dn)  sub.vy += ACCEL_Y * dt;
+
+  if (!fwd && !rev) sub.vx *= Math.exp(-DRAG_X * dt);
+  if (!up  && !dn)  sub.vy *= Math.exp(-DRAG_Y * dt);
+
+  if (sub.vx >  MAX_VX) sub.vx =  MAX_VX;
+  if (sub.vx < -MAX_VX) sub.vx = -MAX_VX;
+  if (sub.vy >  MAX_VY) sub.vy =  MAX_VY;
+  if (sub.vy < -MAX_VY) sub.vy = -MAX_VY;
+
+  sub.x += sub.vx * dt;
+  sub.y += sub.vy * dt;
+
+  // Surface boundary
+  var surf = wave(sub.x) + SUB_HH + 4;
+  if (sub.y < surf) { sub.y = surf; if (sub.vy < 0) sub.vy = 0; }
+
+  // Terrain boundary (check front, center, back of hull)
+  var checks = [sub.x - 36 * subFace, sub.x, sub.x + 36 * subFace];
+  var minFloor = FLOOR_BASE;
+  for (var ci = 0; ci < 3; ci++) {
+    var ty = terrain(checks[ci]);
+    if (ty < minFloor) minFloor = ty;
+  }
+  var floorLim = minFloor - SUB_HH - 2;
+  if (sub.y > floorLim) { sub.y = floorLim; if (sub.vy > 0) sub.vy = 0; }
+
+  // Facing & pitch
+  if (Math.abs(sub.vx) > 12) subFace = sub.vx > 0 ? 1 : -1;
+  var spd = Math.sqrt(sub.vx * sub.vx + sub.vy * sub.vy);
+  subPitchT = spd > 20
+    ? Math.max(-0.32, Math.min(0.32, Math.atan2(sub.vy, Math.abs(sub.vx))))
+    : subPitchT * 0.9;
+  subPitch += (subPitchT - subPitch) * Math.min(1, 5 * dt);
+  propAng  += Math.abs(sub.vx) * dt * 0.09;
+
+  // Camera
+  camX += (sub.x - W / 2 - camX) * Math.min(1, 3 * dt);
+
+  // Sea life update
+  for (var j = 0; j < CREATURES.length; j++) {
+    var c = CREATURES[j];
+    if (c.hit > 0) c.hit -= dt;
+
+    c.wx += c.vx * dt;
+    c.y  += c.vy * dt;
+
+    if (c.type === 'squid') {
+      c.tentTimer += dt * 2;
+      c.vx += (Math.random() * 2 - 1) * 22 * dt;
+      c.vy += (Math.random() * 2 - 1) * 16 * dt;
+      c.vx *= Math.exp(-0.9 * dt);
+      c.vy *= Math.exp(-1.6 * dt);
+      if (c.vx >  30) c.vx =  30;
+      if (c.vx < -30) c.vx = -30;
+      if (c.vy >  20) c.vy =  20;
+      if (c.vy < -20) c.vy = -20;
+    }
+
+    // Wrap fish around visible range
+    if (c.type === 'fish') {
+      if (c.vx > 0 && c.wx > sub.x + W * 1.5) c.wx = sub.x - W * 1.5;
+      if (c.vx < 0 && c.wx < sub.x - W * 1.5) c.wx = sub.x + W * 1.5;
+    }
+
+    // Terrain collision for creatures
+    var cFloor = terrain(c.wx) - c.r - 2;
+    if (c.y > cFloor) { c.y = cFloor; if (c.vy > 0) c.vy = -Math.abs(c.vy) * 0.4; }
+    var cSurf = OCEAN_BASE + c.r;
+    if (c.y < cSurf) { c.y = cSurf; if (c.vy < 0) c.vy = Math.abs(c.vy) * 0.3; }
+
+    // Collision with sub
+    var dx = c.wx - sub.x, dy = c.y - sub.y;
+    var dist = Math.sqrt(dx * dx + dy * dy);
+    var minD = c.r + SUB_RADIUS;
+    if (dist < minD && dist > 0.1 && c.hit <= 0) {
+      c.hit = 0.6;
+      hitFlash = 0.25;
+      var nx = dx / dist, ny = dy / dist;
+      // Knock sub back, fling creature away
+      sub.vx -= nx * 130;
+      sub.vy -= ny * 90;
+      c.vx    += nx * 100;
+      c.vy    += ny * 70;
+      if (sub.vx >  MAX_VX) sub.vx =  MAX_VX;
+      if (sub.vx < -MAX_VX) sub.vx = -MAX_VX;
+    }
+  }
+
+  // Bubbles
+  for (var k = 0; k < BUBBLES.length; k++) {
+    var b = BUBBLES[k];
+    b.y -= b.spd * dt;
+    if (b.y < OCEAN_BASE - 5) {
+      b.wx = sub.x + (Math.random() * 2 - 1) * W;
+      b.y  = terrain(b.wx) - 5;
+    }
+  }
+}
+
+// ── draw sky ──────────────────────────────────────────────────────────────────
+function drawSky() {
+  var g = ctx.createLinearGradient(0, 0, 0, OCEAN_BASE + 15);
+  g.addColorStop(0, '#4a8fc0');
+  g.addColorStop(1, '#85c9e8');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, OCEAN_BASE + 15);
+
+  ctx.fillStyle = 'rgba(255,255,255,0.82)';
+  var seeds = [-580, -250, 120, 430, 760, 1100, 1500, 1920];
+  for (var i = 0; i < seeds.length; i++) {
+    var cx = ((seeds[i] - camX * 0.3) % 2700 + 2700) % 2700 - 200;
+    if (cx < -200 || cx > W + 200) continue;
+    var cy = 16 + (i % 3) * 11;
+    ctx.beginPath();
+    ctx.arc(cx,      cy + 8, 16, 0, Math.PI * 2);
+    ctx.arc(cx + 22, cy + 4, 19, 0, Math.PI * 2);
+    ctx.arc(cx + 46, cy + 8, 15, 0, Math.PI * 2);
+    ctx.arc(cx + 14, cy,     13, 0, Math.PI * 2);
+    ctx.arc(cx + 32, cy - 2, 12, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// ── draw ocean water ──────────────────────────────────────────────────────────
+function drawOcean() {
+  var g = ctx.createLinearGradient(0, OCEAN_BASE, 0, FLOOR_BASE);
+  g.addColorStop(0,    '#1a7490');
+  g.addColorStop(0.25, '#0f5070');
+  g.addColorStop(0.7,  '#093a52');
+  g.addColorStop(1,    '#051c28');
+  ctx.fillStyle = g;
+
+  ctx.beginPath();
+  ctx.moveTo(0, H);
+  ctx.lineTo(0, wave(camX));
+  for (var sx = 2; sx <= W + 2; sx += 3) {
+    ctx.lineTo(sx, wave(sx + camX));
+  }
+  ctx.lineTo(W, H);
+  ctx.closePath();
+  ctx.fill();
+
+  // Shimmer line at surface
+  ctx.strokeStyle = 'rgba(160,220,255,0.40)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(0, wave(camX));
+  for (var sx2 = 3; sx2 <= W; sx2 += 3) {
+    ctx.lineTo(sx2, wave(sx2 + camX));
+  }
+  ctx.stroke();
+}
+
+// ── draw terrain + decorations ────────────────────────────────────────────────
+function drawTerrain() {
+  // Rocky floor polygon
+  ctx.fillStyle = '#3c2a18';
+  ctx.beginPath();
+  ctx.moveTo(0, H);
+  ctx.lineTo(0, terrain(camX));
+  for (var sx = 3; sx <= W + 3; sx += 3) {
+    ctx.lineTo(sx, terrain(sx + camX));
+  }
+  ctx.lineTo(W, H);
+  ctx.closePath();
+  ctx.fill();
+
+  // Surface edge highlight
+  ctx.strokeStyle = 'rgba(100,70,40,0.5)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, terrain(camX));
+  for (var sx3 = 3; sx3 <= W; sx3 += 3) {
+    ctx.lineTo(sx3, terrain(sx3 + camX));
+  }
+  ctx.stroke();
+
+  // Coral
+  for (var i = 0; i < CORALS.length; i++) {
+    var co = CORALS[i];
+    var coSx = co.wx - camX;
+    if (coSx < -50 || coSx > W + 50) continue;
+    drawCoral(coSx, terrain(co.wx), co.h, co.col, co.type);
+  }
+
+  // Shipwrecks
+  for (var j = 0; j < WRECKS.length; j++) {
+    var wr = WRECKS[j];
+    var wrSx = wr.wx - camX;
+    if (wrSx < -220 || wrSx > W + 220) continue;
+    drawWreck(wrSx, terrain(wr.wx));
+  }
+}
+
+function drawCoral(x, ty, h, col, type) {
+  ctx.strokeStyle = col;
+  ctx.lineCap = 'round';
+
+  if (type === 0) {
+    // Branching
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(x, ty); ctx.lineTo(x, ty - h);
+    ctx.stroke();
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x, ty - h * 0.5); ctx.lineTo(x - h * 0.4, ty - h * 0.88);
+    ctx.moveTo(x, ty - h * 0.6); ctx.lineTo(x + h * 0.35, ty - h * 0.94);
+    ctx.moveTo(x, ty - h * 0.3); ctx.lineTo(x - h * 0.22, ty - h * 0.55);
+    ctx.stroke();
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.arc(x, ty - h, 3, 0, Math.PI * 2);
+    ctx.arc(x - h * 0.4, ty - h * 0.88, 3, 0, Math.PI * 2);
+    ctx.arc(x + h * 0.35, ty - h * 0.94, 3, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (type === 1) {
+    // Fan
+    ctx.lineWidth = 2;
+    for (var i = -3; i <= 3; i++) {
+      ctx.beginPath();
+      ctx.moveTo(x, ty);
+      ctx.lineTo(x + i * h * 0.16, ty - h * (0.68 + Math.abs(i) * 0.06));
+      ctx.stroke();
+    }
+  } else {
+    // Tube cluster
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'butt';
+    var offs = [-8, -3, 3, 8];
+    for (var k = 0; k < 4; k++) {
+      var th = h * (0.72 + k * 0.07);
+      ctx.strokeStyle = col;
+      ctx.beginPath();
+      ctx.moveTo(x + offs[k], ty);
+      ctx.lineTo(x + offs[k], ty - th);
+      ctx.stroke();
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.arc(x + offs[k], ty - th, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.lineCap = 'butt';
+}
+
+function drawWreck(sx, ty) {
+  ctx.save();
+  ctx.translate(sx, ty);
+  ctx.rotate(0.18);
+
+  // Hull
+  ctx.fillStyle = '#2a1a0e';
+  rRect(-55, -22, 110, 30, 5);
+  ctx.fill();
+  ctx.strokeStyle = '#5a4030';
+  ctx.lineWidth = 3;
+  rRect(-55, -22, 110, 30, 5);
+  ctx.stroke();
+
+  // Broken mast
+  ctx.strokeStyle = '#4a3222';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(-20, -22); ctx.lineTo(-24, -65);
+  ctx.stroke();
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(-42, -50); ctx.lineTo(-6, -50);
+  ctx.stroke();
+  // Rigging
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = '#3a2515';
+  ctx.beginPath();
+  ctx.moveTo(-24, -65); ctx.lineTo(-42, -50);
+  ctx.moveTo(-24, -65); ctx.lineTo(-6, -50);
+  ctx.stroke();
+
+  // Portholes
+  ctx.fillStyle = '#1a0e05';
+  ctx.strokeStyle = '#6a5040';
+  ctx.lineWidth = 2;
+  for (var p = 0; p < 3; p++) {
+    ctx.beginPath();
+    ctx.arc(-30 + p * 28, -8, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  // Algae growth
+  ctx.strokeStyle = 'rgba(40,130,60,0.55)';
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo( 20, -22); ctx.lineTo( 17, -38);
+  ctx.moveTo( 36, -22); ctx.lineTo( 39, -36);
+  ctx.moveTo(-40, -22); ctx.lineTo(-43, -34);
+  ctx.stroke();
+  ctx.lineCap = 'butt';
+
+  ctx.restore();
+}
+
+// ── draw creatures ────────────────────────────────────────────────────────────
+function drawCreatures() {
+  for (var i = 0; i < CREATURES.length; i++) {
+    var c = CREATURES[i];
+    var sx = c.wx - camX;
+    if (sx < -90 || sx > W + 90) continue;
+    if (c.type === 'fish') drawFish(sx, c.y, c);
+    else                   drawSquid(sx, c.y, c);
+  }
+}
+
+function drawFish(sx, sy, c) {
+  var facing = c.vx > 0 ? 1 : -1;
+  ctx.save();
+  ctx.translate(sx, sy);
+  ctx.scale(facing, 1);
+  if (c.hit > 0) ctx.globalAlpha = 0.45 + 0.55 * Math.abs(Math.sin(c.hit * 35));
+
+  var r = c.r;
+  ctx.fillStyle = c.col;
+  // Body
+  ctx.beginPath();
+  ctx.ellipse(0, 0, r, r * 0.44, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Tail
+  ctx.beginPath();
+  ctx.moveTo(-r, 0);
+  ctx.lineTo(-r - r * 0.62, -r * 0.44);
+  ctx.lineTo(-r - r * 0.62,  r * 0.44);
+  ctx.closePath();
+  ctx.fill();
+  // Dorsal fin
+  ctx.beginPath();
+  ctx.moveTo(-r * 0.2, -r * 0.44);
+  ctx.lineTo(0, -r * 0.82);
+  ctx.lineTo( r * 0.3, -r * 0.44);
+  ctx.closePath();
+  ctx.fill();
+  // Eye
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(r * 0.5, -r * 0.08, r * 0.18, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#111';
+  ctx.beginPath();
+  ctx.arc(r * 0.55, -r * 0.08, r * 0.09, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function drawSquid(sx, sy, c) {
+  var t = c.tentTimer;
+  ctx.save();
+  ctx.translate(sx, sy);
+  if (c.hit > 0) ctx.globalAlpha = 0.45 + 0.55 * Math.abs(Math.sin(c.hit * 35));
+
+  var r = c.r;
+  ctx.fillStyle = c.col;
+  // Mantle
+  ctx.beginPath();
+  ctx.ellipse(0, 0, r * 0.58, r, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Head bulge
+  ctx.beginPath();
+  ctx.ellipse(0, r * 0.88, r * 0.44, r * 0.34, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Tentacles
+  ctx.strokeStyle = c.col;
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+  for (var i = 0; i < 8; i++) {
+    var ang = (i / 8) * Math.PI * 2 + t * 0.4;
+    var wv = Math.sin(ang * 3 + t * 3) * 0.28;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(ang) * r * 0.28, r * 1.05);
+    ctx.quadraticCurveTo(
+      Math.cos(ang) * r * 0.5 + wv * r, r * 1.38,
+      Math.cos(ang) * r * 0.18, r * 1.68 + (i % 2 === 0 ? r * 0.2 : 0)
+    );
+    ctx.stroke();
+  }
+  ctx.lineCap = 'butt';
+  // Eyes
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(-r * 0.2, r * 0.68, r * 0.19, 0, Math.PI * 2);
+  ctx.arc( r * 0.2, r * 0.68, r * 0.19, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#220022';
+  ctx.beginPath();
+  ctx.arc(-r * 0.2, r * 0.68, r * 0.10, 0, Math.PI * 2);
+  ctx.arc( r * 0.2, r * 0.68, r * 0.10, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+// ── draw bubbles ──────────────────────────────────────────────────────────────
+function drawBubbles() {
+  ctx.strokeStyle = 'rgba(160,220,255,0.32)';
+  ctx.lineWidth = 1;
+  for (var i = 0; i < BUBBLES.length; i++) {
+    var b = BUBBLES[i];
+    var bSx = b.wx - camX;
+    if (bSx < -10 || bSx > W + 10) continue;
+    ctx.beginPath();
+    ctx.arc(bSx, b.y, b.r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+}
+
+// ── draw submarine ────────────────────────────────────────────────────────────
+function drawSub() {
+  var sx = sub.x - camX, sy = sub.y;
+  var hw = SUB_HW, hh = SUB_HH;
+
+  ctx.save();
+  ctx.translate(sx, sy);
+  ctx.scale(subFace, 1);
+  ctx.rotate(subPitch);
+
+  // Hit flash
+  if (hitFlash > 0) {
+    ctx.save();
+    ctx.globalAlpha = hitFlash * 3.5;
+    ctx.fillStyle = '#ff4444';
+    rRect(-hw - 5, -hh - 5, (hw + 5) * 2, (hh + 5) * 2, hh + 5);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Drop shadow
+  ctx.save();
+  ctx.globalAlpha = 0.12;
+  ctx.fillStyle = '#000';
+  rRect(-hw + 3, -hh + 3, hw * 2, hh * 2, hh);
+  ctx.fill();
+  ctx.restore();
+
+  // Hull body
+  ctx.fillStyle = '#d4aa22';
+  rRect(-hw, -hh, hw * 2, hh * 2, hh);
+  ctx.fill();
+
+  // Stripe
+  ctx.fillStyle = '#b89010';
+  ctx.fillRect(-hw + 8, -3, hw * 2 - 16, 6);
+
+  // Rivets
+  ctx.fillStyle = '#c09518';
+  for (var i = 0; i < 4; i++) {
+    var rx = -hw + 20 + i * 18;
+    ctx.beginPath(); ctx.arc(rx,  hh - 5, 2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(rx, -hh + 5, 2, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // Conning tower
+  ctx.fillStyle = '#c09518';
+  rRect(-9, -hh - 15, 18, 16, 3);
+  ctx.fill();
+  ctx.fillStyle = '#907008';
+  ctx.fillRect(-7, -hh - 13, 14, 3);
+
+  // Periscope
+  ctx.strokeStyle = '#806008';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(4, -hh - 15); ctx.lineTo(4, -hh - 25); ctx.lineTo(13, -hh - 25);
+  ctx.stroke();
+  ctx.fillStyle = '#604800';
+  ctx.fillRect(10, -hh - 28, 7, 5);
+
+  // Propeller (at rear)
+  ctx.save();
+  ctx.translate(-hw, 0);
+  ctx.rotate(propAng);
+  ctx.fillStyle = '#8a8a8a';
+  for (var p = 0; p < 3; p++) {
+    ctx.save();
+    ctx.rotate(p * Math.PI * 2 / 3);
+    rRect(-2, -11, 4, 11, 1);
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.restore();
+
+  // Porthole
+  ctx.fillStyle = '#7ad4f0';
+  ctx.beginPath();
+  ctx.arc(hw * 0.4, 0, 6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#906808';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  // Glare
+  ctx.fillStyle = 'rgba(255,255,255,0.55)';
+  ctx.beginPath();
+  ctx.arc(hw * 0.4 - 2, -2, 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+// ── draw touch controls ───────────────────────────────────────────────────────
+function drawTouchControls() {
+  if (!isTouch()) return;
+  for (var i = 0; i < BTNS.length; i++) {
+    var b = BTNS[i];
+    var on = !!K[b.key];
+    ctx.save();
+    ctx.globalAlpha = on ? 0.88 : 0.45;
+    ctx.fillStyle   = on ? 'rgba(255,255,255,0.9)' : 'rgba(40,80,110,0.7)';
+    ctx.strokeStyle = 'rgba(130,200,240,0.7)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(b.cx, b.cy, b.r, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = on ? '#0a2030' : '#90d0f0';
+    var ts = b.r * 0.42;
+    if (b.id === 'fwd') tri(b.cx, b.cy, ts, 0);
+    if (b.id === 'rev') tri(b.cx, b.cy, ts, 1);
+    if (b.id === 'up')  tri(b.cx, b.cy, ts, 2);
+    if (b.id === 'dn')  tri(b.cx, b.cy, ts, 3);
+    ctx.restore();
+  }
+}
+
+// ── draw HUD ──────────────────────────────────────────────────────────────────
+function drawHUD() {
+  ctx.save();
+  var hudH = isTouch() ? 38 : 50;
+  ctx.fillStyle   = 'rgba(5,20,35,0.62)';
+  ctx.strokeStyle = 'rgba(80,180,230,0.35)';
+  ctx.lineWidth = 1;
+  rRect(8, 8, 152, hudH, 5);
+  ctx.fill(); ctx.stroke();
+
+  ctx.fillStyle = '#60c8f0';
+  ctx.font = '11px monospace';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText('SPD  ' + Math.round(Math.abs(sub.vx)) + ' / ' + MAX_VX, 15, 14);
+  ctx.fillText('DEPTH  ' + Math.max(0, Math.round(sub.y - OCEAN_BASE)) + ' m', 15, 28);
+  if (!isTouch()) {
+    ctx.fillStyle = 'rgba(80,160,200,0.65)';
+    ctx.font = '9px monospace';
+    ctx.fillText('SPACE fwd  SHIFT rev  UP/DN dive', 15, 42);
+  }
+  ctx.restore();
+}
+
+// ── render ────────────────────────────────────────────────────────────────────
+function render() {
+  ctx.clearRect(0, 0, W, H);
+  drawSky();
+  drawOcean();
+  drawTerrain();
+  drawBubbles();
+  drawCreatures();
+  drawSub();
+  drawTouchControls();
+  drawHUD();
+}
+
+// ── game loop ─────────────────────────────────────────────────────────────────
+var SIM = 1 / 60, debt = 0, lastTs = 0;
+function loop(ts) {
+  if (!lastTs) lastTs = ts;
+  var el = Math.min((ts - lastTs) / 1000, SIM * 6);
+  lastTs = ts;
+  debt += el;
+  while (debt >= SIM) { update(SIM); debt -= SIM; }
+  render();
+  var ks = Object.keys(JP);
+  for (var i = 0; i < ks.length; i++) JP[ks[i]] = false;
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
