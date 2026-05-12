@@ -93,6 +93,44 @@ var subPitch  = 0, subPitchT = 0;
 var propAng   = 0;
 var hitFlash  = 0;
 
+// ── iceberg sink animation ────────────────────────────────────────────────────
+var gamePhase  = 'playing'; // 'playing' | 'sinking' | 'gameover'
+var sinkT      = 0;
+var sinkFace   = 1;
+var sinkCamX   = 0;
+// two pieces: bow (front) and stern (back)
+var sinkBow    = { x: 0, y: 0, vy: 0, angle: 0 };
+var sinkStern  = { x: 0, y: 0, vy: 0, angle: 0 };
+// tilt phase lasts SINK_TILT s, then pieces split and sink
+var SINK_TILT  = 1.4;
+var SINK_TOTAL = 6.0;
+
+function triggerSink() {
+  gamePhase      = 'sinking';
+  sinkT          = 0;
+  sinkFace       = subFace;
+  sinkCamX       = camX;
+  // pieces start at sub position, split by half-hull width
+  var hw = SUB_HW * 0.5;
+  sinkBow.x      = sub.x + hw * subFace;
+  sinkBow.y      = sub.y;
+  sinkBow.vy     = -20;
+  sinkBow.angle  = 0;
+  sinkStern.x    = sub.x - hw * subFace;
+  sinkStern.y    = sub.y;
+  sinkStern.vy   = -40;
+  sinkStern.angle = 0;
+  diverOut = false; diverRecalling = false;
+}
+
+function resetGame() {
+  sub.x = 0; sub.y = OCEAN_BASE + CELL * 3; sub.vx = 0; sub.vy = 0;
+  subFace = 1; subPitch = 0; subPitchT = 0; propAng = 0; hitFlash = 0;
+  fuel = 1.0; air = 1.0; camX = sub.x - W / 2;
+  diverOut = false; diverRecalling = false;
+  gamePhase = 'playing'; sinkT = 0;
+}
+
 // ── fuel & air ────────────────────────────────────────────────────────────────
 var fuel = 1.0;           // 0–1; drained by fwd/rev thrust
 var air  = 1.0;           // 0–1; drained always, refilled at surface
@@ -129,6 +167,16 @@ var CORALS = [], WRECKS = [];
   for (var j = -8; j <= 8; j++) {
     if (j === 0) continue;
     WRECKS.push({ wx: j * 920 + ((Math.abs(j) * 139) % 200) - 100 });
+  }
+}());
+
+var ICEBERGS = [];
+(function() {
+  for (var i = -12; i <= 12; i++) {
+    if (i === 0) continue;
+    var wx = i * 2400 + ((Math.abs(i) * 317 + 91) % 600) - 300;
+    var sz = 0.75 + (Math.abs(i * 53) % 25) / 100; // 0.75–1.0
+    ICEBERGS.push({ wx: wx, sz: sz });
   }
 }());
 
@@ -267,6 +315,41 @@ function tri(cx, cy, sz, dir) {
 // ── update ────────────────────────────────────────────────────────────────────
 function update(dt) {
   wt += dt;
+
+  // ── sinking animation ──
+  if (gamePhase === 'sinking') {
+    sinkT += dt;
+    if (sinkT < SINK_TILT) {
+      // Whole sub tilts toward 45° bow-down
+      subPitch = (sinkT / SINK_TILT) * (Math.PI / 4) * sinkFace;
+    } else {
+      // Split phase: pieces fall with gravity
+      var g = 110;
+      sinkBow.vy   += g * dt;
+      sinkStern.vy += g * dt;
+      sinkBow.y    += sinkBow.vy   * dt;
+      sinkStern.y  += sinkStern.vy * dt;
+      // bow nose tips forward and down; stern rises briefly then sinks back
+      sinkBow.angle   += 1.1 * dt * sinkFace;
+      sinkStern.angle -= 0.7 * dt * sinkFace;
+      // drift apart horizontally
+      sinkBow.x   += 18 * sinkFace * dt;
+      sinkStern.x -= 12 * sinkFace * dt;
+      if (sinkT > SINK_TOTAL) gamePhase = 'gameover';
+    }
+    camX += (sub.x - W / 2 - camX) * Math.min(1, 1.5 * dt);
+    return;
+  }
+
+  // ── game over: wait for click / any key to restart ──
+  if (gamePhase === 'gameover') {
+    var anyKey = false;
+    var ks = Object.keys(JP);
+    for (var ki = 0; ki < ks.length; ki++) { if (JP[ks[ki]]) { anyKey = true; break; } }
+    if (anyKey) resetGame();
+    return;
+  }
+
   if (hitFlash > 0) hitFlash -= dt;
   if (airFillTimer > 0) airFillTimer -= dt;
 
@@ -422,6 +505,23 @@ function update(dt) {
       if (Math.sqrt(sdx * sdx + sdy * sdy) < 115) {
         nearStation = true;
         fuel = Math.min(1, fuel + FUEL_FILL * dt);
+      }
+    }
+
+    // Iceberg collision
+    for (var ii = 0; ii < ICEBERGS.length; ii++) {
+      var ib = ICEBERGS[ii];
+      if (Math.abs(ib.wx - sub.x) > 200) continue;
+      var ibSurf  = wave(ib.wx);
+      var ibW     = 52 * ib.sz; // half-width of underwater bulk
+      var ibDepth = 90 * ib.sz; // how deep it extends
+      var ibdx    = sub.x - ib.wx;
+      var ibdy    = sub.y - ibSurf;
+      // Elliptical hit zone covering the underwater mass
+      if ((ibdx * ibdx) / (ibW * ibW) + (ibdy * ibdy) / (ibDepth * ibDepth) < 1
+          && ibdy > -SUB_HH) {
+        triggerSink();
+        break;
       }
     }
   }
@@ -987,6 +1087,153 @@ function drawLobster(x, y, active) {
   ctx.restore();
 }
 
+// ── draw icebergs ─────────────────────────────────────────────────────────────
+function drawIcebergs() {
+  for (var i = 0; i < ICEBERGS.length; i++) {
+    var ib = ICEBERGS[i];
+    var sx = ib.wx - camX;
+    if (sx < -200 || sx > W + 200) continue;
+    var surfY = wave(ib.wx);
+    var sz    = ib.sz;
+    var tw    = 38 * sz; // tip half-width above water
+    var bw    = 66 * sz; // bulk half-width below water
+    var th    = 44 * sz; // tip height above water
+    var bd    = 95 * sz; // bulk depth below water
+
+    ctx.save();
+    ctx.translate(sx, surfY);
+
+    // Underwater bulk — blue-tinted white, semi-transparent
+    var ug = ctx.createLinearGradient(0, 0, 0, bd);
+    ug.addColorStop(0,   'rgba(180,215,240,0.82)');
+    ug.addColorStop(0.5, 'rgba(140,185,220,0.60)');
+    ug.addColorStop(1,   'rgba(100,150,200,0.25)');
+    ctx.fillStyle = ug;
+    ctx.beginPath();
+    ctx.moveTo(-tw, 0);
+    ctx.lineTo(-bw, bd * 0.55);
+    ctx.lineTo(-bw * 0.6, bd);
+    ctx.lineTo( bw * 0.6, bd);
+    ctx.lineTo( bw, bd * 0.55);
+    ctx.lineTo( tw, 0);
+    ctx.closePath();
+    ctx.fill();
+
+    // Above-water tip — bright white
+    var ag = ctx.createLinearGradient(0, -th, 0, 0);
+    ag.addColorStop(0, '#f0f8ff');
+    ag.addColorStop(1, '#c8e0f4');
+    ctx.fillStyle = ag;
+    ctx.beginPath();
+    ctx.moveTo(-tw, 0);
+    ctx.lineTo(-tw * 0.7, -th * 0.55);
+    ctx.lineTo(-tw * 0.15, -th);
+    ctx.lineTo( tw * 0.3,  -th * 0.88);
+    ctx.lineTo( tw, -th * 0.3);
+    ctx.lineTo( tw, 0);
+    ctx.closePath();
+    ctx.fill();
+
+    // Ice facet lines
+    ctx.strokeStyle = 'rgba(200,230,255,0.55)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(-tw * 0.15, -th); ctx.lineTo(-tw * 0.3, 0);
+    ctx.moveTo( tw * 0.3,  -th * 0.88); ctx.lineTo(tw * 0.15, 0);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+}
+
+// ── draw sinking sub pieces ───────────────────────────────────────────────────
+function drawSinkPiece(wx, wy, angle, face, isBow) {
+  var sx = wx - camX;
+  ctx.save();
+  ctx.translate(sx, wy);
+  ctx.scale(face, 1);
+  ctx.rotate(angle);
+
+  var hw = SUB_HW, hh = SUB_HH;
+  // Draw only the relevant half using clipping
+  ctx.beginPath();
+  if (isBow) ctx.rect(0, -hh - 20, hw + 20, (hh + 20) * 2);
+  else        ctx.rect(-hw - 20, -hh - 20, hw + 20, (hh + 20) * 2);
+  ctx.clip();
+
+  // Hull
+  ctx.fillStyle = '#d4aa22';
+  rRect(-hw, -hh, hw * 2, hh * 2, hh);
+  ctx.fill();
+  ctx.fillStyle = '#b89010';
+  ctx.fillRect(-hw + 8, -3, hw * 2 - 16, 6);
+
+  if (isBow) {
+    // Conning tower + periscope on bow
+    ctx.fillStyle = '#c09518';
+    rRect(-9, -hh - 15, 18, 16, 3); ctx.fill();
+    ctx.strokeStyle = '#806008'; ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(4, -hh - 15); ctx.lineTo(4, -hh - 25); ctx.lineTo(13, -hh - 25);
+    ctx.stroke();
+    // Porthole
+    ctx.fillStyle = '#7ad4f0';
+    ctx.beginPath(); ctx.arc(hw * 0.4, 0, 6, 0, Math.PI * 2); ctx.fill();
+  } else {
+    // Propeller on stern
+    ctx.save();
+    ctx.translate(-hw, 0);
+    ctx.rotate(propAng);
+    ctx.fillStyle = '#8a8a8a';
+    for (var p = 0; p < 3; p++) {
+      ctx.save(); ctx.rotate(p * Math.PI * 2 / 3);
+      rRect(-2, -11, 4, 11, 1); ctx.fill();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  ctx.restore();
+}
+
+function drawSinkingPieces() {
+  if (gamePhase !== 'sinking' && gamePhase !== 'gameover') return;
+
+  if (sinkT < SINK_TILT) {
+    // Still in tilt phase — draw normal sub at current (tilting) pitch
+    drawSub();
+    return;
+  }
+
+  // Crack/bubble flash at split moment
+  if (sinkT < SINK_TILT + 0.3) {
+    ctx.save();
+    ctx.globalAlpha = 1 - (sinkT - SINK_TILT) / 0.3;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(sub.x - camX, sub.y, 22, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  drawSinkPiece(sinkBow.x,   sinkBow.y,   sinkBow.angle,   sinkFace, true);
+  drawSinkPiece(sinkStern.x, sinkStern.y, sinkStern.angle, sinkFace, false);
+
+  if (gamePhase === 'gameover') {
+    ctx.save();
+    ctx.fillStyle = 'rgba(5,15,30,0.72)';
+    rRect(W / 2 - 140, H / 2 - 52, 280, 104, 8); ctx.fill();
+    ctx.fillStyle = '#c8e8ff';
+    ctx.font = 'bold 22px monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('YOU STRUCK AN ICEBERG', W / 2, H / 2 - 24);
+    ctx.fillStyle = '#80b8e0';
+    ctx.font = '13px monospace';
+    ctx.fillText('Press any key or tap to continue', W / 2, H / 2 + 12);
+    ctx.restore();
+  }
+}
+
 // ── draw diver ────────────────────────────────────────────────────────────────
 function drawDiver() {
   if (!diverOut) return;
@@ -1345,13 +1592,18 @@ function render() {
   drawOcean();
   drawTerrain();
   drawStations();
+  drawIcebergs();
   drawBubbles();
   drawCreatures();
-  drawSub();
-  drawDiver();
+  if (gamePhase === 'playing') { drawSub(); drawDiver(); }
+  else drawSinkingPieces();
   drawTouchControls();
-  drawHUD();
+  if (gamePhase === 'playing') drawHUD();
 }
+
+gc.addEventListener('click', function() {
+  if (gamePhase === 'gameover') resetGame();
+});
 
 // ── game loop ─────────────────────────────────────────────────────────────────
 var SIM = 1 / 60, debt = 0, lastTs = 0;
