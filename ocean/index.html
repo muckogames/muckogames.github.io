@@ -106,6 +106,14 @@ var nearStation  = false;  // sub within docking range this frame
 var atSurface    = false;  // sub at wave surface this frame
 var airFillTimer = 0;      // drives surface air-fill visual
 
+// ── diver ─────────────────────────────────────────────────────────────────────
+var DIVER_ACCEL = 160, DIVER_MAX = 90, DIVER_DRAG = 2.2;
+var DIVER_TETHER = 280;    // max O2 line length before diver is snapped back
+var diverOut  = false;
+var diver     = { x: 0, y: 0, vx: 0, vy: 0 };
+var diverFace = 1;
+var diverNearStation = false;
+
 var camX = sub.x - W / 2;
 
 // ── scenery (coral + wrecks) ──────────────────────────────────────────────────
@@ -185,10 +193,11 @@ var BTNS = [], btnTouch = {};
 (function() {
   var by = H - 65;
   BTNS = [
-    { id: 'fwd', cx: W - 65,  cy: by,      r: 40, key: 'Space'      },
-    { id: 'rev', cx: W - 148, cy: by,      r: 40, key: 'ShiftLeft'  },
-    { id: 'up',  cx: 65,      cy: by - 40, r: 32, key: 'ArrowUp'    },
-    { id: 'dn',  cx: 65,      cy: by + 10, r: 32, key: 'ArrowDown'  }
+    { id: 'fwd',   cx: W - 65,  cy: by,      r: 40, key: 'Space'      },
+    { id: 'rev',   cx: W - 148, cy: by,      r: 40, key: 'ShiftLeft'  },
+    { id: 'up',    cx: 65,      cy: by - 40, r: 32, key: 'ArrowUp'    },
+    { id: 'dn',    cx: 65,      cy: by + 10, r: 32, key: 'ArrowDown'  },
+    { id: 'diver', cx: W / 2,   cy: H - 38,  r: 30, key: 'KeyD'       }
   ];
 }());
 
@@ -213,7 +222,12 @@ gc.addEventListener('touchend', function(e) {
     var tid = e.changedTouches[i].identifier;
     for (var j = 0; j < BTNS.length; j++) {
       var b = BTNS[j];
-      if (btnTouch[b.id] === tid) { delete btnTouch[b.id]; K[b.key] = false; }
+      if (btnTouch[b.id] === tid) {
+        delete btnTouch[b.id];
+        K[b.key] = false;
+        // Diver button is a tap-toggle: fire just-press on lift
+        if (b.id === 'diver') JP['KeyD'] = true;
+      }
     }
   }
 }, { passive: false });
@@ -258,65 +272,134 @@ function update(dt) {
   // Air drains passively; refills when at surface
   air = Math.max(0, air - AIR_DRAIN * dt);
 
+  // Toggle diver on KeyD just-press
+  if (JP['KeyD']) {
+    if (!diverOut) {
+      diverOut = true;
+      diver.x  = sub.x;
+      diver.y  = sub.y + SUB_HH + 12;
+      diver.vx = 0; diver.vy = 0;
+      diverFace = subFace;
+    } else {
+      diverOut = false;
+    }
+  }
+
   var fwd = K['Space'];
   var rev = K['ShiftLeft'] || K['ShiftRight'];
   var up  = K['ArrowUp']   || K['KeyW'];
   var dn  = K['ArrowDown'] || K['KeyS'];
 
-  // No thrust when tank empty (up/dn diving planes still work)
-  if (fuel <= 0) { fwd = false; rev = false; }
+  if (diverOut) {
+    // ── diver controls (sub frozen) ──
+    sub.vx = 0; sub.vy = 0;
 
-  if (fwd) sub.vx += ACCEL_X * dt;
-  if (rev) sub.vx -= ACCEL_X * dt;
-  if (up)  sub.vy -= ACCEL_Y * dt;
-  if (dn)  sub.vy += ACCEL_Y * dt;
+    if (fwd) diver.vx += DIVER_ACCEL * dt;
+    if (rev) diver.vx -= DIVER_ACCEL * dt;
+    if (up)  diver.vy -= DIVER_ACCEL * dt;
+    if (dn)  diver.vy += DIVER_ACCEL * dt;
 
-  // Drain fuel only when propulsion thrusters fire
-  if (fwd || rev) fuel = Math.max(0, fuel - FUEL_DRAIN * dt);
+    diver.vx *= Math.exp(-DIVER_DRAG * dt);
+    diver.vy *= Math.exp(-DIVER_DRAG * dt);
+    if (diver.vx >  DIVER_MAX) diver.vx =  DIVER_MAX;
+    if (diver.vx < -DIVER_MAX) diver.vx = -DIVER_MAX;
+    if (diver.vy >  DIVER_MAX) diver.vy =  DIVER_MAX;
+    if (diver.vy < -DIVER_MAX) diver.vy = -DIVER_MAX;
+    if (Math.abs(diver.vx) > 5) diverFace = diver.vx > 0 ? 1 : -1;
 
-  if (!fwd && !rev) sub.vx *= Math.exp(-DRAG_X * dt);
-  if (!up  && !dn)  sub.vy *= Math.exp(-DRAG_Y * dt);
+    diver.x += diver.vx * dt;
+    diver.y += diver.vy * dt;
 
-  if (sub.vx >  MAX_VX) sub.vx =  MAX_VX;
-  if (sub.vx < -MAX_VX) sub.vx = -MAX_VX;
-  if (sub.vy >  MAX_VY) sub.vy =  MAX_VY;
-  if (sub.vy < -MAX_VY) sub.vy = -MAX_VY;
+    // Tether snap: pull diver back if too far
+    var tdx = diver.x - sub.x, tdy = diver.y - sub.y;
+    var tLen = Math.sqrt(tdx * tdx + tdy * tdy);
+    if (tLen > DIVER_TETHER) {
+      var sc = DIVER_TETHER / tLen;
+      diver.x = sub.x + tdx * sc;
+      diver.y = sub.y + tdy * sc;
+      diver.vx *= 0.3; diver.vy *= 0.3;
+    }
 
-  sub.x += sub.vx * dt;
-  sub.y += sub.vy * dt;
+    // Diver terrain boundary
+    var dFloor = terrain(diver.x) - 10;
+    if (diver.y > dFloor) { diver.y = dFloor; if (diver.vy > 0) diver.vy = 0; }
+    var dSurf = wave(diver.x) + 10;
+    if (diver.y < dSurf) { diver.y = dSurf; if (diver.vy < 0) diver.vy = 0; }
 
-  // Surface boundary
-  var surf = wave(sub.x) + SUB_HH + 4;
-  if (sub.y < surf) { sub.y = surf; if (sub.vy < 0) sub.vy = 0; }
+    // Diver station docking
+    diverNearStation = false;
+    var dMinSn = Math.floor((diver.x - 80) / STATION_GAP);
+    var dMaxSn = Math.ceil( (diver.x + 80) / STATION_GAP);
+    for (var dsn = dMinSn; dsn <= dMaxSn; dsn++) {
+      var dstWx = dsn * STATION_GAP + STATION_OFF;
+      var dstCy = terrain(dstWx) - 32;
+      var ddx   = diver.x - dstWx, ddy = diver.y - dstCy;
+      if (Math.sqrt(ddx * ddx + ddy * ddy) < 70) {
+        diverNearStation = true;
+        fuel = Math.min(1, fuel + FUEL_FILL * dt);
+      }
+    }
+    nearStation = diverNearStation;
 
-  // Terrain boundary (check front, center, back of hull)
-  var checks = [sub.x - 36 * subFace, sub.x, sub.x + 36 * subFace];
-  var minFloor = FLOOR_BASE;
-  for (var ci = 0; ci < 3; ci++) {
-    var ty = terrain(checks[ci]);
-    if (ty < minFloor) minFloor = ty;
-  }
-  var floorLim = minFloor - SUB_HH - 2;
-  if (sub.y > floorLim) { sub.y = floorLim; if (sub.vy > 0) sub.vy = 0; }
+  } else {
+    // ── normal sub controls ──
+    diverNearStation = false;
 
-  // Surface air refill
-  atSurface = (sub.y <= wave(sub.x) + SUB_HH + 20);
-  if (atSurface) {
-    air = Math.min(1, air + AIR_FILL * dt);
-    airFillTimer = 0.5;
-  }
+    // No thrust when tank empty (up/dn diving planes still work)
+    if (fuel <= 0) { fwd = false; rev = false; }
 
-  // Fuel station docking
-  nearStation = false;
-  var minSn = Math.floor((sub.x - 180) / STATION_GAP);
-  var maxSn = Math.ceil( (sub.x + 180) / STATION_GAP);
-  for (var sn = minSn; sn <= maxSn; sn++) {
-    var stWx = sn * STATION_GAP + STATION_OFF;
-    var stCy = terrain(stWx) - 32;
-    var sdx  = sub.x - stWx, sdy = sub.y - stCy;
-    if (Math.sqrt(sdx * sdx + sdy * sdy) < 115) {
-      nearStation = true;
-      fuel = Math.min(1, fuel + FUEL_FILL * dt);
+    if (fwd) sub.vx += ACCEL_X * dt;
+    if (rev) sub.vx -= ACCEL_X * dt;
+    if (up)  sub.vy -= ACCEL_Y * dt;
+    if (dn)  sub.vy += ACCEL_Y * dt;
+
+    // Drain fuel only when propulsion thrusters fire
+    if (fwd || rev) fuel = Math.max(0, fuel - FUEL_DRAIN * dt);
+
+    if (!fwd && !rev) sub.vx *= Math.exp(-DRAG_X * dt);
+    if (!up  && !dn)  sub.vy *= Math.exp(-DRAG_Y * dt);
+
+    if (sub.vx >  MAX_VX) sub.vx =  MAX_VX;
+    if (sub.vx < -MAX_VX) sub.vx = -MAX_VX;
+    if (sub.vy >  MAX_VY) sub.vy =  MAX_VY;
+    if (sub.vy < -MAX_VY) sub.vy = -MAX_VY;
+
+    sub.x += sub.vx * dt;
+    sub.y += sub.vy * dt;
+
+    // Surface boundary
+    var surf = wave(sub.x) + SUB_HH + 4;
+    if (sub.y < surf) { sub.y = surf; if (sub.vy < 0) sub.vy = 0; }
+
+    // Terrain boundary (check front, center, back of hull)
+    var checks = [sub.x - 36 * subFace, sub.x, sub.x + 36 * subFace];
+    var minFloor = FLOOR_BASE;
+    for (var ci = 0; ci < 3; ci++) {
+      var ty = terrain(checks[ci]);
+      if (ty < minFloor) minFloor = ty;
+    }
+    var floorLim = minFloor - SUB_HH - 2;
+    if (sub.y > floorLim) { sub.y = floorLim; if (sub.vy > 0) sub.vy = 0; }
+
+    // Surface air refill
+    atSurface = (sub.y <= wave(sub.x) + SUB_HH + 20);
+    if (atSurface) {
+      air = Math.min(1, air + AIR_FILL * dt);
+      airFillTimer = 0.5;
+    }
+
+    // Fuel station docking
+    nearStation = false;
+    var minSn = Math.floor((sub.x - 180) / STATION_GAP);
+    var maxSn = Math.ceil( (sub.x + 180) / STATION_GAP);
+    for (var sn = minSn; sn <= maxSn; sn++) {
+      var stWx = sn * STATION_GAP + STATION_OFF;
+      var stCy = terrain(stWx) - 32;
+      var sdx  = sub.x - stWx, sdy = sub.y - stCy;
+      if (Math.sqrt(sdx * sdx + sdy * sdy) < 115) {
+        nearStation = true;
+        fuel = Math.min(1, fuel + FUEL_FILL * dt);
+      }
     }
   }
 
@@ -881,6 +964,118 @@ function drawLobster(x, y, active) {
   ctx.restore();
 }
 
+// ── draw diver ────────────────────────────────────────────────────────────────
+function drawDiver() {
+  if (!diverOut) return;
+
+  var dsx = diver.x - camX;
+  var subSx = sub.x - camX;
+
+  // O2 tether line (wavy hose)
+  ctx.save();
+  ctx.strokeStyle = 'rgba(80,220,160,0.72)';
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = 'round';
+  ctx.setLineDash([6, 4]);
+  ctx.beginPath();
+  var steps = 12;
+  for (var si = 0; si <= steps; si++) {
+    var t = si / steps;
+    var hx = subSx  + (dsx  - subSx)  * t;
+    var hy = sub.y  + (diver.y - sub.y) * t;
+    var wv = Math.sin(t * Math.PI * 3 + wt * 3) * 8 * Math.sin(t * Math.PI);
+    var nx = -(diver.y - sub.y), ny = (dsx - subSx);
+    var nl = Math.sqrt(nx * nx + ny * ny) || 1;
+    if (si === 0) ctx.moveTo(hx + wv * nx / nl, hy + wv * ny / nl);
+    else          ctx.lineTo(hx + wv * nx / nl, hy + wv * ny / nl);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.lineCap = 'butt';
+  ctx.restore();
+
+  // Diver body
+  ctx.save();
+  ctx.translate(dsx, diver.y);
+  ctx.scale(diverFace, 1);
+
+  // Fins
+  ctx.fillStyle = '#1a8a44';
+  ctx.beginPath();
+  ctx.moveTo(3, 10); ctx.lineTo(18, 14); ctx.lineTo(14, 18); ctx.lineTo(3, 14);
+  ctx.closePath(); ctx.fill();
+
+  // Legs
+  ctx.fillStyle = '#1a5a8a';
+  ctx.fillRect(-4, 5, 5, 9);
+  ctx.fillRect(2, 5, 5, 9);
+
+  // Torso / wetsuit
+  ctx.fillStyle = '#1a5a8a';
+  rRect(-7, -8, 14, 15, 3); ctx.fill();
+  // Wetsuit stripe
+  ctx.fillStyle = '#2288cc';
+  ctx.fillRect(-5, -4, 10, 4);
+
+  // Tank on back (negative x side = behind diver)
+  ctx.fillStyle = '#aabbcc';
+  rRect(-10, -7, 5, 10, 2); ctx.fill();
+  ctx.fillStyle = '#8899aa';
+  ctx.fillRect(-9, -3, 3, 2);
+
+  // Head / mask
+  ctx.fillStyle = '#f0c080';
+  ctx.beginPath(); ctx.arc(0, -13, 7, 0, Math.PI * 2); ctx.fill();
+  // Mask glass
+  ctx.fillStyle = '#55aaee';
+  ctx.strokeStyle = '#333';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  rRect(-4, -17, 8, 6, 2); ctx.fill(); ctx.stroke();
+  // Regulator hose going to tank
+  ctx.strokeStyle = '#446644';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(-4, -12); ctx.quadraticCurveTo(-10, -8, -8, -3);
+  ctx.stroke();
+
+  // Arms
+  ctx.fillStyle = '#1a5a8a';
+  ctx.beginPath(); // arm reaching forward
+  ctx.moveTo(6, -5); ctx.lineTo(18, 0); ctx.lineTo(16, 4); ctx.lineTo(5, 0);
+  ctx.closePath(); ctx.fill();
+  // Glove
+  ctx.fillStyle = '#1a8a44';
+  ctx.beginPath(); ctx.arc(18, 2, 4, 0, Math.PI * 2); ctx.fill();
+
+  // Bubbles from regulator when moving
+  if (Math.abs(diver.vx) + Math.abs(diver.vy) > 5) {
+    ctx.fillStyle = 'rgba(160,230,255,0.55)';
+    var bt = wt * 4;
+    for (var bi = 0; bi < 3; bi++) {
+      var bx2 = -6 + Math.sin(bt + bi * 2.1) * 5;
+      var by2 = -14 - ((bt * 18 + bi * 7) % 22);
+      ctx.beginPath();
+      ctx.arc(bx2, by2, 2 - bi * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  ctx.restore();
+
+  // "DIVER" label when active + near station
+  if (diverNearStation) {
+    ctx.save();
+    ctx.globalAlpha = 0.75 + 0.25 * Math.sin(wt * 6);
+    ctx.fillStyle = '#44ff88';
+    ctx.font = 'bold 10px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('REFUELING', dsx, diver.y - 28);
+    ctx.restore();
+  }
+}
+
 // ── draw bubbles ──────────────────────────────────────────────────────────────
 function drawBubbles() {
   ctx.strokeStyle = 'rgba(160,220,255,0.32)';
@@ -992,6 +1187,35 @@ function drawTouchControls() {
   if (!isTouch()) return;
   for (var i = 0; i < BTNS.length; i++) {
     var b = BTNS[i];
+    if (b.id === 'diver') {
+      // Special diver toggle button
+      var active = diverOut;
+      ctx.save();
+      ctx.globalAlpha = active ? 0.92 : 0.50;
+      ctx.fillStyle   = active ? 'rgba(60,220,140,0.85)' : 'rgba(20,60,80,0.70)';
+      ctx.strokeStyle = active ? 'rgba(80,255,160,0.9)' : 'rgba(80,160,200,0.6)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(b.cx, b.cy, b.r, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      // Diver icon: simple stick figure with tank
+      ctx.fillStyle = active ? '#0a2030' : '#55ccaa';
+      ctx.strokeStyle = active ? '#0a2030' : '#55ccaa';
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      // head
+      ctx.beginPath(); ctx.arc(b.cx, b.cy - 10, 5, 0, Math.PI * 2); ctx.fill();
+      // body
+      ctx.beginPath(); ctx.moveTo(b.cx, b.cy - 5); ctx.lineTo(b.cx, b.cy + 6); ctx.stroke();
+      // arms
+      ctx.beginPath(); ctx.moveTo(b.cx - 8, b.cy - 1); ctx.lineTo(b.cx + 8, b.cy - 1); ctx.stroke();
+      // legs
+      ctx.beginPath(); ctx.moveTo(b.cx, b.cy + 6); ctx.lineTo(b.cx - 5, b.cy + 14); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(b.cx, b.cy + 6); ctx.lineTo(b.cx + 5, b.cy + 14); ctx.stroke();
+      ctx.lineCap = 'butt';
+      ctx.restore();
+      continue;
+    }
     var on = !!K[b.key];
     ctx.save();
     ctx.globalAlpha = on ? 0.88 : 0.45;
@@ -1040,7 +1264,7 @@ function drawHUD() {
   ctx.fillStyle   = 'rgba(5,20,35,0.62)';
   ctx.strokeStyle = 'rgba(80,180,230,0.35)';
   ctx.lineWidth = 1;
-  rRect(8, 8, 152, hudH, 5);
+  rRect(8, 8, 160, hudH, 5);
   ctx.fill(); ctx.stroke();
 
   ctx.fillStyle = '#60c8f0';
@@ -1056,9 +1280,9 @@ function drawHUD() {
   }
 
   // Fuel gauge
-  drawGauge(8, hudH + 14, 90, 10, fuel, 'FUEL');
+  drawGauge(8, hudH + 12, 120, 16, fuel, 'FUEL');
   // Air gauge
-  drawGauge(8, hudH + 30, 90, 10, air,  'AIR');
+  drawGauge(8, hudH + 34, 120, 16, air,  'AIR');
 
   // NO FUEL overlay
   if (fuel <= 0) {
@@ -1101,6 +1325,7 @@ function render() {
   drawBubbles();
   drawCreatures();
   drawSub();
+  drawDiver();
   drawTouchControls();
   drawHUD();
 }
