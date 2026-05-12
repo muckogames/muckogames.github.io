@@ -198,7 +198,7 @@ var BTNS = [], btnTouch = {};
     { id: 'rev',   cx: W - 148, cy: by,      r: 40, key: 'ShiftLeft'  },
     { id: 'up',    cx: 65,      cy: by - 40, r: 32, key: 'ArrowUp'    },
     { id: 'dn',    cx: 65,      cy: by + 10, r: 32, key: 'ArrowDown'  },
-    { id: 'diver', cx: W / 2,   cy: H - 38,  r: 30, key: 'KeyE'       }
+    { id: 'diver', cx: W / 2,   cy: H - 38,  r: 30, key: 'KeyD'       }
   ];
 }());
 
@@ -227,7 +227,7 @@ gc.addEventListener('touchend', function(e) {
         delete btnTouch[b.id];
         K[b.key] = false;
         // Diver button is a tap-toggle: fire just-press on lift
-        if (b.id === 'diver') JP['KeyE'] = true;
+        if (b.id === 'diver') JP['KeyD'] = true;
       }
     }
   }
@@ -273,8 +273,8 @@ function update(dt) {
   // Air drains passively; refills when at surface
   air = Math.max(0, air - AIR_DRAIN * dt);
 
-  // Toggle diver on KeyE just-press
-  if (JP['KeyE']) {
+  // Toggle diver on KeyD just-press
+  if (JP['KeyD']) {
     if (!diverOut) {
       diverOut = true;
       diverRecalling = false;
@@ -287,10 +287,10 @@ function update(dt) {
     }
   }
 
-  var fwd = K['Space']     || K['ArrowRight'] || K['KeyD'];
-  var rev = K['ShiftLeft'] || K['ShiftRight'] || K['ArrowLeft']  || K['KeyA'];
-  var up  = K['ArrowUp']   || K['KeyW'];
-  var dn  = K['ArrowDown'] || K['KeyS'];
+  var fwd = K['Space']     || K['ArrowRight'];
+  var rev = K['ShiftLeft'] || K['ShiftRight'] || K['ArrowLeft'];
+  var up  = K['ArrowUp'];
+  var dn  = K['ArrowDown'];
 
   if (diverOut) {
     // ── diver controls (sub frozen) ──
@@ -1299,7 +1299,7 @@ function drawHUD() {
   if (!isTouch()) {
     ctx.fillStyle = 'rgba(80,160,200,0.65)';
     ctx.font = '9px monospace';
-    ctx.fillText('D/RIGHT fwd  A/LEFT rev  W/S dive  E diver', 15, 42);
+    ctx.fillText('SPACE/RIGHT fwd  LEFT rev  UP/DN dive  D diver', 15, 42);
   }
 
   // Fuel gauge
@@ -1369,3 +1369,4 @@ function loop(ts) {
 requestAnimationFrame(loop);
 </script>
 </body>
+</html>
