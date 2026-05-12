@@ -109,9 +109,10 @@ var airFillTimer = 0;      // drives surface air-fill visual
 // ── diver ─────────────────────────────────────────────────────────────────────
 var DIVER_ACCEL = 160, DIVER_MAX = 90, DIVER_DRAG = 2.2;
 var DIVER_TETHER = 280;    // max O2 line length before diver is snapped back
-var diverOut  = false;
-var diver     = { x: 0, y: 0, vx: 0, vy: 0 };
-var diverFace = 1;
+var diverOut       = false;
+var diverRecalling = false; // diver is swimming back to sub
+var diver          = { x: 0, y: 0, vx: 0, vy: 0 };
+var diverFace      = 1;
 var diverNearStation = false;
 
 var camX = sub.x - W / 2;
@@ -276,12 +277,13 @@ function update(dt) {
   if (JP['KeyE']) {
     if (!diverOut) {
       diverOut = true;
+      diverRecalling = false;
       diver.x  = sub.x;
       diver.y  = sub.y + SUB_HH + 12;
       diver.vx = 0; diver.vy = 0;
       diverFace = subFace;
-    } else {
-      diverOut = false;
+    } else if (!diverRecalling) {
+      diverRecalling = true; // begin swim-back
     }
   }
 
@@ -294,30 +296,49 @@ function update(dt) {
     // ── diver controls (sub frozen) ──
     sub.vx = 0; sub.vy = 0;
 
-    if (fwd) diver.vx += DIVER_ACCEL * dt;
-    if (rev) diver.vx -= DIVER_ACCEL * dt;
-    if (up)  diver.vy -= DIVER_ACCEL * dt;
-    if (dn)  diver.vy += DIVER_ACCEL * dt;
+    if (diverRecalling) {
+      // Auto-pilot back to sub
+      var rdx = sub.x - diver.x, rdy = sub.y - diver.y;
+      var rLen = Math.sqrt(rdx * rdx + rdy * rdy);
+      if (rLen < 18) {
+        // Docked — recall complete
+        diverOut = false;
+        diverRecalling = false;
+      } else {
+        var rSpd = Math.min(DIVER_MAX * 1.2, rLen * 3);
+        diver.vx = (rdx / rLen) * rSpd;
+        diver.vy = (rdy / rLen) * rSpd;
+        diverFace = rdx > 0 ? 1 : -1;
+        diver.x += diver.vx * dt;
+        diver.y += diver.vy * dt;
+      }
+    } else {
+      // Manual control
+      if (fwd) diver.vx += DIVER_ACCEL * dt;
+      if (rev) diver.vx -= DIVER_ACCEL * dt;
+      if (up)  diver.vy -= DIVER_ACCEL * dt;
+      if (dn)  diver.vy += DIVER_ACCEL * dt;
 
-    diver.vx *= Math.exp(-DIVER_DRAG * dt);
-    diver.vy *= Math.exp(-DIVER_DRAG * dt);
-    if (diver.vx >  DIVER_MAX) diver.vx =  DIVER_MAX;
-    if (diver.vx < -DIVER_MAX) diver.vx = -DIVER_MAX;
-    if (diver.vy >  DIVER_MAX) diver.vy =  DIVER_MAX;
-    if (diver.vy < -DIVER_MAX) diver.vy = -DIVER_MAX;
-    if (Math.abs(diver.vx) > 5) diverFace = diver.vx > 0 ? 1 : -1;
+      diver.vx *= Math.exp(-DIVER_DRAG * dt);
+      diver.vy *= Math.exp(-DIVER_DRAG * dt);
+      if (diver.vx >  DIVER_MAX) diver.vx =  DIVER_MAX;
+      if (diver.vx < -DIVER_MAX) diver.vx = -DIVER_MAX;
+      if (diver.vy >  DIVER_MAX) diver.vy =  DIVER_MAX;
+      if (diver.vy < -DIVER_MAX) diver.vy = -DIVER_MAX;
+      if (Math.abs(diver.vx) > 5) diverFace = diver.vx > 0 ? 1 : -1;
 
-    diver.x += diver.vx * dt;
-    diver.y += diver.vy * dt;
+      diver.x += diver.vx * dt;
+      diver.y += diver.vy * dt;
 
-    // Tether snap: pull diver back if too far
-    var tdx = diver.x - sub.x, tdy = diver.y - sub.y;
-    var tLen = Math.sqrt(tdx * tdx + tdy * tdy);
-    if (tLen > DIVER_TETHER) {
-      var sc = DIVER_TETHER / tLen;
-      diver.x = sub.x + tdx * sc;
-      diver.y = sub.y + tdy * sc;
-      diver.vx *= 0.3; diver.vy *= 0.3;
+      // Tether snap: pull diver back if too far
+      var tdx = diver.x - sub.x, tdy = diver.y - sub.y;
+      var tLen = Math.sqrt(tdx * tdx + tdy * tdy);
+      if (tLen > DIVER_TETHER) {
+        var sc = DIVER_TETHER / tLen;
+        diver.x = sub.x + tdx * sc;
+        diver.y = sub.y + tdy * sc;
+        diver.vx *= 0.3; diver.vy *= 0.3;
+      }
     }
 
     // Diver terrain boundary
@@ -326,17 +347,19 @@ function update(dt) {
     var dSurf = wave(diver.x) + 10;
     if (diver.y < dSurf) { diver.y = dSurf; if (diver.vy < 0) diver.vy = 0; }
 
-    // Diver station docking
+    // Diver station docking (not while recalling)
     diverNearStation = false;
-    var dMinSn = Math.floor((diver.x - 80) / STATION_GAP);
-    var dMaxSn = Math.ceil( (diver.x + 80) / STATION_GAP);
-    for (var dsn = dMinSn; dsn <= dMaxSn; dsn++) {
-      var dstWx = dsn * STATION_GAP + STATION_OFF;
-      var dstCy = terrain(dstWx) - 32;
-      var ddx   = diver.x - dstWx, ddy = diver.y - dstCy;
-      if (Math.sqrt(ddx * ddx + ddy * ddy) < 70) {
-        diverNearStation = true;
-        fuel = Math.min(1, fuel + FUEL_FILL * dt);
+    if (!diverRecalling) {
+      var dMinSn = Math.floor((diver.x - 80) / STATION_GAP);
+      var dMaxSn = Math.ceil( (diver.x + 80) / STATION_GAP);
+      for (var dsn = dMinSn; dsn <= dMaxSn; dsn++) {
+        var dstWx = dsn * STATION_GAP + STATION_OFF;
+        var dstCy = terrain(dstWx) - 32;
+        var ddx   = diver.x - dstWx, ddy = diver.y - dstCy;
+        if (Math.sqrt(ddx * ddx + ddy * ddy) < 70) {
+          diverNearStation = true;
+          fuel = Math.min(1, fuel + FUEL_FILL * dt);
+        }
       }
     }
     nearStation = diverNearStation;
@@ -1346,4 +1369,3 @@ function loop(ts) {
 requestAnimationFrame(loop);
 </script>
 </body>
-</html>
