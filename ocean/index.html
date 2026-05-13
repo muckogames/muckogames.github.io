@@ -42,7 +42,6 @@ function onResize() {
   stage.style.height = ph + 'px';
   stage.style.left   = Math.round((sw - pw) / 2) + 'px';
   stage.style.top    = Math.round((sh - ph) / 2) + 'px';
-  // Canvas CSS must match stage so it doesn't overflow on small screens
   gc.style.width  = pw + 'px';
   gc.style.height = ph + 'px';
 }
@@ -70,13 +69,11 @@ function wave(wx) {
 }
 
 // ── seafloor terrain ──────────────────────────────────────────────────────────
-// Deterministic sine-sum terrain; mountains/valleys up to TERRAIN_MAX above floor
 function terrain(wx) {
   var h = 0.42 * Math.sin(wx * 0.0071 + 1.23)
         + 0.28 * Math.sin(wx * 0.018  + 4.51)
         + 0.18 * Math.sin(wx * 0.053  + 2.78)
         + 0.12 * Math.sin(wx * 0.137  + 0.44);
-  // h in (-1,1) -> normalise to (0,1) -> scale
   return FLOOR_BASE - (h + 1) * 0.5 * TERRAIN_MAX;
 }
 
@@ -84,27 +81,25 @@ function terrain(wx) {
 var MAX_VX = 200, MAX_VY = 110;
 var ACCEL_X = 350, ACCEL_Y = 300;
 var DRAG_X  = 0.9, DRAG_Y  = 1.8;
-var SUB_HW = 40, SUB_HH = 14;   // half-width / half-height
-var SUB_RADIUS = 32;             // collision radius
+var SUB_HW = 40, SUB_HH = 14;
+var SUB_RADIUS = 32;
 
 var sub = { x: 0, y: OCEAN_BASE + CELL * 3, vx: 0, vy: 0 };
-var subFace   = 1;               // 1=right -1=left
+var subFace   = 1;
 var subPitch  = 0, subPitchT = 0;
 var propAng   = 0;
 var hitFlash  = 0;
 
 // ── iceberg sink animation ────────────────────────────────────────────────────
-var gamePhase  = 'playing'; // 'playing' | 'sinking' | 'gameover'
+var gamePhase  = 'playing';
 var sinkT      = 0;
 var sinkFace   = 1;
 var sinkCamX   = 0;
-// two pieces: bow (front) and stern (back)
 var sinkBow    = { x: 0, y: 0, vy: 0, angle: 0, resting: false, restAngle: 0 };
 var sinkStern  = { x: 0, y: 0, vy: 0, angle: 0, resting: false, restAngle: 0 };
-// tilt phase lasts SINK_TILT s, then pieces split and sink
 var SINK_TILT   = 1.4;
-var SINK_TOTAL  = 30.0; // fallback timeout
-var sinkSettled = 0;    // time both pieces have been resting
+var SINK_TOTAL  = 30.0;
+var sinkSettled = 0;
 
 function triggerSink() {
   gamePhase      = 'sinking';
@@ -118,13 +113,13 @@ function triggerSink() {
   sinkBow.vy     = -20;
   sinkBow.angle  = 0;
   sinkBow.resting = false;
-  sinkBow.restAngle = (Math.PI * 0.55) * sinkFace; // nose-down into floor
+  sinkBow.restAngle = (Math.PI * 0.55) * sinkFace;
   sinkStern.x    = sub.x - hw * subFace;
   sinkStern.y    = sub.y;
   sinkStern.vy   = -40;
   sinkStern.angle = 0;
   sinkStern.resting = false;
-  sinkStern.restAngle = (-Math.PI * 0.30) * sinkFace; // listing back
+  sinkStern.restAngle = (-Math.PI * 0.30) * sinkFace;
   diverOut = false; diverRecalling = false;
 }
 
@@ -136,31 +131,72 @@ function resetGame() {
   gamePhase = 'playing'; sinkT = 0;
 }
 
+// ── kraken ────────────────────────────────────────────────────────────────────
+var KRAKEN_WX  = 7200;
+var KRAKEN_HOX = -38;
+var KRAKEN_HOY = -162;
+
+var krakPhase    = 'intact';
+var krakExpT     = 0;
+var krakFlash    = 0;
+var krakDebris   = [];
+var krakSmoke    = [];
+var krakHatchNear = false;
+var krakSettled  = 0;
+
+function krakenHatchY() { return terrain(KRAKEN_WX) + KRAKEN_HOY; }
+
+function triggerKrakenExplosion() {
+  krakPhase = 'exploding'; krakExpT = 0; krakFlash = 1.0; krakSettled = 0;
+  diverOut = false; diverRecalling = false;
+  var ty = terrain(KRAKEN_WX);
+  krakDebris = [];
+  var rs = 0xf00d1234;
+  function rr() { rs = ((rs >>> 0) * 1664525 + 1013904223) >>> 0; return rs / 0xffffffff; }
+  for (var ki = 0; ki < 14; ki++) {
+    krakDebris.push({
+      x: KRAKEN_WX + (rr()*2-1)*80,  y: ty - 40 - rr()*100,
+      vx: (rr()*2-1)*270,             vy: -(65 + rr()*200),
+      angle: rr()*Math.PI*2,          dAngle: (rr()*2-1)*5,
+      type: Math.floor(rr()*4),       resting: false
+    });
+  }
+  krakSmoke = [];
+  for (var si = 0; si < 10; si++) {
+    krakSmoke.push({
+      x: KRAKEN_WX + (rr()*2-1)*60, y: ty - 30 - rr()*90,
+      r: 6 + rr()*16, maxR: 35 + rr()*55,
+      vx: (rr()*2-1)*28,             vy: -(25 + rr()*42),
+      alpha: 0.88
+    });
+  }
+}
+
 // ── fuel & air ────────────────────────────────────────────────────────────────
-var fuel = 1.0;           // 0–1; drained by fwd/rev thrust
-var air  = 1.0;           // 0–1; drained always, refilled at surface
-var FUEL_DRAIN  = 1 / 30;  // 30 s of continuous thrust empties tank
-var AIR_DRAIN   = 1 / 240; // 4-minute air supply
-var FUEL_FILL   = 1 / 4;   // 4 s to fully refuel at station
-var AIR_FILL    = 1 / 5;   // 5 s to fully top-off at surface
-var STATION_GAP = 1800;    // px between stations
-var STATION_OFF = 900;     // world x of first station (±)
-var nearStation  = false;  // sub within docking range this frame
-var atSurface    = false;  // sub at wave surface this frame
-var airFillTimer = 0;      // drives surface air-fill visual
+var fuel = 1.0;
+var air  = 1.0;
+var FUEL_DRAIN  = 1 / 30;
+var AIR_DRAIN   = 1 / 240;
+var FUEL_FILL   = 1 / 4;
+var AIR_FILL    = 1 / 5;
+var STATION_GAP = 1800;
+var STATION_OFF = 900;
+var nearStation  = false;
+var atSurface    = false;
+var airFillTimer = 0;
 
 // ── diver ─────────────────────────────────────────────────────────────────────
 var DIVER_ACCEL = 160, DIVER_MAX = 90, DIVER_DRAG = 2.2;
-var DIVER_TETHER = 280;    // max O2 line length before diver is snapped back
+var DIVER_TETHER = 280;
 var diverOut       = false;
-var diverRecalling = false; // diver is swimming back to sub
+var diverRecalling = false;
 var diver          = { x: 0, y: 0, vx: 0, vy: 0 };
 var diverFace      = 1;
 var diverNearStation = false;
 
 var camX = sub.x - W / 2;
 
-// ── scenery (coral + wrecks) ──────────────────────────────────────────────────
+// ── scenery ───────────────────────────────────────────────────────────────────
 var CORALS = [], WRECKS = [];
 (function() {
   var coralCols = ['#e85570','#ff8c42','#d43a8a','#9b5de5','#00bbf9','#ff6b6b','#ffd166'];
@@ -180,7 +216,8 @@ var ICEBERGS = [];
   for (var i = -12; i <= 12; i++) {
     if (i === 0) continue;
     var wx = i * 2400 + ((Math.abs(i) * 317 + 91) % 600) - 300;
-    var sz = 0.75 + (Math.abs(i * 53) % 25) / 100; // 0.75–1.0
+    if (Math.abs(wx - KRAKEN_WX) < 500) continue;
+    var sz = 0.75 + (Math.abs(i * 53) % 25) / 100;
     ICEBERGS.push({ wx: wx, sz: sz });
   }
 }());
@@ -188,44 +225,27 @@ var ICEBERGS = [];
 // ── sea life ──────────────────────────────────────────────────────────────────
 var CREATURES = [];
 (function() {
-  // Deterministic RNG seeded for reproducibility
   var rng = 0xdeadbeef;
   function rand() {
     rng = ((rng >>> 0) * 1664525 + 1013904223) >>> 0;
     return rng / 0xffffffff;
   }
-
   var fishCols  = ['#3a7aaa','#2a5888','#4a9aaa','#226688','#1a6080'];
   var squidCols = ['#8844aa','#aa44cc','#662288','#993399','#bb66dd'];
-
   for (var i = 0; i < 40; i++) {
     var wx = (rand() * 2 - 1) * 5000;
     var yr = 0.15 + rand() * 0.65;
-    CREATURES.push({
-      wx:   wx,
-      y:    OCEAN_BASE + CELL + yr * (OCEAN_DEPTH - CELL * 2),
-      vx:   (22 + rand() * 48) * (rand() > 0.5 ? 1 : -1),
-      vy:   0,
-      r:    12 + rand() * 10,
-      type: 'fish',
-      col:  fishCols[i % fishCols.length],
-      hit:  0
-    });
+    CREATURES.push({ wx: wx, y: OCEAN_BASE + CELL + yr * (OCEAN_DEPTH - CELL * 2),
+      vx: (22 + rand() * 48) * (rand() > 0.5 ? 1 : -1), vy: 0,
+      r: 12 + rand() * 10, type: 'fish', col: fishCols[i % fishCols.length], hit: 0 });
   }
   for (var j = 0; j < 20; j++) {
     var wx2 = (rand() * 2 - 1) * 5000;
     var yr2 = 0.1 + rand() * 0.55;
-    CREATURES.push({
-      wx:   wx2,
-      y:    OCEAN_BASE + CELL + yr2 * (OCEAN_DEPTH - CELL * 2),
-      vx:   (6 + rand() * 18) * (rand() > 0.5 ? 1 : -1),
-      vy:   (rand() * 2 - 1) * 12,
-      r:    16 + rand() * 12,
-      type: 'squid',
-      col:  squidCols[j % squidCols.length],
-      hit:  0,
-      tentTimer: rand() * Math.PI * 2
-    });
+    CREATURES.push({ wx: wx2, y: OCEAN_BASE + CELL + yr2 * (OCEAN_DEPTH - CELL * 2),
+      vx: (6 + rand() * 18) * (rand() > 0.5 ? 1 : -1), vy: (rand() * 2 - 1) * 12,
+      r: 16 + rand() * 12, type: 'squid', col: squidCols[j % squidCols.length],
+      hit: 0, tentTimer: rand() * Math.PI * 2 });
   }
 }());
 
@@ -233,12 +253,8 @@ var CREATURES = [];
 var BUBBLES = [];
 (function() {
   for (var i = 0; i < 22; i++) {
-    BUBBLES.push({
-      wx:  (i - 11) * 210,
-      y:   OCEAN_BASE + CELL + (i % 9) * 35,
-      spd: 20 + i % 5 * 8,
-      r:   1.5 + i % 3
-    });
+    BUBBLES.push({ wx: (i - 11) * 210, y: OCEAN_BASE + CELL + (i % 9) * 35,
+      spd: 20 + i % 5 * 8, r: 1.5 + i % 3 });
   }
 }());
 
@@ -279,7 +295,6 @@ gc.addEventListener('touchend', function(e) {
       if (btnTouch[b.id] === tid) {
         delete btnTouch[b.id];
         K[b.key] = false;
-        // Diver button is a tap-toggle: fire just-press on lift
         if (b.id === 'diver') JP['KeyD'] = true;
       }
     }
@@ -321,55 +336,40 @@ function tri(cx, cy, sz, dir) {
 function update(dt) {
   wt += dt;
 
-  // ── sinking animation ──
   if (gamePhase === 'sinking') {
     sinkT += dt;
     if (sinkT < SINK_TILT) {
-      // Whole sub tilts toward 45° bow-down
       subPitch = (sinkT / SINK_TILT) * (Math.PI / 4) * sinkFace;
     } else {
       var g = 110;
-
-      // Helper: advance one piece with floor collision
       function sinkPiece(p, angRate, driftX) {
-        if (p.resting) {
-          // Settle angle toward rest angle
-          p.angle += (p.restAngle - p.angle) * Math.min(1, 3 * dt);
-          return;
-        }
+        if (p.resting) { p.angle += (p.restAngle - p.angle) * Math.min(1, 3 * dt); return; }
         p.vy  += g * dt;
         p.y   += p.vy * dt;
         p.x   += driftX * sinkFace * dt;
         p.angle += angRate * sinkFace * dt;
-
         var floorY = terrain(p.x) - SUB_HH;
         if (p.y >= floorY) {
           p.y  = floorY;
-          p.vy = -p.vy * 0.12; // small bounce
+          p.vy = -p.vy * 0.12;
           if (Math.abs(p.vy) < 8) { p.vy = 0; p.resting = true; }
         }
       }
-
       sinkPiece(sinkBow,   1.1, 18);
       sinkPiece(sinkStern, -0.7, -12);
-
-      // Camera tracks midpoint of the two pieces, drifting down toward floor
       var midX = (sinkBow.x + sinkStern.x) * 0.5;
       camX += (midX - W / 2 - camX) * Math.min(1, 1.8 * dt);
-
-      // Once both resting, start the settled timer then go to gameover
       if (sinkBow.resting && sinkStern.resting) {
         sinkSettled += dt;
         if (sinkSettled > 2.2) gamePhase = 'gameover';
       }
-      if (sinkT > SINK_TOTAL) gamePhase = 'gameover'; // fallback
+      if (sinkT > SINK_TOTAL) gamePhase = 'gameover';
       return;
     }
     camX += (sub.x - W / 2 - camX) * Math.min(1, 1.5 * dt);
     return;
   }
 
-  // ── game over: wait for click / any key to restart ──
   if (gamePhase === 'gameover') {
     var anyKey = false;
     var ks = Object.keys(JP);
@@ -378,13 +378,65 @@ function update(dt) {
     return;
   }
 
+  if (krakPhase === 'panel') {
+    if (JP['KeyY'] || JP['Enter']) {
+      triggerKrakenExplosion();
+    } else if (JP['KeyN'] || JP['Escape']) {
+      krakPhase = 'intact';
+      diverOut = true;
+      diver.x = KRAKEN_WX + KRAKEN_HOX; diver.y = krakenHatchY();
+      diver.vx = 0; diver.vy = 0;
+      diverRecalling = true;
+    }
+    camX += (KRAKEN_WX - W / 2 - camX) * Math.min(1, 2 * dt);
+    return;
+  }
+
+  if (krakPhase === 'exploding') {
+    krakExpT += dt;
+    krakFlash = Math.max(0, krakFlash - dt * 2.6);
+    for (var kdi = 0; kdi < krakDebris.length; kdi++) {
+      var kdp = krakDebris[kdi];
+      if (!kdp.resting) {
+        kdp.vy += 115 * dt; kdp.x += kdp.vx * dt; kdp.y += kdp.vy * dt;
+        kdp.vx *= Math.exp(-0.4 * dt);
+        kdp.angle += kdp.dAngle * dt;
+        var kdFloor = terrain(kdp.x) - 8;
+        if (kdp.y >= kdFloor) {
+          kdp.y = kdFloor; kdp.vy = -kdp.vy * 0.1;
+          kdp.dAngle *= 0.3;
+          if (Math.abs(kdp.vy) < 8) { kdp.vy = 0; kdp.resting = true; }
+        }
+      }
+    }
+    for (var ksi = 0; ksi < krakSmoke.length; ksi++) {
+      var ksm = krakSmoke[ksi];
+      ksm.x += ksm.vx * dt; ksm.y += ksm.vy * dt;
+      ksm.r   = Math.min(ksm.maxR, ksm.r + 22 * dt);
+      ksm.alpha = Math.max(0, ksm.alpha - 0.2 * dt);
+    }
+    var kAllRest = true;
+    for (var kri = 0; kri < krakDebris.length; kri++) {
+      if (!krakDebris[kri].resting) { kAllRest = false; break; }
+    }
+    if (kAllRest) { krakSettled += dt; if (krakSettled > 2.5) krakPhase = 'victory'; }
+    if (krakExpT > 25) krakPhase = 'victory';
+    camX += (KRAKEN_WX - W / 2 - camX) * Math.min(1, 1.5 * dt);
+    return;
+  }
+
+  if (krakPhase === 'victory') {
+    var anyKeyV = false;
+    var ksV = Object.keys(JP);
+    for (var kiv = 0; kiv < ksV.length; kiv++) { if (JP[ksV[kiv]]) { anyKeyV = true; break; } }
+    if (anyKeyV) krakPhase = 'debris';
+  }
+
   if (hitFlash > 0) hitFlash -= dt;
   if (airFillTimer > 0) airFillTimer -= dt;
 
-  // Air drains passively; refills when at surface
   air = Math.max(0, air - AIR_DRAIN * dt);
 
-  // Toggle diver on KeyD just-press
   if (JP['KeyD']) {
     if (!diverOut) {
       diverOut = true;
@@ -394,7 +446,7 @@ function update(dt) {
       diver.vx = 0; diver.vy = 0;
       diverFace = subFace;
     } else if (!diverRecalling) {
-      diverRecalling = true; // begin swim-back
+      diverRecalling = true;
     }
   }
 
@@ -404,15 +456,12 @@ function update(dt) {
   var dn  = K['ArrowDown'];
 
   if (diverOut) {
-    // ── diver controls (sub frozen) ──
     sub.vx = 0; sub.vy = 0;
 
     if (diverRecalling) {
-      // Auto-pilot back to sub
       var rdx = sub.x - diver.x, rdy = sub.y - diver.y;
       var rLen = Math.sqrt(rdx * rdx + rdy * rdy);
       if (rLen < 18) {
-        // Docked — recall complete
         diverOut = false;
         diverRecalling = false;
       } else {
@@ -424,7 +473,6 @@ function update(dt) {
         diver.y += diver.vy * dt;
       }
     } else {
-      // Manual control
       if (fwd) diver.vx += DIVER_ACCEL * dt;
       if (rev) diver.vx -= DIVER_ACCEL * dt;
       if (up)  diver.vy -= DIVER_ACCEL * dt;
@@ -441,7 +489,6 @@ function update(dt) {
       diver.x += diver.vx * dt;
       diver.y += diver.vy * dt;
 
-      // Tether snap: pull diver back if too far
       var tdx = diver.x - sub.x, tdy = diver.y - sub.y;
       var tLen = Math.sqrt(tdx * tdx + tdy * tdy);
       if (tLen > DIVER_TETHER) {
@@ -452,13 +499,11 @@ function update(dt) {
       }
     }
 
-    // Diver terrain boundary
     var dFloor = terrain(diver.x) - 10;
     if (diver.y > dFloor) { diver.y = dFloor; if (diver.vy > 0) diver.vy = 0; }
     var dSurf = wave(diver.x) + 10;
     if (diver.y < dSurf) { diver.y = dSurf; if (diver.vy < 0) diver.vy = 0; }
 
-    // Diver station docking (not while recalling)
     diverNearStation = false;
     if (!diverRecalling) {
       var dMinSn = Math.floor((diver.x - 80) / STATION_GAP);
@@ -476,10 +521,8 @@ function update(dt) {
     nearStation = diverNearStation;
 
   } else {
-    // ── normal sub controls ──
     diverNearStation = false;
 
-    // No thrust when tank empty (up/dn diving planes still work)
     if (fuel <= 0) { fwd = false; rev = false; }
 
     if (fwd) sub.vx += ACCEL_X * dt;
@@ -487,7 +530,6 @@ function update(dt) {
     if (up)  sub.vy -= ACCEL_Y * dt;
     if (dn)  sub.vy += ACCEL_Y * dt;
 
-    // Drain fuel only when propulsion thrusters fire
     if (fwd || rev) fuel = Math.max(0, fuel - FUEL_DRAIN * dt);
 
     if (!fwd && !rev) sub.vx *= Math.exp(-DRAG_X * dt);
@@ -501,11 +543,9 @@ function update(dt) {
     sub.x += sub.vx * dt;
     sub.y += sub.vy * dt;
 
-    // Surface boundary
     var surf = wave(sub.x) + SUB_HH + 4;
     if (sub.y < surf) { sub.y = surf; if (sub.vy < 0) sub.vy = 0; }
 
-    // Terrain boundary (check front, center, back of hull)
     var checks = [sub.x - 36 * subFace, sub.x, sub.x + 36 * subFace];
     var minFloor = FLOOR_BASE;
     for (var ci = 0; ci < 3; ci++) {
@@ -515,14 +555,12 @@ function update(dt) {
     var floorLim = minFloor - SUB_HH - 2;
     if (sub.y > floorLim) { sub.y = floorLim; if (sub.vy > 0) sub.vy = 0; }
 
-    // Surface air refill
     atSurface = (sub.y <= wave(sub.x) + SUB_HH + 20);
     if (atSurface) {
       air = Math.min(1, air + AIR_FILL * dt);
       airFillTimer = 0.5;
     }
 
-    // Fuel station docking
     nearStation = false;
     var minSn = Math.floor((sub.x - 180) / STATION_GAP);
     var maxSn = Math.ceil( (sub.x + 180) / STATION_GAP);
@@ -536,16 +574,14 @@ function update(dt) {
       }
     }
 
-    // Iceberg collision
     for (var ii = 0; ii < ICEBERGS.length; ii++) {
       var ib = ICEBERGS[ii];
       if (Math.abs(ib.wx - sub.x) > 200) continue;
       var ibSurf  = wave(ib.wx);
-      var ibW     = 52 * ib.sz; // half-width of underwater bulk
-      var ibDepth = 90 * ib.sz; // how deep it extends
+      var ibW     = 52 * ib.sz;
+      var ibDepth = 90 * ib.sz;
       var ibdx    = sub.x - ib.wx;
       var ibdy    = sub.y - ibSurf;
-      // Elliptical hit zone covering the underwater mass
       if ((ibdx * ibdx) / (ibW * ibW) + (ibdy * ibdy) / (ibDepth * ibDepth) < 1
           && ibdy > -SUB_HH) {
         triggerSink();
@@ -554,7 +590,15 @@ function update(dt) {
     }
   }
 
-  // Facing & pitch
+  krakHatchNear = false;
+  if (krakPhase === 'intact' && diverOut && !diverRecalling) {
+    var khx = KRAKEN_WX + KRAKEN_HOX, khy = krakenHatchY();
+    var khdx = diver.x - khx, khdy = diver.y - khy;
+    var khDist2 = khdx * khdx + khdy * khdy;
+    krakHatchNear = khDist2 < 60 * 60;
+    if (khDist2 < 22 * 22) { krakPhase = 'panel'; diverOut = false; }
+  }
+
   if (Math.abs(sub.vx) > 12) subFace = sub.vx > 0 ? 1 : -1;
   var spd = Math.sqrt(sub.vx * sub.vx + sub.vy * sub.vy);
   subPitchT = spd > 20
@@ -563,17 +607,13 @@ function update(dt) {
   subPitch += (subPitchT - subPitch) * Math.min(1, 5 * dt);
   propAng  += Math.abs(sub.vx) * dt * 0.09;
 
-  // Camera
   camX += (sub.x - W / 2 - camX) * Math.min(1, 3 * dt);
 
-  // Sea life update
   for (var j = 0; j < CREATURES.length; j++) {
     var c = CREATURES[j];
     if (c.hit > 0) c.hit -= dt;
-
     c.wx += c.vx * dt;
     c.y  += c.vy * dt;
-
     if (c.type === 'squid') {
       c.tentTimer += dt * 2;
       c.vx += (Math.random() * 2 - 1) * 22 * dt;
@@ -585,38 +625,27 @@ function update(dt) {
       if (c.vy >  20) c.vy =  20;
       if (c.vy < -20) c.vy = -20;
     }
-
-    // Wrap fish around visible range
     if (c.type === 'fish') {
       if (c.vx > 0 && c.wx > sub.x + W * 1.5) c.wx = sub.x - W * 1.5;
       if (c.vx < 0 && c.wx < sub.x - W * 1.5) c.wx = sub.x + W * 1.5;
     }
-
-    // Terrain collision for creatures
     var cFloor = terrain(c.wx) - c.r - 2;
     if (c.y > cFloor) { c.y = cFloor; if (c.vy > 0) c.vy = -Math.abs(c.vy) * 0.4; }
     var cSurf = OCEAN_BASE + c.r;
     if (c.y < cSurf) { c.y = cSurf; if (c.vy < 0) c.vy = Math.abs(c.vy) * 0.3; }
-
-    // Collision with sub
     var dx = c.wx - sub.x, dy = c.y - sub.y;
     var dist = Math.sqrt(dx * dx + dy * dy);
     var minD = c.r + SUB_RADIUS;
     if (dist < minD && dist > 0.1 && c.hit <= 0) {
-      c.hit = 0.6;
-      hitFlash = 0.25;
+      c.hit = 0.6; hitFlash = 0.25;
       var nx = dx / dist, ny = dy / dist;
-      // Knock sub back, fling creature away
-      sub.vx -= nx * 130;
-      sub.vy -= ny * 90;
-      c.vx    += nx * 100;
-      c.vy    += ny * 70;
+      sub.vx -= nx * 130; sub.vy -= ny * 90;
+      c.vx    += nx * 100; c.vy    += ny * 70;
       if (sub.vx >  MAX_VX) sub.vx =  MAX_VX;
       if (sub.vx < -MAX_VX) sub.vx = -MAX_VX;
     }
   }
 
-  // Bubbles
   for (var k = 0; k < BUBBLES.length; k++) {
     var b = BUBBLES[k];
     b.y -= b.spd * dt;
@@ -634,7 +663,6 @@ function drawSky() {
   g.addColorStop(1, '#85c9e8');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, OCEAN_BASE + 15);
-
   ctx.fillStyle = 'rgba(255,255,255,0.82)';
   var seeds = [-580, -250, 120, 430, 760, 1100, 1500, 1920];
   for (var i = 0; i < seeds.length; i++) {
@@ -659,61 +687,43 @@ function drawOcean() {
   g.addColorStop(0.7,  '#093a52');
   g.addColorStop(1,    '#051c28');
   ctx.fillStyle = g;
-
   ctx.beginPath();
   ctx.moveTo(0, H);
   ctx.lineTo(0, wave(camX));
-  for (var sx = 2; sx <= W + 2; sx += 3) {
-    ctx.lineTo(sx, wave(sx + camX));
-  }
+  for (var sx = 2; sx <= W + 2; sx += 3) { ctx.lineTo(sx, wave(sx + camX)); }
   ctx.lineTo(W, H);
   ctx.closePath();
   ctx.fill();
-
-  // Shimmer line at surface
   ctx.strokeStyle = 'rgba(160,220,255,0.40)';
   ctx.lineWidth = 1.5;
   ctx.beginPath();
   ctx.moveTo(0, wave(camX));
-  for (var sx2 = 3; sx2 <= W; sx2 += 3) {
-    ctx.lineTo(sx2, wave(sx2 + camX));
-  }
+  for (var sx2 = 3; sx2 <= W; sx2 += 3) { ctx.lineTo(sx2, wave(sx2 + camX)); }
   ctx.stroke();
 }
 
 // ── draw terrain + decorations ────────────────────────────────────────────────
 function drawTerrain() {
-  // Rocky floor polygon
   ctx.fillStyle = '#3c2a18';
   ctx.beginPath();
   ctx.moveTo(0, H);
   ctx.lineTo(0, terrain(camX));
-  for (var sx = 3; sx <= W + 3; sx += 3) {
-    ctx.lineTo(sx, terrain(sx + camX));
-  }
+  for (var sx = 3; sx <= W + 3; sx += 3) { ctx.lineTo(sx, terrain(sx + camX)); }
   ctx.lineTo(W, H);
   ctx.closePath();
   ctx.fill();
-
-  // Surface edge highlight
   ctx.strokeStyle = 'rgba(100,70,40,0.5)';
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.moveTo(0, terrain(camX));
-  for (var sx3 = 3; sx3 <= W; sx3 += 3) {
-    ctx.lineTo(sx3, terrain(sx3 + camX));
-  }
+  for (var sx3 = 3; sx3 <= W; sx3 += 3) { ctx.lineTo(sx3, terrain(sx3 + camX)); }
   ctx.stroke();
-
-  // Coral
   for (var i = 0; i < CORALS.length; i++) {
     var co = CORALS[i];
     var coSx = co.wx - camX;
     if (coSx < -50 || coSx > W + 50) continue;
     drawCoral(coSx, terrain(co.wx), co.h, co.col, co.type);
   }
-
-  // Shipwrecks
   for (var j = 0; j < WRECKS.length; j++) {
     var wr = WRECKS[j];
     var wrSx = wr.wx - camX;
@@ -725,9 +735,7 @@ function drawTerrain() {
 function drawCoral(x, ty, h, col, type) {
   ctx.strokeStyle = col;
   ctx.lineCap = 'round';
-
   if (type === 0) {
-    // Branching
     ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.moveTo(x, ty); ctx.lineTo(x, ty - h);
@@ -745,7 +753,6 @@ function drawCoral(x, ty, h, col, type) {
     ctx.arc(x + h * 0.35, ty - h * 0.94, 3, 0, Math.PI * 2);
     ctx.fill();
   } else if (type === 1) {
-    // Fan
     ctx.lineWidth = 2;
     for (var i = -3; i <= 3; i++) {
       ctx.beginPath();
@@ -754,7 +761,6 @@ function drawCoral(x, ty, h, col, type) {
       ctx.stroke();
     }
   } else {
-    // Tube cluster
     ctx.lineWidth = 4;
     ctx.lineCap = 'butt';
     var offs = [-8, -3, 3, 8];
@@ -778,19 +784,11 @@ function drawWreck(sx, ty) {
   ctx.save();
   ctx.translate(sx, ty);
   ctx.rotate(0.18);
-
-  // Hull
   ctx.fillStyle = '#2a1a0e';
-  rRect(-55, -22, 110, 30, 5);
-  ctx.fill();
-  ctx.strokeStyle = '#5a4030';
-  ctx.lineWidth = 3;
-  rRect(-55, -22, 110, 30, 5);
-  ctx.stroke();
-
-  // Broken mast
-  ctx.strokeStyle = '#4a3222';
-  ctx.lineWidth = 4;
+  rRect(-55, -22, 110, 30, 5); ctx.fill();
+  ctx.strokeStyle = '#5a4030'; ctx.lineWidth = 3;
+  rRect(-55, -22, 110, 30, 5); ctx.stroke();
+  ctx.strokeStyle = '#4a3222'; ctx.lineWidth = 4;
   ctx.beginPath();
   ctx.moveTo(-20, -22); ctx.lineTo(-24, -65);
   ctx.stroke();
@@ -798,36 +796,23 @@ function drawWreck(sx, ty) {
   ctx.beginPath();
   ctx.moveTo(-42, -50); ctx.lineTo(-6, -50);
   ctx.stroke();
-  // Rigging
   ctx.lineWidth = 1;
   ctx.strokeStyle = '#3a2515';
   ctx.beginPath();
   ctx.moveTo(-24, -65); ctx.lineTo(-42, -50);
   ctx.moveTo(-24, -65); ctx.lineTo(-6, -50);
   ctx.stroke();
-
-  // Portholes
-  ctx.fillStyle = '#1a0e05';
-  ctx.strokeStyle = '#6a5040';
-  ctx.lineWidth = 2;
+  ctx.fillStyle = '#1a0e05'; ctx.strokeStyle = '#6a5040'; ctx.lineWidth = 2;
   for (var p = 0; p < 3; p++) {
-    ctx.beginPath();
-    ctx.arc(-30 + p * 28, -8, 6, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
+    ctx.beginPath(); ctx.arc(-30 + p * 28, -8, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
   }
-
-  // Algae growth
-  ctx.strokeStyle = 'rgba(40,130,60,0.55)';
-  ctx.lineWidth = 2;
-  ctx.lineCap = 'round';
+  ctx.strokeStyle = 'rgba(40,130,60,0.55)'; ctx.lineWidth = 2; ctx.lineCap = 'round';
   ctx.beginPath();
   ctx.moveTo( 20, -22); ctx.lineTo( 17, -38);
   ctx.moveTo( 36, -22); ctx.lineTo( 39, -36);
   ctx.moveTo(-40, -22); ctx.lineTo(-43, -34);
   ctx.stroke();
   ctx.lineCap = 'butt';
-
   ctx.restore();
 }
 
@@ -848,37 +833,19 @@ function drawFish(sx, sy, c) {
   ctx.translate(sx, sy);
   ctx.scale(facing, 1);
   if (c.hit > 0) ctx.globalAlpha = 0.45 + 0.55 * Math.abs(Math.sin(c.hit * 35));
-
   var r = c.r;
   ctx.fillStyle = c.col;
-  // Body
+  ctx.beginPath(); ctx.ellipse(0, 0, r, r * 0.44, 0, 0, Math.PI * 2); ctx.fill();
   ctx.beginPath();
-  ctx.ellipse(0, 0, r, r * 0.44, 0, 0, Math.PI * 2);
-  ctx.fill();
-  // Tail
+  ctx.moveTo(-r, 0); ctx.lineTo(-r - r * 0.62, -r * 0.44); ctx.lineTo(-r - r * 0.62, r * 0.44);
+  ctx.closePath(); ctx.fill();
   ctx.beginPath();
-  ctx.moveTo(-r, 0);
-  ctx.lineTo(-r - r * 0.62, -r * 0.44);
-  ctx.lineTo(-r - r * 0.62,  r * 0.44);
-  ctx.closePath();
-  ctx.fill();
-  // Dorsal fin
-  ctx.beginPath();
-  ctx.moveTo(-r * 0.2, -r * 0.44);
-  ctx.lineTo(0, -r * 0.82);
-  ctx.lineTo( r * 0.3, -r * 0.44);
-  ctx.closePath();
-  ctx.fill();
-  // Eye
+  ctx.moveTo(-r * 0.2, -r * 0.44); ctx.lineTo(0, -r * 0.82); ctx.lineTo(r * 0.3, -r * 0.44);
+  ctx.closePath(); ctx.fill();
   ctx.fillStyle = '#fff';
-  ctx.beginPath();
-  ctx.arc(r * 0.5, -r * 0.08, r * 0.18, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.beginPath(); ctx.arc(r * 0.5, -r * 0.08, r * 0.18, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#111';
-  ctx.beginPath();
-  ctx.arc(r * 0.55, -r * 0.08, r * 0.09, 0, Math.PI * 2);
-  ctx.fill();
-
+  ctx.beginPath(); ctx.arc(r * 0.55, -r * 0.08, r * 0.09, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
 }
 
@@ -887,45 +854,27 @@ function drawSquid(sx, sy, c) {
   ctx.save();
   ctx.translate(sx, sy);
   if (c.hit > 0) ctx.globalAlpha = 0.45 + 0.55 * Math.abs(Math.sin(c.hit * 35));
-
   var r = c.r;
   ctx.fillStyle = c.col;
-  // Mantle
-  ctx.beginPath();
-  ctx.ellipse(0, 0, r * 0.58, r, 0, 0, Math.PI * 2);
-  ctx.fill();
-  // Head bulge
-  ctx.beginPath();
-  ctx.ellipse(0, r * 0.88, r * 0.44, r * 0.34, 0, 0, Math.PI * 2);
-  ctx.fill();
-  // Tentacles
-  ctx.strokeStyle = c.col;
-  ctx.lineWidth = 2;
-  ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.ellipse(0, 0, r * 0.58, r, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(0, r * 0.88, r * 0.44, r * 0.34, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = c.col; ctx.lineWidth = 2; ctx.lineCap = 'round';
   for (var i = 0; i < 8; i++) {
     var ang = (i / 8) * Math.PI * 2 + t * 0.4;
     var wv = Math.sin(ang * 3 + t * 3) * 0.28;
     ctx.beginPath();
     ctx.moveTo(Math.cos(ang) * r * 0.28, r * 1.05);
-    ctx.quadraticCurveTo(
-      Math.cos(ang) * r * 0.5 + wv * r, r * 1.38,
-      Math.cos(ang) * r * 0.18, r * 1.68 + (i % 2 === 0 ? r * 0.2 : 0)
-    );
+    ctx.quadraticCurveTo(Math.cos(ang) * r * 0.5 + wv * r, r * 1.38,
+      Math.cos(ang) * r * 0.18, r * 1.68 + (i % 2 === 0 ? r * 0.2 : 0));
     ctx.stroke();
   }
   ctx.lineCap = 'butt';
-  // Eyes
   ctx.fillStyle = '#fff';
-  ctx.beginPath();
-  ctx.arc(-r * 0.2, r * 0.68, r * 0.19, 0, Math.PI * 2);
-  ctx.arc( r * 0.2, r * 0.68, r * 0.19, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.beginPath(); ctx.arc(-r * 0.2, r * 0.68, r * 0.19, 0, Math.PI * 2);
+  ctx.arc( r * 0.2, r * 0.68, r * 0.19, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#220022';
-  ctx.beginPath();
-  ctx.arc(-r * 0.2, r * 0.68, r * 0.10, 0, Math.PI * 2);
-  ctx.arc( r * 0.2, r * 0.68, r * 0.10, 0, Math.PI * 2);
-  ctx.fill();
-
+  ctx.beginPath(); ctx.arc(-r * 0.2, r * 0.68, r * 0.10, 0, Math.PI * 2);
+  ctx.arc( r * 0.2, r * 0.68, r * 0.10, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
 }
 
@@ -946,172 +895,85 @@ function drawStations() {
 function drawFuelStation(sx, ty, active) {
   ctx.save();
   ctx.translate(sx, ty);
-
-  // Platform deck
-  ctx.fillStyle = '#5a4a2e';
-  rRect(-46, -10, 92, 10, 2);
-  ctx.fill();
-  ctx.fillStyle = '#7a6a4e';
-  rRect(-44, -8, 88, 4, 1);
-  ctx.fill();
-
-  // Fuel tank (right side of platform)
+  ctx.fillStyle = '#5a4a2e'; rRect(-46, -10, 92, 10, 2); ctx.fill();
+  ctx.fillStyle = '#7a6a4e'; rRect(-44, -8, 88, 4, 1); ctx.fill();
   ctx.fillStyle = '#556677';
-  ctx.beginPath();
-  ctx.arc(28, -26, 10, Math.PI, 0); // dome top
-  ctx.fill();
-  ctx.fillStyle = '#667788';
-  ctx.fillRect(18, -26, 20, 24);
-  ctx.fillStyle = '#445566';
-  ctx.fillRect(18, -2, 20, 2);
-  // Gauge on tank
+  ctx.beginPath(); ctx.arc(28, -26, 10, Math.PI, 0); ctx.fill();
+  ctx.fillStyle = '#667788'; ctx.fillRect(18, -26, 20, 24);
+  ctx.fillStyle = '#445566'; ctx.fillRect(18, -2, 20, 2);
   ctx.fillStyle = active ? '#44ff88' : '#449944';
-  ctx.beginPath();
-  ctx.arc(28, -18, 4, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = '#222';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-  // FUEL label
-  ctx.fillStyle = '#aaccbb';
-  ctx.font = '6px monospace';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
+  ctx.beginPath(); ctx.arc(28, -18, 4, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#222'; ctx.lineWidth = 1; ctx.stroke();
+  ctx.fillStyle = '#aaccbb'; ctx.font = '6px monospace';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText('FUEL', 28, -10);
-
-  // Fuel hose (toward lobster)
-  ctx.strokeStyle = active ? '#44cc66' : '#446644';
-  ctx.lineWidth = 3;
-  ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.moveTo(18, -14);
-  ctx.quadraticCurveTo(8, -8, 0, -10);
-  ctx.stroke();
+  ctx.strokeStyle = active ? '#44cc66' : '#446644'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(18, -14); ctx.quadraticCurveTo(8, -8, 0, -10); ctx.stroke();
   ctx.lineCap = 'butt';
-
-  // Lobster (left side of platform)
   drawLobster(-24, -10, active);
-
-  // "REFUEL" banner when in range
   if (active) {
     ctx.save();
     ctx.globalAlpha = 0.75 + 0.25 * Math.sin(wt * 6);
-    ctx.fillStyle = '#44ff88';
-    ctx.font = 'bold 10px monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'bottom';
+    ctx.fillStyle = '#44ff88'; ctx.font = 'bold 10px monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
     ctx.fillText('REFUEL', 0, -62);
-    // small arrow pointing down
-    ctx.fillStyle = '#44ff88';
-    tri(0, -56, 5, 3);
+    ctx.fillStyle = '#44ff88'; tri(0, -56, 5, 3);
     ctx.restore();
   }
-
   ctx.restore();
 }
 
 function drawLobster(x, y, active) {
   ctx.save();
-  ctx.translate(x, y); // y=0 is platform top; lobster stands upward (negative y)
-
+  ctx.translate(x, y);
   var t   = wt;
-  var wav = active ? Math.sin(t * 5) * 0.45 : 0.1; // right-claw wave angle
-
-  // Walking legs (drawn first, behind body)
-  ctx.strokeStyle = '#992010';
-  ctx.lineWidth = 1.5;
+  var wav = active ? Math.sin(t * 5) * 0.45 : 0.1;
+  ctx.strokeStyle = '#992010'; ctx.lineWidth = 1.5;
   var legs = [[-8,-14,-16,-8],[-8,-20,-17,-14],[-7,-26,-16,-20],
                [8,-14, 16,-8],[ 8,-20, 17,-14],[ 7,-26, 16,-20]];
   for (var l = 0; l < legs.length; l++) {
-    ctx.beginPath();
-    ctx.moveTo(legs[l][0], legs[l][1]); ctx.lineTo(legs[l][2], legs[l][3]);
-    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(legs[l][0], legs[l][1]); ctx.lineTo(legs[l][2], legs[l][3]); ctx.stroke();
   }
-
-  // Tail fan (below body, splayed at bottom)
   ctx.fillStyle = '#bb2818';
   for (var tf = -2; tf <= 2; tf++) {
-    ctx.save();
-    ctx.translate(0, -2);
-    ctx.rotate(tf * 0.22);
-    ctx.beginPath();
-    ctx.moveTo(-3, 0); ctx.lineTo(-5, 10); ctx.lineTo(5, 10); ctx.lineTo(3, 0);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
+    ctx.save(); ctx.translate(0, -2); ctx.rotate(tf * 0.22);
+    ctx.beginPath(); ctx.moveTo(-3, 0); ctx.lineTo(-5, 10); ctx.lineTo(5, 10); ctx.lineTo(3, 0);
+    ctx.closePath(); ctx.fill(); ctx.restore();
   }
-
-  // Abdomen segments
   ctx.fillStyle = '#cc2820';
   for (var sg = 0; sg < 4; sg++) {
     var sw2 = 8.5 - sg * 1.0;
-    ctx.beginPath();
-    ctx.ellipse(0, -4 - sg * 6, sw2, 4, 0, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.beginPath(); ctx.ellipse(0, -4 - sg * 6, sw2, 4, 0, 0, Math.PI * 2); ctx.fill();
   }
-
-  // Carapace (main shell)
-  ctx.fillStyle = '#e03830';
-  ctx.beginPath();
-  ctx.ellipse(0, -30, 12, 13, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Right (waving) claw
-  ctx.save();
-  ctx.translate(12, -28);
-  ctx.rotate(-wav);
+  ctx.fillStyle = '#e03830'; ctx.beginPath(); ctx.ellipse(0, -30, 12, 13, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.save(); ctx.translate(12, -28); ctx.rotate(-wav);
   ctx.fillStyle = '#dd3828';
-  ctx.beginPath();
-  ctx.moveTo(0, 0); ctx.lineTo(16, -5); ctx.lineTo(19, 4);
-  ctx.lineTo(12, 8); ctx.lineTo(5, 3); ctx.closePath();
-  ctx.fill();
+  ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(16,-5); ctx.lineTo(19,4);
+  ctx.lineTo(12,8); ctx.lineTo(5,3); ctx.closePath(); ctx.fill();
   ctx.fillStyle = '#aa2010';
-  ctx.beginPath(); // pincer upper
-  ctx.moveTo(16, -5); ctx.lineTo(22, -10); ctx.lineTo(19, 4); ctx.closePath();
-  ctx.fill();
+  ctx.beginPath(); ctx.moveTo(16,-5); ctx.lineTo(22,-10); ctx.lineTo(19,4); ctx.closePath(); ctx.fill();
   ctx.restore();
-
-  // Left claw (relaxed)
-  ctx.save();
-  ctx.translate(-12, -28);
-  ctx.rotate(0.15);
+  ctx.save(); ctx.translate(-12, -28); ctx.rotate(0.15);
   ctx.fillStyle = '#dd3828';
-  ctx.beginPath();
-  ctx.moveTo(0, 0); ctx.lineTo(-14, -4); ctx.lineTo(-16, 4);
-  ctx.lineTo(-10, 8); ctx.lineTo(-4, 3); ctx.closePath();
-  ctx.fill();
+  ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(-14,-4); ctx.lineTo(-16,4);
+  ctx.lineTo(-10,8); ctx.lineTo(-4,3); ctx.closePath(); ctx.fill();
   ctx.fillStyle = '#aa2010';
-  ctx.beginPath();
-  ctx.moveTo(-14, -4); ctx.lineTo(-20, -9); ctx.lineTo(-16, 4); ctx.closePath();
-  ctx.fill();
+  ctx.beginPath(); ctx.moveTo(-14,-4); ctx.lineTo(-20,-9); ctx.lineTo(-16,4); ctx.closePath(); ctx.fill();
   ctx.restore();
-
-  // Eye stalks
-  ctx.strokeStyle = '#cc2820';
-  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = '#cc2820'; ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.moveTo(-5, -42); ctx.lineTo(-8, -50);
-  ctx.moveTo( 5, -42); ctx.lineTo( 8, -50);
+  ctx.moveTo(-5,-42); ctx.lineTo(-8,-50);
+  ctx.moveTo( 5,-42); ctx.lineTo( 8,-50);
   ctx.stroke();
   ctx.fillStyle = '#111';
-  ctx.beginPath();
-  ctx.arc(-8, -50, 3, 0, Math.PI * 2);
-  ctx.arc( 8, -50, 3, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.beginPath(); ctx.arc(-8,-50,3,0,Math.PI*2); ctx.arc(8,-50,3,0,Math.PI*2); ctx.fill();
   ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.arc(-7,-51,1,0,Math.PI*2); ctx.arc(9,-51,1,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle = '#aa1808'; ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.arc(-7, -51, 1, 0, Math.PI * 2);
-  ctx.arc( 9, -51, 1, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Antennae
-  ctx.strokeStyle = '#aa1808';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(-5, -44); ctx.lineTo(-22, -64);
-  ctx.moveTo( 5, -44); ctx.lineTo( 22, -64);
+  ctx.moveTo(-5,-44); ctx.lineTo(-22,-64);
+  ctx.moveTo( 5,-44); ctx.lineTo( 22,-64);
   ctx.stroke();
-
   ctx.restore();
 }
 
@@ -1123,53 +985,35 @@ function drawIcebergs() {
     if (sx < -200 || sx > W + 200) continue;
     var surfY = wave(ib.wx);
     var sz    = ib.sz;
-    var tw    = 38 * sz; // tip half-width above water
-    var bw    = 66 * sz; // bulk half-width below water
-    var th    = 44 * sz; // tip height above water
-    var bd    = 95 * sz; // bulk depth below water
-
+    var tw    = 38 * sz;
+    var bw    = 66 * sz;
+    var th    = 44 * sz;
+    var bd    = 95 * sz;
     ctx.save();
     ctx.translate(sx, surfY);
-
-    // Underwater bulk — blue-tinted white, semi-transparent
     var ug = ctx.createLinearGradient(0, 0, 0, bd);
     ug.addColorStop(0,   'rgba(180,215,240,0.82)');
     ug.addColorStop(0.5, 'rgba(140,185,220,0.60)');
     ug.addColorStop(1,   'rgba(100,150,200,0.25)');
     ctx.fillStyle = ug;
     ctx.beginPath();
-    ctx.moveTo(-tw, 0);
-    ctx.lineTo(-bw, bd * 0.55);
-    ctx.lineTo(-bw * 0.6, bd);
-    ctx.lineTo( bw * 0.6, bd);
-    ctx.lineTo( bw, bd * 0.55);
-    ctx.lineTo( tw, 0);
-    ctx.closePath();
-    ctx.fill();
-
-    // Above-water tip — bright white
+    ctx.moveTo(-tw, 0); ctx.lineTo(-bw, bd * 0.55);
+    ctx.lineTo(-bw * 0.6, bd); ctx.lineTo(bw * 0.6, bd);
+    ctx.lineTo(bw, bd * 0.55); ctx.lineTo(tw, 0);
+    ctx.closePath(); ctx.fill();
     var ag = ctx.createLinearGradient(0, -th, 0, 0);
-    ag.addColorStop(0, '#f0f8ff');
-    ag.addColorStop(1, '#c8e0f4');
+    ag.addColorStop(0, '#f0f8ff'); ag.addColorStop(1, '#c8e0f4');
     ctx.fillStyle = ag;
     ctx.beginPath();
-    ctx.moveTo(-tw, 0);
-    ctx.lineTo(-tw * 0.7, -th * 0.55);
-    ctx.lineTo(-tw * 0.15, -th);
-    ctx.lineTo( tw * 0.3,  -th * 0.88);
-    ctx.lineTo( tw, -th * 0.3);
-    ctx.lineTo( tw, 0);
-    ctx.closePath();
-    ctx.fill();
-
-    // Ice facet lines
-    ctx.strokeStyle = 'rgba(200,230,255,0.55)';
-    ctx.lineWidth = 1;
+    ctx.moveTo(-tw, 0); ctx.lineTo(-tw * 0.7, -th * 0.55);
+    ctx.lineTo(-tw * 0.15, -th); ctx.lineTo(tw * 0.3, -th * 0.88);
+    ctx.lineTo(tw, -th * 0.3); ctx.lineTo(tw, 0);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(200,230,255,0.55)'; ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(-tw * 0.15, -th); ctx.lineTo(-tw * 0.3, 0);
     ctx.moveTo( tw * 0.3,  -th * 0.88); ctx.lineTo(tw * 0.15, 0);
     ctx.stroke();
-
     ctx.restore();
   }
 }
@@ -1181,37 +1025,21 @@ function drawSinkPiece(wx, wy, angle, face, isBow) {
   ctx.translate(sx, wy);
   ctx.scale(face, 1);
   ctx.rotate(angle);
-
   var hw = SUB_HW, hh = SUB_HH;
-  // Draw only the relevant half using clipping
   ctx.beginPath();
   if (isBow) ctx.rect(0, -hh - 20, hw + 20, (hh + 20) * 2);
   else        ctx.rect(-hw - 20, -hh - 20, hw + 20, (hh + 20) * 2);
   ctx.clip();
-
-  // Hull
-  ctx.fillStyle = '#d4aa22';
-  rRect(-hw, -hh, hw * 2, hh * 2, hh);
-  ctx.fill();
-  ctx.fillStyle = '#b89010';
-  ctx.fillRect(-hw + 8, -3, hw * 2 - 16, 6);
-
+  ctx.fillStyle = '#d4aa22'; rRect(-hw, -hh, hw * 2, hh * 2, hh); ctx.fill();
+  ctx.fillStyle = '#b89010'; ctx.fillRect(-hw + 8, -3, hw * 2 - 16, 6);
   if (isBow) {
-    // Conning tower + periscope on bow
-    ctx.fillStyle = '#c09518';
-    rRect(-9, -hh - 15, 18, 16, 3); ctx.fill();
+    ctx.fillStyle = '#c09518'; rRect(-9, -hh - 15, 18, 16, 3); ctx.fill();
     ctx.strokeStyle = '#806008'; ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    ctx.moveTo(4, -hh - 15); ctx.lineTo(4, -hh - 25); ctx.lineTo(13, -hh - 25);
-    ctx.stroke();
-    // Porthole
+    ctx.beginPath(); ctx.moveTo(4, -hh - 15); ctx.lineTo(4, -hh - 25); ctx.lineTo(13, -hh - 25); ctx.stroke();
     ctx.fillStyle = '#7ad4f0';
     ctx.beginPath(); ctx.arc(hw * 0.4, 0, 6, 0, Math.PI * 2); ctx.fill();
   } else {
-    // Propeller on stern
-    ctx.save();
-    ctx.translate(-hw, 0);
-    ctx.rotate(propAng);
+    ctx.save(); ctx.translate(-hw, 0); ctx.rotate(propAng);
     ctx.fillStyle = '#8a8a8a';
     for (var p = 0; p < 3; p++) {
       ctx.save(); ctx.rotate(p * Math.PI * 2 / 3);
@@ -1220,56 +1048,288 @@ function drawSinkPiece(wx, wy, angle, face, isBow) {
     }
     ctx.restore();
   }
-
   ctx.restore();
 }
 
 function drawSinkingPieces() {
   if (gamePhase !== 'sinking' && gamePhase !== 'gameover') return;
-
-  if (sinkT < SINK_TILT) {
-    // Still in tilt phase — draw normal sub at current (tilting) pitch
-    drawSub();
-    return;
-  }
-
-  // Crack/bubble flash at split moment
+  if (sinkT < SINK_TILT) { drawSub(); return; }
   if (sinkT < SINK_TILT + 0.3) {
     ctx.save();
     ctx.globalAlpha = 1 - (sinkT - SINK_TILT) / 0.3;
     ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.arc(sub.x - camX, sub.y, 22, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.beginPath(); ctx.arc(sub.x - camX, sub.y, 22, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
   }
-
   drawSinkPiece(sinkBow.x,   sinkBow.y,   sinkBow.angle,   sinkFace, true);
   drawSinkPiece(sinkStern.x, sinkStern.y, sinkStern.angle, sinkFace, false);
-
   if (gamePhase === 'gameover') {
     ctx.save();
     ctx.fillStyle = 'rgba(5,15,30,0.72)';
     rRect(W / 2 - 140, H / 2 - 52, 280, 104, 8); ctx.fill();
-    ctx.fillStyle = '#c8e8ff';
-    ctx.font = 'bold 22px monospace';
+    ctx.fillStyle = '#c8e8ff'; ctx.font = 'bold 22px monospace';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText('YOU STRUCK AN ICEBERG', W / 2, H / 2 - 24);
-    ctx.fillStyle = '#80b8e0';
-    ctx.font = '13px monospace';
+    ctx.fillStyle = '#80b8e0'; ctx.font = '13px monospace';
     ctx.fillText('Press any key or tap to continue', W / 2, H / 2 + 12);
     ctx.restore();
   }
 }
 
+// ── kraken drawing helpers ───────────────────────────────────────────────────
+function drawGear(cx, cy, r, teeth, ang, col) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(ang);
+  ctx.fillStyle = col;
+  var tw = (Math.PI * 2 / teeth) * r * 0.38, th = r * 0.30;
+  for (var ti = 0; ti < teeth; ti++) {
+    ctx.save(); ctx.rotate(ti * Math.PI * 2 / teeth);
+    ctx.fillRect(-tw * 0.5, -(r + th), tw, th);
+    ctx.restore();
+  }
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#1a1820'; ctx.beginPath(); ctx.arc(0, 0, r * 0.28, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#1a1820'; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(-r * 0.65, 0); ctx.lineTo(r * 0.65, 0);
+  ctx.moveTo(0, -r * 0.65); ctx.lineTo(0, r * 0.65);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawKraken() {
+  if (krakPhase === 'debris' || krakPhase === 'victory') return;
+  var ksx = KRAKEN_WX - camX;
+  if (ksx < -450 || ksx > W + 450) return;
+  var kty = terrain(KRAKEN_WX);
+  ctx.save();
+  ctx.translate(ksx, kty);
+  var p1 = Math.sin(wt * 2.8) * 9, p2 = Math.sin(wt * 2.8 + Math.PI) * 9;
+  var g1 = wt * 0.65, g2 = -wt * 0.88, g3 = wt * 1.35;
+  ctx.fillStyle = '#222230';
+  var fxs = [-92, -54, 0, 54, 92];
+  for (var fi = 0; fi < fxs.length; fi++) {
+    ctx.fillRect(fxs[fi] - 6, -20, 12, 20);
+    ctx.fillRect(fxs[fi] - 10, -6, 20, 6);
+  }
+  ctx.fillStyle = '#1e1e26'; rRect(-120, -30, 240, 28, 5); ctx.fill();
+  ctx.strokeStyle = '#48486a'; ctx.lineWidth = 1; rRect(-120, -30, 240, 28, 5); ctx.stroke();
+  ctx.fillStyle = '#36364e';
+  for (var ri = -100; ri <= 100; ri += 24) {
+    ctx.beginPath(); ctx.arc(ri, -21, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(ri, -11, 3, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.strokeStyle = '#48485a'; ctx.lineWidth = 12; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-132, -76); ctx.lineTo(132, -76); ctx.stroke();
+  ctx.strokeStyle = '#6a6880'; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(-132, -76); ctx.lineTo(132, -76); ctx.stroke();
+  ctx.lineCap = 'butt';
+  ctx.fillStyle = '#363845'; rRect(-134, -135, 44, 105, 8); ctx.fill();
+  ctx.strokeStyle = '#585870'; ctx.lineWidth = 1.5; rRect(-134, -135, 44, 105, 8); ctx.stroke();
+  ctx.strokeStyle = '#48485c'; ctx.lineWidth = 3;
+  for (var bi = 0; bi < 3; bi++) {
+    ctx.beginPath(); ctx.moveTo(-134, -115 + bi * 22); ctx.lineTo(-90, -115 + bi * 22); ctx.stroke();
+  }
+  ctx.strokeStyle = '#48485a'; ctx.lineWidth = 10; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-112, -135); ctx.lineTo(-112, -76); ctx.stroke();
+  ctx.lineCap = 'butt';
+  ctx.fillStyle = '#363845'; rRect(90, -120, 44, 90, 8); ctx.fill();
+  ctx.strokeStyle = '#585870'; ctx.lineWidth = 1.5; rRect(90, -120, 44, 90, 8); ctx.stroke();
+  ctx.strokeStyle = '#48485c'; ctx.lineWidth = 3;
+  for (var bi2 = 0; bi2 < 2; bi2++) {
+    ctx.beginPath(); ctx.moveTo(90, -102 + bi2 * 24); ctx.lineTo(134, -102 + bi2 * 24); ctx.stroke();
+  }
+  ctx.strokeStyle = '#48485a'; ctx.lineWidth = 10; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(112, -120); ctx.lineTo(112, -76); ctx.stroke();
+  ctx.lineCap = 'butt';
+  ctx.fillStyle = '#7a7888';
+  ctx.fillRect(-33, -140 + p1, 4, 46);
+  ctx.fillRect(29,  -140 + p2, 4, 46);
+  var bg = ctx.createLinearGradient(-82, 0, 82, 0);
+  bg.addColorStop(0, '#3e3020'); bg.addColorStop(0.5, '#5e4a2c'); bg.addColorStop(1, '#342818');
+  ctx.fillStyle = bg; rRect(-82, -158, 164, 128, 14); ctx.fill();
+  ctx.strokeStyle = '#8a6844'; ctx.lineWidth = 2; rRect(-82, -158, 164, 128, 14); ctx.stroke();
+  var rvts = [[-70,-148],[-70,-108],[-70,-68],[70,-148],[70,-108],[70,-68],
+              [-28,-153],[28,-153],[-28,-36],[28,-36]];
+  ctx.fillStyle = '#9a7850';
+  for (var rv = 0; rv < rvts.length; rv++) {
+    ctx.beginPath(); ctx.arc(rvts[rv][0], rvts[rv][1], 3.5, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = 'rgba(255,175,0,0.12)'; ctx.fillRect(-82, -96, 164, 18);
+  ctx.fillStyle = '#524860'; rRect(-44, -106 + p1, 18, 40, 3); ctx.fill();
+  ctx.strokeStyle = '#706888'; ctx.lineWidth = 1; rRect(-44, -106 + p1, 18, 40, 3); ctx.stroke();
+  ctx.fillStyle = '#524860'; rRect(26, -106 + p2, 18, 40, 3); ctx.fill(); rRect(26, -106 + p2, 18, 40, 3); ctx.stroke();
+  var dg = ctx.createRadialGradient(-18, -172, 8, 0, -158, 76);
+  dg.addColorStop(0, '#806040'); dg.addColorStop(1, '#402e18');
+  ctx.fillStyle = dg;
+  ctx.beginPath(); ctx.ellipse(0, -158, 74, 40, 0, Math.PI, 0); ctx.fill();
+  ctx.strokeStyle = '#907050'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.ellipse(0, -158, 74, 40, 0, Math.PI, 0); ctx.stroke();
+  ctx.fillStyle = '#b89060';
+  for (var da = 0; da < 6; da++) {
+    var dang = -Math.PI + da * Math.PI / 5 + 0.3;
+    ctx.beginPath(); ctx.arc(Math.cos(dang)*70, -158 + Math.sin(dang)*38, 3, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.fillStyle = '#242232'; rRect(-30, -216, 18, 68, 4); ctx.fill();
+  ctx.strokeStyle = '#484660'; ctx.lineWidth = 1; rRect(-30, -216, 18, 68, 4); ctx.stroke();
+  ctx.fillStyle = '#343248'; rRect(-34, -222, 26, 10, 3); ctx.fill();
+  ctx.fillStyle = '#242232'; rRect(12, -204, 14, 54, 4); ctx.fill();
+  ctx.fillStyle = '#343248'; rRect(9,  -209, 20, 9, 3); ctx.fill();
+  drawGear(-58, -66, 22, 9, g1, '#886820');
+  drawGear( 58, -66, 18, 9, g2, '#7a5a1e');
+  drawGear(  0, -164, 11, 7, g3, '#604e1c');
+  var ports = [[-40,-96],[0,-96],[40,-96]];
+  for (var pi2 = 0; pi2 < ports.length; pi2++) {
+    var px = ports[pi2][0], py = ports[pi2][1];
+    ctx.fillStyle = '#0a1828'; ctx.beginPath(); ctx.arc(px, py, 9, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#8a6844'; ctx.lineWidth = 2; ctx.stroke();
+    var pg = ctx.createRadialGradient(px-2, py-2, 1, px, py, 9);
+    pg.addColorStop(0, 'rgba(70,160,190,0.55)'); pg.addColorStop(1, 'rgba(0,30,70,0)');
+    ctx.fillStyle = pg; ctx.beginPath(); ctx.arc(px, py, 9, 0, Math.PI*2); ctx.fill();
+  }
+  var t1 = Math.floor(wt * 1.0) % 2 === 0;
+  var t2 = Math.floor(wt * 0.7) % 2 === 0;
+  var t3 = Math.floor(wt * 1.5) % 2 === 0;
+  function dLight(lx, ly, col, on) {
+    ctx.fillStyle = on ? col : '#252530';
+    ctx.beginPath(); ctx.arc(lx, ly, 5, 0, Math.PI*2); ctx.fill();
+    if (on) {
+      ctx.globalAlpha = 0.3;
+      ctx.fillStyle = col;
+      ctx.beginPath(); ctx.arc(lx, ly, 11, 0, Math.PI*2); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+  }
+  dLight(-66, -180, '#ff2828', t1);
+  dLight(-66, -165, '#28ff55', t2);
+  dLight(-66, -150, '#ffaa00', t3);
+  dLight( 66, -150, '#ffaa00', !t3);
+  var hglow = krakHatchNear && (Math.floor(wt * 4) % 2 === 0);
+  if (hglow) {
+    ctx.globalAlpha = 0.4; ctx.fillStyle = '#ffe050';
+    ctx.beginPath(); ctx.arc(KRAKEN_HOX, KRAKEN_HOY, 30, 0, Math.PI*2); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+  ctx.fillStyle = '#141420'; ctx.beginPath(); ctx.arc(KRAKEN_HOX, KRAKEN_HOY, 13, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = krakHatchNear ? '#ffdd44' : '#7a6840'; ctx.lineWidth = 2.5; ctx.stroke();
+  ctx.strokeStyle = krakHatchNear ? '#ffdd44' : '#6a5a30'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(KRAKEN_HOX - 9, KRAKEN_HOY); ctx.lineTo(KRAKEN_HOX + 9, KRAKEN_HOY);
+  ctx.moveTo(KRAKEN_HOX, KRAKEN_HOY - 9); ctx.lineTo(KRAKEN_HOX, KRAKEN_HOY + 9);
+  ctx.stroke();
+  ctx.beginPath(); ctx.arc(KRAKEN_HOX, KRAKEN_HOY, 7, 0, Math.PI*2); ctx.stroke();
+  if (krakHatchNear) {
+    ctx.save(); ctx.globalAlpha = 0.7 + 0.3 * Math.sin(wt * 6);
+    ctx.fillStyle = '#ffdd44'; ctx.font = 'bold 10px monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.fillText('ENTER', KRAKEN_HOX, KRAKEN_HOY - 26);
+    ctx.restore();
+  }
+  ctx.fillStyle = 'rgba(190,195,215,' + (0.12 + 0.08 * Math.sin(wt * 1.7)) + ')';
+  for (var sf = 0; sf < 3; sf++) {
+    var so = (wt * 20 + sf * 13) % 40;
+    ctx.beginPath(); ctx.arc(-21, -216 - so, 5 + sf * 2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc( 19, -204 - so * 0.72, 4 + sf * 1.5, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawKrakenDebris() {
+  if (krakPhase !== 'exploding' && krakPhase !== 'debris' && krakPhase !== 'victory') return;
+  for (var si2 = 0; si2 < krakSmoke.length; si2++) {
+    var ksm = krakSmoke[si2];
+    if (ksm.alpha <= 0) continue;
+    ctx.save(); ctx.globalAlpha = ksm.alpha;
+    ctx.fillStyle = '#a09888';
+    ctx.beginPath(); ctx.arc(ksm.x - camX, ksm.y, ksm.r, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+  if (krakFlash > 0) {
+    var fsx = KRAKEN_WX - camX, fty = terrain(KRAKEN_WX) - 80;
+    ctx.save(); ctx.globalAlpha = krakFlash;
+    var fg = ctx.createRadialGradient(fsx, fty, 0, fsx, fty, 170);
+    fg.addColorStop(0, '#ffffff'); fg.addColorStop(0.25, '#ffaa00'); fg.addColorStop(1, 'rgba(255,60,0,0)');
+    ctx.fillStyle = fg; ctx.beginPath(); ctx.arc(fsx, fty, 170, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+  for (var di2 = 0; di2 < krakDebris.length; di2++) {
+    var dp = krakDebris[di2];
+    var dsx2 = dp.x - camX;
+    if (dsx2 < -90 || dsx2 > W + 90) continue;
+    ctx.save(); ctx.translate(dsx2, dp.y); ctx.rotate(dp.angle);
+    switch (dp.type) {
+      case 0: drawGear(0, 0, 15, 8, 0, '#7a5818'); break;
+      case 1:
+        ctx.fillStyle = '#444856'; rRect(-22, -7, 44, 14, 5); ctx.fill();
+        ctx.strokeStyle = '#606475'; ctx.lineWidth = 1.5; rRect(-22, -7, 44, 14, 5); ctx.stroke();
+        break;
+      case 2:
+        ctx.fillStyle = '#5a3e28'; rRect(-16, -11, 32, 22, 3); ctx.fill();
+        ctx.fillStyle = '#8a6040';
+        ctx.beginPath(); ctx.arc(-7, -4, 3, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc( 7,  4, 3, 0, Math.PI*2); ctx.fill();
+        break;
+      case 3:
+        ctx.fillStyle = '#7a7484'; rRect(-5, -20, 10, 40, 2); ctx.fill();
+        ctx.fillStyle = '#4e4858'; rRect(-8, -20, 16, 12, 3); ctx.fill();
+        break;
+    }
+    ctx.restore();
+  }
+}
+
+function drawKrakenPanel() {
+  if (krakPhase !== 'panel') return;
+  ctx.save();
+  ctx.fillStyle = 'rgba(4,8,18,0.90)';
+  rRect(W/2 - 158, H/2 - 104, 316, 210, 10); ctx.fill();
+  ctx.strokeStyle = '#b87020'; ctx.lineWidth = 2;
+  rRect(W/2 - 158, H/2 - 104, 316, 210, 10); ctx.stroke();
+  ctx.fillStyle = '#c88028'; ctx.font = 'bold 14px monospace';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('KRAKEN CONTROL PANEL', W/2, H/2 - 80);
+  ctx.strokeStyle = '#b07020'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(W/2-142, H/2-65); ctx.lineTo(W/2+142, H/2-65); ctx.stroke();
+  ctx.fillStyle = '#ff7730'; ctx.font = '10px monospace';
+  ctx.fillText('WARNING: IRREVERSIBLE ACTION', W/2, H/2 - 50);
+  ctx.fillStyle = '#908070'; ctx.font = '10px monospace';
+  ctx.fillText('Activate the Kraken Engine?', W/2, H/2 - 32);
+  ctx.fillStyle = '#6e1008'; rRect(W/2 - 92, H/2 - 18, 184, 48, 8); ctx.fill();
+  ctx.strokeStyle = '#ff3316'; ctx.lineWidth = 2; rRect(W/2 - 92, H/2 - 18, 184, 48, 8); ctx.stroke();
+  ctx.fillStyle = '#ff3316'; ctx.font = 'bold 17px monospace';
+  ctx.fillText('ACTIVATE', W/2, H/2 + 6);
+  ctx.fillStyle = '#082214'; rRect(W/2 - 62, H/2 + 42, 124, 36, 6); ctx.fill();
+  ctx.strokeStyle = '#40cc80'; ctx.lineWidth = 1.5; rRect(W/2 - 62, H/2 + 42, 124, 36, 6); ctx.stroke();
+  ctx.fillStyle = '#40cc80'; ctx.font = '13px monospace';
+  ctx.fillText('ABORT', W/2, H/2 + 61);
+  ctx.fillStyle = '#555545'; ctx.font = '8px monospace';
+  ctx.fillText('Y / Enter = activate     N / Esc = abort', W/2, H/2 + 94);
+  ctx.restore();
+}
+
+function drawKrakenVictory() {
+  if (krakPhase !== 'victory') return;
+  ctx.save();
+  ctx.fillStyle = 'rgba(4,8,18,0.82)';
+  rRect(W/2 - 158, H/2 - 68, 316, 136, 10); ctx.fill();
+  ctx.strokeStyle = '#ffaa00'; ctx.lineWidth = 2;
+  rRect(W/2 - 158, H/2 - 68, 316, 136, 10); ctx.stroke();
+  ctx.fillStyle = '#ffcc44'; ctx.font = 'bold 20px monospace';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('KRAKEN ACTIVATED!', W/2, H/2 - 32);
+  ctx.fillStyle = '#c0a040'; ctx.font = '11px monospace';
+  ctx.fillText('The machine stirs from its slumber...', W/2, H/2 - 6);
+  ctx.fillStyle = '#706848'; ctx.font = '10px monospace';
+  ctx.fillText('Press any key or tap to continue', W/2, H/2 + 22);
+  ctx.restore();
+}
+
 // ── draw diver ────────────────────────────────────────────────────────────────
 function drawDiver() {
   if (!diverOut) return;
-
   var dsx = diver.x - camX;
   var subSx = sub.x - camX;
-
-  // O2 tether line (wavy hose)
   ctx.save();
   ctx.strokeStyle = 'rgba(80,220,160,0.72)';
   ctx.lineWidth = 2.5;
@@ -1291,84 +1351,52 @@ function drawDiver() {
   ctx.setLineDash([]);
   ctx.lineCap = 'butt';
   ctx.restore();
-
-  // Diver body
   ctx.save();
   ctx.translate(dsx, diver.y);
   ctx.scale(diverFace, 1);
-
-  // Fins
   ctx.fillStyle = '#1a8a44';
   ctx.beginPath();
   ctx.moveTo(3, 10); ctx.lineTo(18, 14); ctx.lineTo(14, 18); ctx.lineTo(3, 14);
   ctx.closePath(); ctx.fill();
-
-  // Legs
   ctx.fillStyle = '#1a5a8a';
   ctx.fillRect(-4, 5, 5, 9);
   ctx.fillRect(2, 5, 5, 9);
-
-  // Torso / wetsuit
   ctx.fillStyle = '#1a5a8a';
   rRect(-7, -8, 14, 15, 3); ctx.fill();
-  // Wetsuit stripe
   ctx.fillStyle = '#2288cc';
   ctx.fillRect(-5, -4, 10, 4);
-
-  // Tank on back (negative x side = behind diver)
   ctx.fillStyle = '#aabbcc';
   rRect(-10, -7, 5, 10, 2); ctx.fill();
   ctx.fillStyle = '#8899aa';
   ctx.fillRect(-9, -3, 3, 2);
-
-  // Head / mask
   ctx.fillStyle = '#f0c080';
   ctx.beginPath(); ctx.arc(0, -13, 7, 0, Math.PI * 2); ctx.fill();
-  // Mask glass
   ctx.fillStyle = '#55aaee';
-  ctx.strokeStyle = '#333';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  rRect(-4, -17, 8, 6, 2); ctx.fill(); ctx.stroke();
-  // Regulator hose going to tank
-  ctx.strokeStyle = '#446644';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(-4, -12); ctx.quadraticCurveTo(-10, -8, -8, -3);
-  ctx.stroke();
-
-  // Arms
+  ctx.strokeStyle = '#333'; ctx.lineWidth = 1;
+  ctx.beginPath(); rRect(-4, -17, 8, 6, 2); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = '#446644'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(-4, -12); ctx.quadraticCurveTo(-10, -8, -8, -3); ctx.stroke();
   ctx.fillStyle = '#1a5a8a';
-  ctx.beginPath(); // arm reaching forward
+  ctx.beginPath();
   ctx.moveTo(6, -5); ctx.lineTo(18, 0); ctx.lineTo(16, 4); ctx.lineTo(5, 0);
   ctx.closePath(); ctx.fill();
-  // Glove
   ctx.fillStyle = '#1a8a44';
   ctx.beginPath(); ctx.arc(18, 2, 4, 0, Math.PI * 2); ctx.fill();
-
-  // Bubbles from regulator when moving
   if (Math.abs(diver.vx) + Math.abs(diver.vy) > 5) {
     ctx.fillStyle = 'rgba(160,230,255,0.55)';
     var bt = wt * 4;
     for (var bi = 0; bi < 3; bi++) {
       var bx2 = -6 + Math.sin(bt + bi * 2.1) * 5;
       var by2 = -14 - ((bt * 18 + bi * 7) % 22);
-      ctx.beginPath();
-      ctx.arc(bx2, by2, 2 - bi * 0.4, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.beginPath(); ctx.arc(bx2, by2, 2 - bi * 0.4, 0, Math.PI * 2); ctx.fill();
     }
   }
-
   ctx.restore();
-
-  // "DIVER" label when active + near station
   if (diverNearStation) {
     ctx.save();
     ctx.globalAlpha = 0.75 + 0.25 * Math.sin(wt * 6);
-    ctx.fillStyle = '#44ff88';
-    ctx.font = 'bold 10px monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'bottom';
+    ctx.fillStyle = '#44ff88'; ctx.font = 'bold 10px monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
     ctx.fillText('REFUELING', dsx, diver.y - 28);
     ctx.restore();
   }
@@ -1382,9 +1410,7 @@ function drawBubbles() {
     var b = BUBBLES[i];
     var bSx = b.wx - camX;
     if (bSx < -10 || bSx > W + 10) continue;
-    ctx.beginPath();
-    ctx.arc(bSx, b.y, b.r, 0, Math.PI * 2);
-    ctx.stroke();
+    ctx.beginPath(); ctx.arc(bSx, b.y, b.r, 0, Math.PI * 2); ctx.stroke();
   }
 }
 
@@ -1392,91 +1418,43 @@ function drawBubbles() {
 function drawSub() {
   var sx = sub.x - camX, sy = sub.y;
   var hw = SUB_HW, hh = SUB_HH;
-
   ctx.save();
   ctx.translate(sx, sy);
   ctx.scale(subFace, 1);
   ctx.rotate(subPitch);
-
-  // Hit flash
   if (hitFlash > 0) {
-    ctx.save();
-    ctx.globalAlpha = hitFlash * 3.5;
+    ctx.save(); ctx.globalAlpha = hitFlash * 3.5;
     ctx.fillStyle = '#ff4444';
-    rRect(-hw - 5, -hh - 5, (hw + 5) * 2, (hh + 5) * 2, hh + 5);
-    ctx.fill();
+    rRect(-hw - 5, -hh - 5, (hw + 5) * 2, (hh + 5) * 2, hh + 5); ctx.fill();
     ctx.restore();
   }
-
-  // Drop shadow
-  ctx.save();
-  ctx.globalAlpha = 0.12;
-  ctx.fillStyle = '#000';
-  rRect(-hw + 3, -hh + 3, hw * 2, hh * 2, hh);
-  ctx.fill();
-  ctx.restore();
-
-  // Hull body
-  ctx.fillStyle = '#d4aa22';
-  rRect(-hw, -hh, hw * 2, hh * 2, hh);
-  ctx.fill();
-
-  // Stripe
-  ctx.fillStyle = '#b89010';
-  ctx.fillRect(-hw + 8, -3, hw * 2 - 16, 6);
-
-  // Rivets
+  ctx.save(); ctx.globalAlpha = 0.12; ctx.fillStyle = '#000';
+  rRect(-hw + 3, -hh + 3, hw * 2, hh * 2, hh); ctx.fill(); ctx.restore();
+  ctx.fillStyle = '#d4aa22'; rRect(-hw, -hh, hw * 2, hh * 2, hh); ctx.fill();
+  ctx.fillStyle = '#b89010'; ctx.fillRect(-hw + 8, -3, hw * 2 - 16, 6);
   ctx.fillStyle = '#c09518';
   for (var i = 0; i < 4; i++) {
     var rx = -hw + 20 + i * 18;
     ctx.beginPath(); ctx.arc(rx,  hh - 5, 2, 0, Math.PI * 2); ctx.fill();
     ctx.beginPath(); ctx.arc(rx, -hh + 5, 2, 0, Math.PI * 2); ctx.fill();
   }
-
-  // Conning tower
-  ctx.fillStyle = '#c09518';
-  rRect(-9, -hh - 15, 18, 16, 3);
-  ctx.fill();
-  ctx.fillStyle = '#907008';
-  ctx.fillRect(-7, -hh - 13, 14, 3);
-
-  // Periscope
-  ctx.strokeStyle = '#806008';
-  ctx.lineWidth = 2.5;
-  ctx.beginPath();
-  ctx.moveTo(4, -hh - 15); ctx.lineTo(4, -hh - 25); ctx.lineTo(13, -hh - 25);
-  ctx.stroke();
-  ctx.fillStyle = '#604800';
-  ctx.fillRect(10, -hh - 28, 7, 5);
-
-  // Propeller (at rear)
-  ctx.save();
-  ctx.translate(-hw, 0);
-  ctx.rotate(propAng);
+  ctx.fillStyle = '#c09518'; rRect(-9, -hh - 15, 18, 16, 3); ctx.fill();
+  ctx.fillStyle = '#907008'; ctx.fillRect(-7, -hh - 13, 14, 3);
+  ctx.strokeStyle = '#806008'; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.moveTo(4, -hh - 15); ctx.lineTo(4, -hh - 25); ctx.lineTo(13, -hh - 25); ctx.stroke();
+  ctx.fillStyle = '#604800'; ctx.fillRect(10, -hh - 28, 7, 5);
+  ctx.save(); ctx.translate(-hw, 0); ctx.rotate(propAng);
   ctx.fillStyle = '#8a8a8a';
   for (var p = 0; p < 3; p++) {
-    ctx.save();
-    ctx.rotate(p * Math.PI * 2 / 3);
-    rRect(-2, -11, 4, 11, 1);
-    ctx.fill();
-    ctx.restore();
+    ctx.save(); ctx.rotate(p * Math.PI * 2 / 3);
+    rRect(-2, -11, 4, 11, 1); ctx.fill(); ctx.restore();
   }
   ctx.restore();
-
-  // Porthole
   ctx.fillStyle = '#7ad4f0';
-  ctx.beginPath();
-  ctx.arc(hw * 0.4, 0, 6, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = '#906808';
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-  // Glare
+  ctx.beginPath(); ctx.arc(hw * 0.4, 0, 6, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#906808'; ctx.lineWidth = 1.5; ctx.stroke();
   ctx.fillStyle = 'rgba(255,255,255,0.55)';
-  ctx.beginPath();
-  ctx.arc(hw * 0.4 - 2, -2, 2, 0, Math.PI * 2);
-  ctx.fill();
-
+  ctx.beginPath(); ctx.arc(hw * 0.4 - 2, -2, 2, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
 }
 
@@ -1486,28 +1464,20 @@ function drawTouchControls() {
   for (var i = 0; i < BTNS.length; i++) {
     var b = BTNS[i];
     if (b.id === 'diver') {
-      // Special diver toggle button
       var active = diverOut;
       ctx.save();
       ctx.globalAlpha = active ? 0.92 : 0.50;
       ctx.fillStyle   = active ? 'rgba(60,220,140,0.85)' : 'rgba(20,60,80,0.70)';
       ctx.strokeStyle = active ? 'rgba(80,255,160,0.9)' : 'rgba(80,160,200,0.6)';
       ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(b.cx, b.cy, b.r, 0, Math.PI * 2);
+      ctx.beginPath(); ctx.arc(b.cx, b.cy, b.r, 0, Math.PI * 2);
       ctx.fill(); ctx.stroke();
-      // Diver icon: simple stick figure with tank
       ctx.fillStyle = active ? '#0a2030' : '#55ccaa';
       ctx.strokeStyle = active ? '#0a2030' : '#55ccaa';
-      ctx.lineWidth = 2;
-      ctx.lineCap = 'round';
-      // head
+      ctx.lineWidth = 2; ctx.lineCap = 'round';
       ctx.beginPath(); ctx.arc(b.cx, b.cy - 10, 5, 0, Math.PI * 2); ctx.fill();
-      // body
       ctx.beginPath(); ctx.moveTo(b.cx, b.cy - 5); ctx.lineTo(b.cx, b.cy + 6); ctx.stroke();
-      // arms
       ctx.beginPath(); ctx.moveTo(b.cx - 8, b.cy - 1); ctx.lineTo(b.cx + 8, b.cy - 1); ctx.stroke();
-      // legs
       ctx.beginPath(); ctx.moveTo(b.cx, b.cy + 6); ctx.lineTo(b.cx - 5, b.cy + 14); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(b.cx, b.cy + 6); ctx.lineTo(b.cx + 5, b.cy + 14); ctx.stroke();
       ctx.lineCap = 'butt';
@@ -1520,8 +1490,7 @@ function drawTouchControls() {
     ctx.fillStyle   = on ? 'rgba(255,255,255,0.9)' : 'rgba(40,80,110,0.7)';
     ctx.strokeStyle = 'rgba(130,200,240,0.7)';
     ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(b.cx, b.cy, b.r, 0, Math.PI * 2);
+    ctx.beginPath(); ctx.arc(b.cx, b.cy, b.r, 0, Math.PI * 2);
     ctx.fill(); ctx.stroke();
     ctx.fillStyle = on ? '#0a2030' : '#90d0f0';
     var ts = b.r * 0.42;
@@ -1540,19 +1509,14 @@ function drawGauge(x, y, w, h, val, label) {
   ctx.strokeStyle = 'rgba(80,180,230,0.3)';
   ctx.lineWidth = 1;
   rRect(x, y, w, h, 3); ctx.fill(); ctx.stroke();
-
   var fill = Math.max(0, val) * (w - 4);
-  var col = val > 0.5 ? '#3de87a'
-          : val > 0.25 ? '#f0c040'
-          : '#e84040';
+  var col = val > 0.5 ? '#3de87a' : val > 0.25 ? '#f0c040' : '#e84040';
   if (flash) col = '#ff8888';
   ctx.fillStyle = col;
   rRect(x + 2, y + 2, fill, h - 4, 2); ctx.fill();
-
   ctx.fillStyle = flash ? '#ffaaaa' : '#a0d8f0';
   ctx.font = '8px monospace';
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
   ctx.fillText(label, x + w + 4, y + h / 2);
 }
 
@@ -1562,13 +1526,9 @@ function drawHUD() {
   ctx.fillStyle   = 'rgba(5,20,35,0.62)';
   ctx.strokeStyle = 'rgba(80,180,230,0.35)';
   ctx.lineWidth = 1;
-  rRect(8, 8, 160, hudH, 5);
-  ctx.fill(); ctx.stroke();
-
-  ctx.fillStyle = '#60c8f0';
-  ctx.font = '11px monospace';
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'top';
+  rRect(8, 8, 160, hudH, 5); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#60c8f0'; ctx.font = '11px monospace';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
   ctx.fillText('SPD  ' + Math.round(Math.abs(sub.vx)) + ' / ' + MAX_VX, 15, 14);
   ctx.fillText('DEPTH  ' + Math.max(0, Math.round(sub.y - OCEAN_BASE)) + ' m', 15, 28);
   if (!isTouch()) {
@@ -1576,40 +1536,38 @@ function drawHUD() {
     ctx.font = '9px monospace';
     ctx.fillText('SPACE/RIGHT fwd  LEFT rev  UP/DN dive  D diver', 15, 42);
   }
-
-  // Fuel gauge
   drawGauge(8, hudH + 12, 120, 16, fuel, 'FUEL');
-  // Air gauge
   drawGauge(8, hudH + 34, 120, 16, air,  'AIR');
-
-  // NO FUEL overlay
+  if (krakPhase === 'intact' && Math.abs(sub.x - KRAKEN_WX) < 1800) {
+    var kdist = Math.round(Math.abs(sub.x - KRAKEN_WX));
+    var kdir  = sub.x < KRAKEN_WX ? '>>' : '<<';
+    ctx.save();
+    ctx.globalAlpha = 0.6 + 0.4 * Math.abs(Math.sin(wt * 2));
+    ctx.fillStyle = '#ffaa22'; ctx.font = 'bold 9px monospace';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillText('ANOMALY ' + kdir + ' ' + kdist + 'm', 15, hudH + 56);
+    ctx.restore();
+  }
   if (fuel <= 0) {
     var flash2 = Math.floor(wt * 3) % 2 === 0;
     if (flash2) {
       ctx.fillStyle = 'rgba(200,40,40,0.82)';
       rRect(W / 2 - 72, H / 2 - 18, 144, 36, 6); ctx.fill();
-      ctx.fillStyle = '#fff';
-      ctx.font = 'bold 18px monospace';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 18px monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText('NO FUEL', W / 2, H / 2);
     }
   }
-
-  // Low air warning
   if (air < 0.15 && fuel > 0) {
     var flash3 = Math.floor(wt * 3) % 2 === 0;
     if (flash3) {
       ctx.fillStyle = 'rgba(20,80,160,0.82)';
       rRect(W / 2 - 72, H / 2 - 18, 144, 36, 6); ctx.fill();
-      ctx.fillStyle = '#fff';
-      ctx.font = 'bold 16px monospace';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 16px monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText('SURFACE NOW', W / 2, H / 2);
     }
   }
-
   ctx.restore();
 }
 
@@ -1620,6 +1578,8 @@ function render() {
   drawOcean();
   drawTerrain();
   drawStations();
+  drawKraken();
+  drawKrakenDebris();
   drawIcebergs();
   drawBubbles();
   drawCreatures();
@@ -1627,10 +1587,27 @@ function render() {
   else drawSinkingPieces();
   drawTouchControls();
   if (gamePhase === 'playing') drawHUD();
+  drawKrakenPanel();
+  drawKrakenVictory();
 }
 
-gc.addEventListener('click', function() {
-  if (gamePhase === 'gameover') resetGame();
+gc.addEventListener('click', function(e) {
+  if (gamePhase === 'gameover') { resetGame(); return; }
+  if (krakPhase === 'victory') { krakPhase = 'debris'; return; }
+  if (krakPhase === 'panel') {
+    var r = gc.getBoundingClientRect();
+    var cx = (e.clientX - r.left) * (W / r.width);
+    var cy = (e.clientY - r.top)  * (H / r.height);
+    if (cx > W/2 - 92 && cx < W/2 + 92 && cy > H/2 - 18 && cy < H/2 + 30) {
+      triggerKrakenExplosion(); return;
+    }
+    if (cx > W/2 - 62 && cx < W/2 + 62 && cy > H/2 + 42 && cy < H/2 + 78) {
+      krakPhase = 'intact';
+      diverOut = true;
+      diver.x = KRAKEN_WX + KRAKEN_HOX; diver.y = krakenHatchY();
+      diver.vx = 0; diver.vy = 0; diverRecalling = true;
+    }
+  }
 });
 
 // ── game loop ─────────────────────────────────────────────────────────────────
