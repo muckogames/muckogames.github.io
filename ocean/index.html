@@ -99,27 +99,32 @@ var sinkT      = 0;
 var sinkFace   = 1;
 var sinkCamX   = 0;
 // two pieces: bow (front) and stern (back)
-var sinkBow    = { x: 0, y: 0, vy: 0, angle: 0 };
-var sinkStern  = { x: 0, y: 0, vy: 0, angle: 0 };
+var sinkBow    = { x: 0, y: 0, vy: 0, angle: 0, resting: false, restAngle: 0 };
+var sinkStern  = { x: 0, y: 0, vy: 0, angle: 0, resting: false, restAngle: 0 };
 // tilt phase lasts SINK_TILT s, then pieces split and sink
-var SINK_TILT  = 1.4;
-var SINK_TOTAL = 6.0;
+var SINK_TILT   = 1.4;
+var SINK_TOTAL  = 30.0; // fallback timeout
+var sinkSettled = 0;    // time both pieces have been resting
 
 function triggerSink() {
   gamePhase      = 'sinking';
   sinkT          = 0;
   sinkFace       = subFace;
   sinkCamX       = camX;
-  // pieces start at sub position, split by half-hull width
+  sinkSettled    = 0;
   var hw = SUB_HW * 0.5;
   sinkBow.x      = sub.x + hw * subFace;
   sinkBow.y      = sub.y;
   sinkBow.vy     = -20;
   sinkBow.angle  = 0;
+  sinkBow.resting = false;
+  sinkBow.restAngle = (Math.PI * 0.55) * sinkFace; // nose-down into floor
   sinkStern.x    = sub.x - hw * subFace;
   sinkStern.y    = sub.y;
   sinkStern.vy   = -40;
   sinkStern.angle = 0;
+  sinkStern.resting = false;
+  sinkStern.restAngle = (-Math.PI * 0.30) * sinkFace; // listing back
   diverOut = false; diverRecalling = false;
 }
 
@@ -323,19 +328,42 @@ function update(dt) {
       // Whole sub tilts toward 45° bow-down
       subPitch = (sinkT / SINK_TILT) * (Math.PI / 4) * sinkFace;
     } else {
-      // Split phase: pieces fall with gravity
       var g = 110;
-      sinkBow.vy   += g * dt;
-      sinkStern.vy += g * dt;
-      sinkBow.y    += sinkBow.vy   * dt;
-      sinkStern.y  += sinkStern.vy * dt;
-      // bow nose tips forward and down; stern rises briefly then sinks back
-      sinkBow.angle   += 1.1 * dt * sinkFace;
-      sinkStern.angle -= 0.7 * dt * sinkFace;
-      // drift apart horizontally
-      sinkBow.x   += 18 * sinkFace * dt;
-      sinkStern.x -= 12 * sinkFace * dt;
-      if (sinkT > SINK_TOTAL) gamePhase = 'gameover';
+
+      // Helper: advance one piece with floor collision
+      function sinkPiece(p, angRate, driftX) {
+        if (p.resting) {
+          // Settle angle toward rest angle
+          p.angle += (p.restAngle - p.angle) * Math.min(1, 3 * dt);
+          return;
+        }
+        p.vy  += g * dt;
+        p.y   += p.vy * dt;
+        p.x   += driftX * sinkFace * dt;
+        p.angle += angRate * sinkFace * dt;
+
+        var floorY = terrain(p.x) - SUB_HH;
+        if (p.y >= floorY) {
+          p.y  = floorY;
+          p.vy = -p.vy * 0.12; // small bounce
+          if (Math.abs(p.vy) < 8) { p.vy = 0; p.resting = true; }
+        }
+      }
+
+      sinkPiece(sinkBow,   1.1, 18);
+      sinkPiece(sinkStern, -0.7, -12);
+
+      // Camera tracks midpoint of the two pieces, drifting down toward floor
+      var midX = (sinkBow.x + sinkStern.x) * 0.5;
+      camX += (midX - W / 2 - camX) * Math.min(1, 1.8 * dt);
+
+      // Once both resting, start the settled timer then go to gameover
+      if (sinkBow.resting && sinkStern.resting) {
+        sinkSettled += dt;
+        if (sinkSettled > 2.2) gamePhase = 'gameover';
+      }
+      if (sinkT > SINK_TOTAL) gamePhase = 'gameover'; // fallback
+      return;
     }
     camX += (sub.x - W / 2 - camX) * Math.min(1, 1.5 * dt);
     return;
