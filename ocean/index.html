@@ -136,6 +136,47 @@ function resetGame() {
   gamePhase = 'playing'; sinkT = 0;
 }
 
+// ── kraken ────────────────────────────────────────────────────────────────────
+var KRAKEN_WX  = 7200;
+var KRAKEN_HOX = -38;   // hatch x offset from KRAKEN_WX
+var KRAKEN_HOY = -162;  // hatch y offset from terrain(KRAKEN_WX)
+
+var krakPhase    = 'intact'; // 'intact'|'panel'|'exploding'|'debris'|'victory'
+var krakExpT     = 0;
+var krakFlash    = 0;
+var krakDebris   = [];
+var krakSmoke    = [];
+var krakHatchNear = false;
+var krakSettled  = 0;
+
+function krakenHatchY() { return terrain(KRAKEN_WX) + KRAKEN_HOY; }
+
+function triggerKrakenExplosion() {
+  krakPhase = 'exploding'; krakExpT = 0; krakFlash = 1.0; krakSettled = 0;
+  diverOut = false; diverRecalling = false;
+  var ty = terrain(KRAKEN_WX);
+  krakDebris = [];
+  var rs = 0xf00d1234;
+  function rr() { rs = ((rs >>> 0) * 1664525 + 1013904223) >>> 0; return rs / 0xffffffff; }
+  for (var ki = 0; ki < 14; ki++) {
+    krakDebris.push({
+      x: KRAKEN_WX + (rr()*2-1)*80,  y: ty - 40 - rr()*100,
+      vx: (rr()*2-1)*270,             vy: -(65 + rr()*200),
+      angle: rr()*Math.PI*2,          dAngle: (rr()*2-1)*5,
+      type: Math.floor(rr()*4),       resting: false
+    });
+  }
+  krakSmoke = [];
+  for (var si = 0; si < 10; si++) {
+    krakSmoke.push({
+      x: KRAKEN_WX + (rr()*2-1)*60, y: ty - 30 - rr()*90,
+      r: 6 + rr()*16, maxR: 35 + rr()*55,
+      vx: (rr()*2-1)*28,             vy: -(25 + rr()*42),
+      alpha: 0.88
+    });
+  }
+}
+
 // ── fuel & air ────────────────────────────────────────────────────────────────
 var fuel = 1.0;           // 0–1; drained by fwd/rev thrust
 var air  = 1.0;           // 0–1; drained always, refilled at surface
@@ -180,6 +221,7 @@ var ICEBERGS = [];
   for (var i = -12; i <= 12; i++) {
     if (i === 0) continue;
     var wx = i * 2400 + ((Math.abs(i) * 317 + 91) % 600) - 300;
+    if (Math.abs(wx - KRAKEN_WX) < 500) continue; // leave space for the Kraken
     var sz = 0.75 + (Math.abs(i * 53) % 25) / 100; // 0.75–1.0
     ICEBERGS.push({ wx: wx, sz: sz });
   }
@@ -378,6 +420,64 @@ function update(dt) {
     return;
   }
 
+  // ── kraken panel: freeze gameplay, handle activation choice ──
+  if (krakPhase === 'panel') {
+    if (JP['KeyY'] || JP['Enter']) {
+      triggerKrakenExplosion();
+    } else if (JP['KeyN'] || JP['Escape']) {
+      krakPhase = 'intact';
+      diverOut = true;
+      diver.x = KRAKEN_WX + KRAKEN_HOX; diver.y = krakenHatchY();
+      diver.vx = 0; diver.vy = 0;
+      diverRecalling = true;
+    }
+    camX += (KRAKEN_WX - W / 2 - camX) * Math.min(1, 2 * dt);
+    return;
+  }
+
+  // ── kraken explosion: animate debris until settled ──
+  if (krakPhase === 'exploding') {
+    krakExpT += dt;
+    krakFlash = Math.max(0, krakFlash - dt * 2.6);
+    for (var kdi = 0; kdi < krakDebris.length; kdi++) {
+      var kdp = krakDebris[kdi];
+      if (!kdp.resting) {
+        kdp.vy += 115 * dt; kdp.x += kdp.vx * dt; kdp.y += kdp.vy * dt;
+        kdp.vx *= Math.exp(-0.4 * dt);
+        kdp.angle += kdp.dAngle * dt;
+        var kdFloor = terrain(kdp.x) - 8;
+        if (kdp.y >= kdFloor) {
+          kdp.y = kdFloor; kdp.vy = -kdp.vy * 0.1;
+          kdp.dAngle *= 0.3;
+          if (Math.abs(kdp.vy) < 8) { kdp.vy = 0; kdp.resting = true; }
+        }
+      }
+    }
+    for (var ksi = 0; ksi < krakSmoke.length; ksi++) {
+      var ksm = krakSmoke[ksi];
+      ksm.x += ksm.vx * dt; ksm.y += ksm.vy * dt;
+      ksm.r   = Math.min(ksm.maxR, ksm.r + 22 * dt);
+      ksm.alpha = Math.max(0, ksm.alpha - 0.2 * dt);
+    }
+    var kAllRest = true;
+    for (var kri = 0; kri < krakDebris.length; kri++) {
+      if (!krakDebris[kri].resting) { kAllRest = false; break; }
+    }
+    if (kAllRest) { krakSettled += dt; if (krakSettled > 2.5) krakPhase = 'victory'; }
+    if (krakExpT > 25) krakPhase = 'victory';
+    camX += (KRAKEN_WX - W / 2 - camX) * Math.min(1, 1.5 * dt);
+    return;
+  }
+
+  // ── kraken victory: dismiss with any key ──
+  if (krakPhase === 'victory') {
+    var anyKeyV = false;
+    var ksV = Object.keys(JP);
+    for (var kiv = 0; kiv < ksV.length; kiv++) { if (JP[ksV[kiv]]) { anyKeyV = true; break; } }
+    if (anyKeyV) krakPhase = 'debris';
+    // fall through — allow normal gameplay to resume
+  }
+
   if (hitFlash > 0) hitFlash -= dt;
   if (airFillTimer > 0) airFillTimer -= dt;
 
@@ -552,6 +652,16 @@ function update(dt) {
         break;
       }
     }
+  }
+
+  // Kraken hatch proximity (diver only)
+  krakHatchNear = false;
+  if (krakPhase === 'intact' && diverOut && !diverRecalling) {
+    var khx = KRAKEN_WX + KRAKEN_HOX, khy = krakenHatchY();
+    var khdx = diver.x - khx, khdy = diver.y - khy;
+    var khDist2 = khdx * khdx + khdy * khdy;
+    krakHatchNear = khDist2 < 60 * 60;
+    if (khDist2 < 22 * 22) { krakPhase = 'panel'; diverOut = false; }
   }
 
   // Facing & pitch
@@ -1262,6 +1372,303 @@ function drawSinkingPieces() {
   }
 }
 
+// ── kraken drawing helpers ───────────────────────────────────────────────────
+function drawGear(cx, cy, r, teeth, ang, col) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(ang);
+  ctx.fillStyle = col;
+  var tw = (Math.PI * 2 / teeth) * r * 0.38, th = r * 0.30;
+  for (var ti = 0; ti < teeth; ti++) {
+    ctx.save(); ctx.rotate(ti * Math.PI * 2 / teeth);
+    ctx.fillRect(-tw * 0.5, -(r + th), tw, th);
+    ctx.restore();
+  }
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#1a1820';
+  ctx.beginPath(); ctx.arc(0, 0, r * 0.28, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#1a1820'; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(-r * 0.65, 0); ctx.lineTo(r * 0.65, 0);
+  ctx.moveTo(0, -r * 0.65); ctx.lineTo(0, r * 0.65);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawKraken() {
+  if (krakPhase === 'debris' || krakPhase === 'victory') return;
+  var ksx = KRAKEN_WX - camX;
+  if (ksx < -450 || ksx > W + 450) return;
+  var kty = terrain(KRAKEN_WX);
+  ctx.save();
+  ctx.translate(ksx, kty);
+
+  var p1 = Math.sin(wt * 2.8) * 9, p2 = Math.sin(wt * 2.8 + Math.PI) * 9;
+  var g1 = wt * 0.65, g2 = -wt * 0.88, g3 = wt * 1.35;
+
+  // feet
+  ctx.fillStyle = '#222230';
+  var fxs = [-92, -54, 0, 54, 92];
+  for (var fi = 0; fi < fxs.length; fi++) {
+    ctx.fillRect(fxs[fi] - 6, -20, 12, 20);
+    ctx.fillRect(fxs[fi] - 10, -6, 20, 6);
+  }
+
+  // base platform
+  ctx.fillStyle = '#1e1e26'; rRect(-120, -30, 240, 28, 5); ctx.fill();
+  ctx.strokeStyle = '#48486a'; ctx.lineWidth = 1; rRect(-120, -30, 240, 28, 5); ctx.stroke();
+  ctx.fillStyle = '#36364e';
+  for (var ri = -100; ri <= 100; ri += 24) {
+    ctx.beginPath(); ctx.arc(ri, -21, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(ri, -11, 3, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // horizontal connector pipe
+  ctx.strokeStyle = '#48485a'; ctx.lineWidth = 12; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-132, -76); ctx.lineTo(132, -76); ctx.stroke();
+  ctx.strokeStyle = '#6a6880'; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(-132, -76); ctx.lineTo(132, -76); ctx.stroke();
+  ctx.lineCap = 'butt';
+
+  // left condenser tank
+  ctx.fillStyle = '#363845'; rRect(-134, -135, 44, 105, 8); ctx.fill();
+  ctx.strokeStyle = '#585870'; ctx.lineWidth = 1.5; rRect(-134, -135, 44, 105, 8); ctx.stroke();
+  ctx.strokeStyle = '#48485c'; ctx.lineWidth = 3;
+  for (var bi = 0; bi < 3; bi++) {
+    ctx.beginPath(); ctx.moveTo(-134, -115 + bi * 22); ctx.lineTo(-90, -115 + bi * 22); ctx.stroke();
+  }
+  ctx.strokeStyle = '#48485a'; ctx.lineWidth = 10; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-112, -135); ctx.lineTo(-112, -76); ctx.stroke();
+  ctx.lineCap = 'butt';
+
+  // right condenser tank
+  ctx.fillStyle = '#363845'; rRect(90, -120, 44, 90, 8); ctx.fill();
+  ctx.strokeStyle = '#585870'; ctx.lineWidth = 1.5; rRect(90, -120, 44, 90, 8); ctx.stroke();
+  ctx.strokeStyle = '#48485c'; ctx.lineWidth = 3;
+  for (var bi2 = 0; bi2 < 2; bi2++) {
+    ctx.beginPath(); ctx.moveTo(90, -102 + bi2 * 24); ctx.lineTo(134, -102 + bi2 * 24); ctx.stroke();
+  }
+  ctx.strokeStyle = '#48485a'; ctx.lineWidth = 10; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(112, -120); ctx.lineTo(112, -76); ctx.stroke();
+  ctx.lineCap = 'butt';
+
+  // piston rods (behind boiler)
+  ctx.fillStyle = '#7a7888';
+  ctx.fillRect(-33, -140 + p1, 4, 46);
+  ctx.fillRect(29,  -140 + p2, 4, 46);
+
+  // main boiler body
+  var bg = ctx.createLinearGradient(-82, 0, 82, 0);
+  bg.addColorStop(0, '#3e3020'); bg.addColorStop(0.5, '#5e4a2c'); bg.addColorStop(1, '#342818');
+  ctx.fillStyle = bg; rRect(-82, -158, 164, 128, 14); ctx.fill();
+  ctx.strokeStyle = '#8a6844'; ctx.lineWidth = 2; rRect(-82, -158, 164, 128, 14); ctx.stroke();
+  var rvts = [[-70,-148],[-70,-108],[-70,-68],[70,-148],[70,-108],[70,-68],
+              [-28,-153],[28,-153],[-28,-36],[28,-36]];
+  ctx.fillStyle = '#9a7850';
+  for (var rv = 0; rv < rvts.length; rv++) {
+    ctx.beginPath(); ctx.arc(rvts[rv][0], rvts[rv][1], 3.5, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = 'rgba(255,175,0,0.12)'; ctx.fillRect(-82, -96, 164, 18);
+
+  // piston housings
+  ctx.fillStyle = '#524860'; rRect(-44, -106 + p1, 18, 40, 3); ctx.fill();
+  ctx.strokeStyle = '#706888'; ctx.lineWidth = 1; rRect(-44, -106 + p1, 18, 40, 3); ctx.stroke();
+  ctx.fillStyle = '#524860'; rRect(26,  -106 + p2, 18, 40, 3); ctx.fill(); rRect(26, -106 + p2, 18, 40, 3); ctx.stroke();
+
+  // dome
+  var dg = ctx.createRadialGradient(-18, -172, 8, 0, -158, 76);
+  dg.addColorStop(0, '#806040'); dg.addColorStop(1, '#402e18');
+  ctx.fillStyle = dg;
+  ctx.beginPath(); ctx.ellipse(0, -158, 74, 40, 0, Math.PI, 0); ctx.fill();
+  ctx.strokeStyle = '#907050'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.ellipse(0, -158, 74, 40, 0, Math.PI, 0); ctx.stroke();
+  ctx.fillStyle = '#b89060';
+  for (var da = 0; da < 6; da++) {
+    var dang = -Math.PI + da * Math.PI / 5 + 0.3;
+    ctx.beginPath(); ctx.arc(Math.cos(dang)*70, -158 + Math.sin(dang)*38, 3, 0, Math.PI*2); ctx.fill();
+  }
+
+  // chimneys
+  ctx.fillStyle = '#242232'; rRect(-30, -216, 18, 68, 4); ctx.fill();
+  ctx.strokeStyle = '#484660'; ctx.lineWidth = 1; rRect(-30, -216, 18, 68, 4); ctx.stroke();
+  ctx.fillStyle = '#343248'; rRect(-34, -222, 26, 10, 3); ctx.fill();
+  ctx.fillStyle = '#242232'; rRect(12, -204, 14, 54, 4); ctx.fill();
+  ctx.fillStyle = '#343248'; rRect(9,  -209, 20, 9, 3); ctx.fill();
+
+  // gears
+  drawGear(-58, -66, 22, 9, g1, '#886820');
+  drawGear( 58, -66, 18, 9, g2, '#7a5a1e');
+  drawGear(  0, -164, 11, 7, g3, '#604e1c');
+
+  // portholes
+  var ports = [[-40,-96],[0,-96],[40,-96]];
+  for (var pi2 = 0; pi2 < ports.length; pi2++) {
+    var px = ports[pi2][0], py = ports[pi2][1];
+    ctx.fillStyle = '#0a1828'; ctx.beginPath(); ctx.arc(px, py, 9, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#8a6844'; ctx.lineWidth = 2; ctx.stroke();
+    var pg = ctx.createRadialGradient(px-2, py-2, 1, px, py, 9);
+    pg.addColorStop(0, 'rgba(70,160,190,0.55)'); pg.addColorStop(1, 'rgba(0,30,70,0)');
+    ctx.fillStyle = pg; ctx.beginPath(); ctx.arc(px, py, 9, 0, Math.PI*2); ctx.fill();
+  }
+
+  // indicator lights
+  var t1 = Math.floor(wt * 1.0) % 2 === 0;
+  var t2 = Math.floor(wt * 0.7) % 2 === 0;
+  var t3 = Math.floor(wt * 1.5) % 2 === 0;
+  function dLight(lx, ly, col, on) {
+    ctx.fillStyle = on ? col : '#252530';
+    ctx.beginPath(); ctx.arc(lx, ly, 5, 0, Math.PI*2); ctx.fill();
+    if (on) {
+      ctx.globalAlpha = 0.3;
+      ctx.fillStyle = col;
+      ctx.beginPath(); ctx.arc(lx, ly, 11, 0, Math.PI*2); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+  }
+  dLight(-66, -180, '#ff2828', t1);
+  dLight(-66, -165, '#28ff55', t2);
+  dLight(-66, -150, '#ffaa00', t3);
+  dLight( 66, -150, '#ffaa00', !t3);
+
+  // hatch
+  var hglow = krakHatchNear && (Math.floor(wt * 4) % 2 === 0);
+  if (hglow) {
+    ctx.globalAlpha = 0.4; ctx.fillStyle = '#ffe050';
+    ctx.beginPath(); ctx.arc(KRAKEN_HOX, KRAKEN_HOY, 30, 0, Math.PI*2); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+  ctx.fillStyle = '#141420'; ctx.beginPath(); ctx.arc(KRAKEN_HOX, KRAKEN_HOY, 13, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = krakHatchNear ? '#ffdd44' : '#7a6840'; ctx.lineWidth = 2.5; ctx.stroke();
+  ctx.strokeStyle = krakHatchNear ? '#ffdd44' : '#6a5a30'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(KRAKEN_HOX - 9, KRAKEN_HOY); ctx.lineTo(KRAKEN_HOX + 9, KRAKEN_HOY);
+  ctx.moveTo(KRAKEN_HOX, KRAKEN_HOY - 9); ctx.lineTo(KRAKEN_HOX, KRAKEN_HOY + 9);
+  ctx.stroke();
+  ctx.beginPath(); ctx.arc(KRAKEN_HOX, KRAKEN_HOY, 7, 0, Math.PI*2); ctx.stroke();
+
+  if (krakHatchNear) {
+    ctx.save(); ctx.globalAlpha = 0.7 + 0.3 * Math.sin(wt * 6);
+    ctx.fillStyle = '#ffdd44'; ctx.font = 'bold 10px monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.fillText('ENTER', KRAKEN_HOX, KRAKEN_HOY - 26);
+    ctx.restore();
+  }
+
+  // steam puffs
+  ctx.fillStyle = 'rgba(190,195,215,' + (0.12 + 0.08 * Math.sin(wt * 1.7)) + ')';
+  for (var sf = 0; sf < 3; sf++) {
+    var so = (wt * 20 + sf * 13) % 40;
+    ctx.beginPath(); ctx.arc(-21, -216 - so, 5 + sf * 2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc( 19, -204 - so * 0.72, 4 + sf * 1.5, 0, Math.PI * 2); ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+function drawKrakenDebris() {
+  if (krakPhase !== 'exploding' && krakPhase !== 'debris' && krakPhase !== 'victory') return;
+
+  // Smoke
+  for (var si2 = 0; si2 < krakSmoke.length; si2++) {
+    var ksm = krakSmoke[si2];
+    if (ksm.alpha <= 0) continue;
+    ctx.save(); ctx.globalAlpha = ksm.alpha;
+    ctx.fillStyle = '#a09888';
+    ctx.beginPath(); ctx.arc(ksm.x - camX, ksm.y, ksm.r, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  // Explosion flash
+  if (krakFlash > 0) {
+    var fsx = KRAKEN_WX - camX, fty = terrain(KRAKEN_WX) - 80;
+    ctx.save(); ctx.globalAlpha = krakFlash;
+    var fg = ctx.createRadialGradient(fsx, fty, 0, fsx, fty, 170);
+    fg.addColorStop(0, '#ffffff'); fg.addColorStop(0.25, '#ffaa00'); fg.addColorStop(1, 'rgba(255,60,0,0)');
+    ctx.fillStyle = fg; ctx.beginPath(); ctx.arc(fsx, fty, 170, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  // Debris pieces
+  for (var di2 = 0; di2 < krakDebris.length; di2++) {
+    var dp = krakDebris[di2];
+    var dsx2 = dp.x - camX;
+    if (dsx2 < -90 || dsx2 > W + 90) continue;
+    ctx.save(); ctx.translate(dsx2, dp.y); ctx.rotate(dp.angle);
+    switch (dp.type) {
+      case 0:
+        drawGear(0, 0, 15, 8, 0, '#7a5818'); break;
+      case 1:
+        ctx.fillStyle = '#444856'; rRect(-22, -7, 44, 14, 5); ctx.fill();
+        ctx.strokeStyle = '#606475'; ctx.lineWidth = 1.5; rRect(-22, -7, 44, 14, 5); ctx.stroke();
+        break;
+      case 2:
+        ctx.fillStyle = '#5a3e28'; rRect(-16, -11, 32, 22, 3); ctx.fill();
+        ctx.fillStyle = '#8a6040';
+        ctx.beginPath(); ctx.arc(-7, -4, 3, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc( 7,  4, 3, 0, Math.PI*2); ctx.fill();
+        break;
+      case 3:
+        ctx.fillStyle = '#7a7484'; rRect(-5, -20, 10, 40, 2); ctx.fill();
+        ctx.fillStyle = '#4e4858'; rRect(-8, -20, 16, 12, 3); ctx.fill();
+        break;
+    }
+    ctx.restore();
+  }
+}
+
+function drawKrakenPanel() {
+  if (krakPhase !== 'panel') return;
+  ctx.save();
+  ctx.fillStyle = 'rgba(4,8,18,0.90)';
+  rRect(W/2 - 158, H/2 - 104, 316, 210, 10); ctx.fill();
+  ctx.strokeStyle = '#b87020'; ctx.lineWidth = 2;
+  rRect(W/2 - 158, H/2 - 104, 316, 210, 10); ctx.stroke();
+
+  ctx.fillStyle = '#c88028'; ctx.font = 'bold 14px monospace';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('KRAKEN CONTROL PANEL', W/2, H/2 - 80);
+  ctx.strokeStyle = '#b07020'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(W/2-142, H/2-65); ctx.lineTo(W/2+142, H/2-65); ctx.stroke();
+
+  ctx.fillStyle = '#ff7730'; ctx.font = '10px monospace';
+  ctx.fillText('WARNING: IRREVERSIBLE ACTION', W/2, H/2 - 50);
+  ctx.fillStyle = '#908070'; ctx.font = '10px monospace';
+  ctx.fillText('Activate the Kraken Engine?', W/2, H/2 - 32);
+
+  // ACTIVATE button
+  ctx.fillStyle = '#6e1008'; rRect(W/2 - 92, H/2 - 18, 184, 48, 8); ctx.fill();
+  ctx.strokeStyle = '#ff3316'; ctx.lineWidth = 2; rRect(W/2 - 92, H/2 - 18, 184, 48, 8); ctx.stroke();
+  ctx.fillStyle = '#ff3316'; ctx.font = 'bold 17px monospace';
+  ctx.fillText('ACTIVATE', W/2, H/2 + 6);
+
+  // ABORT button
+  ctx.fillStyle = '#082214'; rRect(W/2 - 62, H/2 + 42, 124, 36, 6); ctx.fill();
+  ctx.strokeStyle = '#40cc80'; ctx.lineWidth = 1.5; rRect(W/2 - 62, H/2 + 42, 124, 36, 6); ctx.stroke();
+  ctx.fillStyle = '#40cc80'; ctx.font = '13px monospace';
+  ctx.fillText('ABORT', W/2, H/2 + 61);
+
+  ctx.fillStyle = '#555545'; ctx.font = '8px monospace';
+  ctx.fillText('Y / Enter = activate     N / Esc = abort', W/2, H/2 + 94);
+  ctx.restore();
+}
+
+function drawKrakenVictory() {
+  if (krakPhase !== 'victory') return;
+  ctx.save();
+  ctx.fillStyle = 'rgba(4,8,18,0.82)';
+  rRect(W/2 - 158, H/2 - 68, 316, 136, 10); ctx.fill();
+  ctx.strokeStyle = '#ffaa00'; ctx.lineWidth = 2;
+  rRect(W/2 - 158, H/2 - 68, 316, 136, 10); ctx.stroke();
+  ctx.fillStyle = '#ffcc44'; ctx.font = 'bold 20px monospace';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('KRAKEN ACTIVATED!', W/2, H/2 - 32);
+  ctx.fillStyle = '#c0a040'; ctx.font = '11px monospace';
+  ctx.fillText('The machine stirs from its slumber...', W/2, H/2 - 6);
+  ctx.fillStyle = '#706848'; ctx.font = '10px monospace';
+  ctx.fillText('Press any key or tap to continue', W/2, H/2 + 22);
+  ctx.restore();
+}
+
 // ── draw diver ────────────────────────────────────────────────────────────────
 function drawDiver() {
   if (!diverOut) return;
@@ -1582,6 +1989,19 @@ function drawHUD() {
   // Air gauge
   drawGauge(8, hudH + 34, 120, 16, air,  'AIR');
 
+  // Kraken anomaly detector
+  if (krakPhase === 'intact' && Math.abs(sub.x - KRAKEN_WX) < 1800) {
+    var kdist = Math.round(Math.abs(sub.x - KRAKEN_WX));
+    var kdir  = sub.x < KRAKEN_WX ? '>>' : '<<';
+    ctx.save();
+    ctx.globalAlpha = 0.6 + 0.4 * Math.abs(Math.sin(wt * 2));
+    ctx.fillStyle = '#ffaa22';
+    ctx.font = 'bold 9px monospace';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillText('ANOMALY ' + kdir + ' ' + kdist + 'm', 15, hudH + 56);
+    ctx.restore();
+  }
+
   // NO FUEL overlay
   if (fuel <= 0) {
     var flash2 = Math.floor(wt * 3) % 2 === 0;
@@ -1620,6 +2040,8 @@ function render() {
   drawOcean();
   drawTerrain();
   drawStations();
+  drawKraken();
+  drawKrakenDebris();
   drawIcebergs();
   drawBubbles();
   drawCreatures();
@@ -1627,10 +2049,29 @@ function render() {
   else drawSinkingPieces();
   drawTouchControls();
   if (gamePhase === 'playing') drawHUD();
+  drawKrakenPanel();
+  drawKrakenVictory();
 }
 
-gc.addEventListener('click', function() {
-  if (gamePhase === 'gameover') resetGame();
+gc.addEventListener('click', function(e) {
+  if (gamePhase === 'gameover') { resetGame(); return; }
+  if (krakPhase === 'victory') { krakPhase = 'debris'; return; }
+  if (krakPhase === 'panel') {
+    var r = gc.getBoundingClientRect();
+    var cx = (e.clientX - r.left) * (W / r.width);
+    var cy = (e.clientY - r.top)  * (H / r.height);
+    // ACTIVATE button zone
+    if (cx > W/2 - 92 && cx < W/2 + 92 && cy > H/2 - 18 && cy < H/2 + 30) {
+      triggerKrakenExplosion(); return;
+    }
+    // ABORT button zone
+    if (cx > W/2 - 62 && cx < W/2 + 62 && cy > H/2 + 42 && cy < H/2 + 78) {
+      krakPhase = 'intact';
+      diverOut = true;
+      diver.x = KRAKEN_WX + KRAKEN_HOX; diver.y = krakenHatchY();
+      diver.vx = 0; diver.vy = 0; diverRecalling = true;
+    }
+  }
 });
 
 // ── game loop ─────────────────────────────────────────────────────────────────
