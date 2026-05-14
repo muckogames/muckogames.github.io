@@ -148,6 +148,8 @@ var krakDebris   = [];
 var krakSmoke    = [];
 var krakHatchNear = false;
 var krakSettled  = 0;
+var piratePhase = 'none'; // 'none'|'arriving'|'docked'
+var pirateSub = { x: 0, y: 0 };
 
 function krakenHatchY() { return terrain(KRAKEN_WX) + KRAKEN_HOY; }
 
@@ -478,6 +480,15 @@ function update(dt) {
     // fall through — allow normal gameplay to resume
   }
 
+  // Pirate sub arrival
+  if (piratePhase === 'arriving') {
+    pirateSub.x -= 180 * dt;
+    if (pirateSub.x <= KRAKEN_WX - 280) { pirateSub.x = KRAKEN_WX - 280; piratePhase = 'docked'; }
+  }
+  if (piratePhase === 'docked' && JP['Enter']) {
+    window.location.href = '../piratesub/';
+  }
+
   if (hitFlash > 0) hitFlash -= dt;
   if (airFillTimer > 0) airFillTimer -= dt;
 
@@ -661,7 +672,14 @@ function update(dt) {
     var khdx = diver.x - khx, khdy = diver.y - khy;
     var khDist2 = khdx * khdx + khdy * khdy;
     krakHatchNear = khDist2 < 60 * 60;
-    if (khDist2 < 22 * 22) { krakPhase = 'panel'; diverOut = false; }
+    if (khDist2 < 22 * 22) {
+      krakPhase = 'panel'; diverOut = false;
+      if (piratePhase === 'none') {
+        piratePhase = 'arriving';
+        pirateSub.x = KRAKEN_WX + 3200;
+        pirateSub.y = OCEAN_BASE + 120;
+      }
+    }
   }
 
   // Facing & pitch
@@ -1669,35 +1687,95 @@ function drawKrakenVictory() {
   ctx.restore();
 }
 
+// ── draw pirate sub ───────────────────────────────────────────────────────────
+function drawPirateSub() {
+  if (piratePhase === 'none') return;
+  var psx = pirateSub.x - camX;
+  if (psx < -300 || psx > W + 300) return;
+  var psy = pirateSub.y;
+  ctx.save();
+  ctx.translate(psx, psy);
+
+  // Hull body — dark, menacing
+  ctx.fillStyle = '#2a1a1a';
+  rRect(-52, -16, 104, 32, 16); ctx.fill();
+  ctx.strokeStyle = '#662222'; ctx.lineWidth = 2;
+  rRect(-52, -16, 104, 32, 16); ctx.stroke();
+
+  // Stripe
+  ctx.fillStyle = '#441111'; ctx.fillRect(-44, -3, 88, 6);
+
+  // Rivets
+  ctx.fillStyle = '#884444';
+  for (var ri = 0; ri < 4; ri++) {
+    ctx.beginPath(); ctx.arc(-36 + ri*22,  13, 2, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(-36 + ri*22, -13, 2, 0, Math.PI*2); ctx.fill();
+  }
+
+  // Conning tower
+  ctx.fillStyle = '#221010'; rRect(-10, -32, 20, 18, 3); ctx.fill();
+  ctx.strokeStyle = '#662222'; ctx.lineWidth = 1.5; rRect(-10, -32, 20, 18, 3); ctx.stroke();
+
+  // Skull flag on mast
+  ctx.strokeStyle = '#3a2020'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(3, -32); ctx.lineTo(3, -60); ctx.stroke();
+  // Flag
+  ctx.fillStyle = '#111';
+  rRect(3, -60, 28, 18, 2); ctx.fill();
+  ctx.strokeStyle = '#222'; ctx.lineWidth = 0.5; rRect(3, -60, 28, 18, 2); ctx.stroke();
+  // Skull
+  ctx.fillStyle = '#ddd';
+  ctx.beginPath(); ctx.arc(17, -53, 6, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#111';
+  ctx.beginPath(); ctx.arc(14, -54, 1.5, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(20, -54, 1.5, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#111'; ctx.fillRect(14, -49, 6, 2);
+  // Crossbones
+  ctx.strokeStyle = '#ddd'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(9, -45); ctx.lineTo(25, -45); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(9,-43); ctx.lineTo(11,-45); ctx.lineTo(9,-47); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(25,-43); ctx.lineTo(23,-45); ctx.lineTo(25,-47); ctx.stroke();
+
+  // Propeller (left side)
+  ctx.save(); ctx.translate(-52, 0); ctx.rotate(wt * 3);
+  ctx.fillStyle = '#664444';
+  for (var p = 0; p < 3; p++) {
+    ctx.save(); ctx.rotate(p * Math.PI * 2 / 3);
+    rRect(-2, -10, 4, 10, 1); ctx.fill(); ctx.restore();
+  }
+  ctx.restore();
+
+  // Red porthole
+  ctx.fillStyle = '#330000'; ctx.beginPath(); ctx.arc(20, 0, 6, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = '#882222'; ctx.lineWidth = 1.5; ctx.stroke();
+  var pg = ctx.createRadialGradient(18,-2,1,20,0,6);
+  pg.addColorStop(0,'rgba(200,50,50,0.4)'); pg.addColorStop(1,'rgba(80,0,0,0)');
+  ctx.fillStyle=pg; ctx.beginPath(); ctx.arc(20,0,6,0,Math.PI*2); ctx.fill();
+
+  ctx.restore();
+
+  // "BOARD" hint when docked
+  if (piratePhase === 'docked') {
+    var pulse = 0.7 + 0.3 * Math.abs(Math.sin(wt * 2.5));
+    ctx.save(); ctx.globalAlpha = pulse;
+    ctx.fillStyle = 'rgba(40,10,60,0.88)';
+    rRect(psx - 140, psy - 72, 280, 52, 8); ctx.fill();
+    ctx.strokeStyle = '#cc44ff'; ctx.lineWidth = 1.5;
+    rRect(psx - 140, psy - 72, 280, 52, 8); ctx.stroke();
+    ctx.fillStyle = '#ffcc44'; ctx.font = 'bold 14px monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('PIRATE SUB DOCKED!', psx, psy - 56);
+    ctx.fillStyle = '#cc88ff'; ctx.font = '11px monospace';
+    ctx.fillText('Press ENTER or tap to board', psx, psy - 36);
+    ctx.restore();
+  }
+}
+
 // ── draw diver ────────────────────────────────────────────────────────────────
 function drawDiver() {
   if (!diverOut) return;
 
   var dsx = diver.x - camX;
-  var subSx = sub.x - camX;
-
-  // O2 tether line (wavy hose)
-  ctx.save();
-  ctx.strokeStyle = 'rgba(80,220,160,0.72)';
-  ctx.lineWidth = 2.5;
-  ctx.lineCap = 'round';
-  ctx.setLineDash([6, 4]);
-  ctx.beginPath();
-  var steps = 12;
-  for (var si = 0; si <= steps; si++) {
-    var t = si / steps;
-    var hx = subSx  + (dsx  - subSx)  * t;
-    var hy = sub.y  + (diver.y - sub.y) * t;
-    var wv = Math.sin(t * Math.PI * 3 + wt * 3) * 8 * Math.sin(t * Math.PI);
-    var nx = -(diver.y - sub.y), ny = (dsx - subSx);
-    var nl = Math.sqrt(nx * nx + ny * ny) || 1;
-    if (si === 0) ctx.moveTo(hx + wv * nx / nl, hy + wv * ny / nl);
-    else          ctx.lineTo(hx + wv * nx / nl, hy + wv * ny / nl);
-  }
-  ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.lineCap = 'butt';
-  ctx.restore();
 
   // Diver body
   ctx.save();
@@ -2047,6 +2125,7 @@ function render() {
   drawCreatures();
   if (gamePhase === 'playing') { drawSub(); drawDiver(); }
   else drawSinkingPieces();
+  drawPirateSub();
   drawTouchControls();
   if (gamePhase === 'playing') drawHUD();
   drawKrakenPanel();
@@ -2054,6 +2133,7 @@ function render() {
 }
 
 gc.addEventListener('click', function(e) {
+  if (piratePhase === 'docked') { window.location.href = '../piratesub/'; return; }
   if (gamePhase === 'gameover') { resetGame(); return; }
   if (krakPhase === 'victory') { krakPhase = 'debris'; return; }
   if (krakPhase === 'panel') {
