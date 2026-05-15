@@ -418,8 +418,8 @@ function drawSpacecraftShape(spx, spy, ndx, ndy) {
     var nose = 9, wing = 4;
     ctx.beginPath();
     ctx.moveTo(spx + ndx * nose, spy + ndy * nose);
-    ctx.lineTo(spx - ndy * wing - ndx * 4, spy + ndx * wing - ndy * 4);
-    ctx.lineTo(spx + ndy * wing - ndx * 4, spy - ndx * wing - ndy * 4);
+    ctx.lineTo(spx - ndy * wing - ndx * 4, spy - ndx * wing - ndy * 4);
+    ctx.lineTo(spx + ndy * wing - ndx * 4, spy + ndx * wing - ndy * 4);
     ctx.closePath(); ctx.fillStyle = '#fff'; ctx.fill();
   } else if (skinIdx === 1) {
     var rx = -ndy, ry = ndx, L = 14, Wn = 1.2, Wb = 2.8;
