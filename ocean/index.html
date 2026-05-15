@@ -194,7 +194,6 @@ var airFillTimer = 0;      // drives surface air-fill visual
 
 // ── diver ─────────────────────────────────────────────────────────────────────
 var DIVER_ACCEL = 160, DIVER_MAX = 90, DIVER_DRAG = 2.2;
-var DIVER_TETHER = 280;    // max O2 line length before diver is snapped back
 var diverOut       = false;
 var diverRecalling = false; // diver is swimming back to sub
 var diver          = { x: 0, y: 0, vx: 0, vy: 0 };
@@ -552,15 +551,6 @@ function update(dt) {
       diver.x += diver.vx * dt;
       diver.y += diver.vy * dt;
 
-      // Tether snap: pull diver back if too far
-      var tdx = diver.x - sub.x, tdy = diver.y - sub.y;
-      var tLen = Math.sqrt(tdx * tdx + tdy * tdy);
-      if (tLen > DIVER_TETHER) {
-        var sc = DIVER_TETHER / tLen;
-        diver.x = sub.x + tdx * sc;
-        diver.y = sub.y + tdy * sc;
-        diver.vx *= 0.3; diver.vy *= 0.3;
-      }
     }
 
     // Diver terrain boundary
