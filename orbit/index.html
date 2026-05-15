@@ -343,11 +343,11 @@ function recordStars(missionId, stars) {
 }
 
 // ── UI button hitboxes ───────────────────────────────────────────────────────
-var BACK_BTN     = { x: 10, y: 10, w: 84, h: 40 };
-var PAUSE_BTN    = { x: 0, y: 10, w: 44, h: 40 };     // x set dynamically
-var WARP_BTN     = { x: 0, y: 10, w: 44, h: 40 };
-var TIME_BTN     = { x: 0, y: 10, w: 78, h: 40 };
-var OPT_BTN      = { x: 0, y: 10, w: 72, h: 40 };
+var BACK_BTN     = { x: 10, y: 10, w: 84, h: 44 };
+var PAUSE_BTN    = { x: 0, y: 10, w: 48, h: 44 };     // x set dynamically
+var WARP_BTN     = { x: 0, y: 10, w: 48, h: 44 };
+var TIME_BTN     = { x: 0, y: 10, w: 78, h: 44 };
+var OPT_BTN      = { x: 0, y: 10, w: 72, h: 44 };
 var LAUNCH_BTN   = { x: (W - 240) / 2, y: H - 80, w: 240, h: 56 };
 var DEMO_BTN     = { x: 0, y: 0, w: 0, h: 0 };
 var FLY_BTN      = { x: 0, y: 0, w: 0, h: 0 };
@@ -1109,16 +1109,16 @@ function handleOptsClick() {
   var ry = panelY + 60;
   var rowH = 56;
   // Trajectory toggle
-  if (clickRow(panelX + panelW - 100, ry, 80, 36)) { showPred = !showPred; mclk = false; return; }
+  if (clickRow(panelX + panelW - 100, ry, 80, 44)) { showPred = !showPred; mclk = false; return; }
   ry += rowH;
   // Ghost toggle
-  if (clickRow(panelX + panelW - 100, ry, 80, 36)) { showGhost = !showGhost; mclk = false; return; }
+  if (clickRow(panelX + panelW - 100, ry, 80, 44)) { showGhost = !showGhost; mclk = false; return; }
   ry += rowH;
   // Nav-ball toggle
-  if (clickRow(panelX + panelW - 100, ry, 80, 36)) { showNavBall = !showNavBall; mclk = false; return; }
+  if (clickRow(panelX + panelW - 100, ry, 80, 44)) { showNavBall = !showNavBall; mclk = false; return; }
   ry += rowH;
   // Auto-orient toggle
-  if (clickRow(panelX + panelW - 100, ry, 80, 36)) { autoOrient = !autoOrient; mclk = false; return; }
+  if (clickRow(panelX + panelW - 100, ry, 80, 44)) { autoOrient = !autoOrient; mclk = false; return; }
   ry += rowH;
   // Earth mass chips
   if (handleChipRow(panelX, ry, panelW, EARTH_MASS_STEPS, earthMassIdx, function (i) { earthMassIdx = i; })) { mclk = false; return; }
@@ -1130,13 +1130,13 @@ function handleOptsClick() {
   if (handleChipRow(panelX, ry, panelW, THRUST_STEPS, thrustIdx, function (i) { thrustIdx = i; })) { mclk = false; return; }
   ry += rowH;
   // Skin row (cycle button)
-  if (clickRow(panelX + panelW - 100, ry, 80, 36)) { skinIdx = (skinIdx + 1) % 4; mclk = false; return; }
+  if (clickRow(panelX + panelW - 100, ry, 80, 44)) { skinIdx = (skinIdx + 1) % 4; mclk = false; return; }
   ry += rowH;
   // Zoom row
-  if (clickChip(panelX + panelW - 220, ry, 60, 36)) { zoomIdx = Math.max(0, zoomIdx - 1); mclk = false; return; }
-  if (clickChip(panelX + panelW - 100, ry, 60, 36)) { zoomIdx = Math.min(ZOOM_LEVELS.length - 1, zoomIdx + 1); mclk = false; return; }
+  if (clickChip(panelX + panelW - 220, ry, 60, 44)) { zoomIdx = Math.max(0, zoomIdx - 1); mclk = false; return; }
+  if (clickChip(panelX + panelW - 100, ry, 60, 44)) { zoomIdx = Math.min(ZOOM_LEVELS.length - 1, zoomIdx + 1); mclk = false; return; }
   // Close-X
-  if (hitRect(panelX + panelW - 50, panelY + 10, 40, 40)) { showOpts = false; mclk = false; return; }
+  if (hitRect(panelX + panelW - 54, panelY + 8, 44, 44)) { showOpts = false; mclk = false; return; }
 }
 function clickRow(bx, by, bw, bh) { return hitRect(bx, by, bw, bh); }
 function clickChip(cx, cy, cw, ch) { return hitRect(cx, cy, cw, ch); }
@@ -1147,7 +1147,7 @@ function handleChipRow(panelX, ry, panelW, steps, currentIdx, setter) {
   var startX = panelX + panelW - avail - 10;
   for (var i = 0; i < n; i++) {
     var cx = startX + i * (chipW + 6);
-    if (hitRect(cx, ry, chipW, 36)) { setter(i); return true; }
+    if (hitRect(cx, ry, chipW, 44)) { setter(i); return true; }
   }
   return false;
 }
@@ -1702,18 +1702,18 @@ function drawOptsPanel() {
 }
 function drawToggleRow(panelX, ry, panelW, label, value) {
   ctx.fillStyle = '#ddd'; ctx.font = '14px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-  ctx.fillText(label, panelX + 20, ry + 18);
+  ctx.fillText(label, panelX + 20, ry + 22);
   var bx = panelX + panelW - 100;
   ctx.fillStyle = value ? 'rgba(120,200,140,0.25)' : 'rgba(255,120,120,0.15)';
-  ctx.beginPath(); ctx.roundRect(bx, ry, 80, 36, 8); ctx.fill();
+  ctx.beginPath(); ctx.roundRect(bx, ry, 80, 44, 8); ctx.fill();
   ctx.strokeStyle = value ? '#7d7' : '#d77'; ctx.lineWidth = 1; ctx.stroke();
   ctx.fillStyle = value ? '#bfb' : '#fbb';
   ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText(value ? 'ON' : 'OFF', bx + 40, ry + 18);
+  ctx.fillText(value ? 'ON' : 'OFF', bx + 40, ry + 22);
 }
 function drawChipRow(panelX, ry, panelW, label, steps, currentIdx, fmt) {
   ctx.fillStyle = '#ddd'; ctx.font = '14px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-  ctx.fillText(label, panelX + 20, ry + 18);
+  ctx.fillText(label, panelX + 20, ry + 22);
   var n = steps.length;
   var avail = 220;
   var chipW = (avail - (n - 1) * 6) / n;
@@ -1722,37 +1722,37 @@ function drawChipRow(panelX, ry, panelW, label, steps, currentIdx, fmt) {
     var cx = startX + i * (chipW + 6);
     var sel = i === currentIdx;
     ctx.fillStyle = sel ? 'rgba(120,180,255,0.3)' : 'rgba(255,255,255,0.06)';
-    ctx.beginPath(); ctx.roundRect(cx, ry, chipW, 36, 6); ctx.fill();
+    ctx.beginPath(); ctx.roundRect(cx, ry, chipW, 44, 6); ctx.fill();
     ctx.strokeStyle = sel ? '#7af' : 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1; ctx.stroke();
     ctx.fillStyle = sel ? '#cdf' : '#bbb'; ctx.font = '12px sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(fmt(steps[i]), cx + chipW / 2, ry + 18);
+    ctx.fillText(fmt(steps[i]), cx + chipW / 2, ry + 22);
   }
 }
 function drawSkinRow(panelX, ry, panelW) {
   ctx.fillStyle = '#ddd'; ctx.font = '14px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-  ctx.fillText('Spacecraft', panelX + 20, ry + 18);
+  ctx.fillText('Spacecraft', panelX + 20, ry + 22);
   var labels = ['Capsule', 'Saturn V', 'Duck Dieb', 'Samster'];
   var bx = panelX + panelW - 100;
   ctx.fillStyle = 'rgba(255,255,255,0.06)';
-  ctx.beginPath(); ctx.roundRect(bx, ry, 80, 36, 8); ctx.fill();
+  ctx.beginPath(); ctx.roundRect(bx, ry, 80, 44, 8); ctx.fill();
   ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1; ctx.stroke();
   ctx.fillStyle = '#cdf'; ctx.font = '12px sans-serif';
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText(labels[skinIdx], bx + 40, ry + 18);
+  ctx.fillText(labels[skinIdx], bx + 40, ry + 22);
 }
 function drawZoomRow(panelX, ry, panelW) {
   ctx.fillStyle = '#ddd'; ctx.font = '14px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-  ctx.fillText('Zoom: ' + ZOOM_LEVELS[zoomIdx] + ' px/DU', panelX + 20, ry + 18);
+  ctx.fillText('Zoom: ' + ZOOM_LEVELS[zoomIdx] + ' px/DU', panelX + 20, ry + 22);
   var bxA = panelX + panelW - 220, bxB = panelX + panelW - 100;
   ctx.fillStyle = 'rgba(255,255,255,0.08)';
-  ctx.beginPath(); ctx.roundRect(bxA, ry, 60, 36, 6); ctx.fill();
+  ctx.beginPath(); ctx.roundRect(bxA, ry, 60, 44, 6); ctx.fill();
   ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.stroke();
-  drawChevron(bxA + 30, ry + 18, 9, 'up', '#cdf');
+  drawChevron(bxA + 30, ry + 22, 9, 'up', '#cdf');
   ctx.fillStyle = 'rgba(255,255,255,0.08)';
-  ctx.beginPath(); ctx.roundRect(bxB, ry, 60, 36, 6); ctx.fill();
+  ctx.beginPath(); ctx.roundRect(bxB, ry, 60, 44, 6); ctx.fill();
   ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.stroke();
-  drawChevron(bxB + 30, ry + 18, 9, 'down', '#cdf');
+  drawChevron(bxB + 30, ry + 22, 9, 'down', '#cdf');
 }
 
 // ── Master draw + update dispatch ────────────────────────────────────────────
