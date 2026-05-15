@@ -1,0 +1,44 @@
+{
+  "leo_stable": {
+    "endTime": 0.08111111111111134,
+    "dvUsed": 0.8538946100889397,
+    "minMoonDist": 0.8701833682721941,
+    "minEarthDist": 0.12578949722297328
+  },
+  "hohmann_xfer": {
+    "endTime": 0.27916666666666046,
+    "dvUsed": 8.504210919782691,
+    "minMoonDist": 0.8802161282034805,
+    "minEarthDist": 0.11954640029925832
+  },
+  "match_plane": {
+    "endTime": 0.24833333333332847,
+    "dvUsed": 6.099919890917967,
+    "minMoonDist": 0.09525530004597506,
+    "minEarthDist": 0.11761937916058066
+  },
+  "free_return": {
+    "endTime": 0.5313888888888779,
+    "dvUsed": 6.045997880780728,
+    "minMoonDist": 0.17290564719891027,
+    "minEarthDist": 0.11955989901927801
+  },
+  "moon_insertion": {
+    "endTime": 0.3355555555555469,
+    "dvUsed": 8.871595798800293,
+    "minMoonDist": 0.04300746657752933,
+    "minEarthDist": 0.11956108301460276
+  },
+  "gravity_assist": {
+    "endTime": 0.2197222222222186,
+    "dvUsed": 5.956922102892591,
+    "minMoonDist": 0.029484495208318577,
+    "minEarthDist": 0.11955860153056794
+  },
+  "figure_8": {
+    "endTime": 0.42416666666665415,
+    "dvUsed": 0,
+    "minMoonDist": 0.08542931070604717,
+    "minEarthDist": 0.11997936263617853
+  }
+}
