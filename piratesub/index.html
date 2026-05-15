@@ -40,7 +40,7 @@ window.addEventListener('resize', onResize);
 if (window.visualViewport) window.visualViewport.addEventListener('resize', onResize);
 onResize();
 
-// ── input ─────────────────────────────────────────────────────────────────────────────
+// ── input ─────────────────────────────────────────────────────────────────────
 var K = {}, JP = {};
 document.addEventListener('keydown', function(e) {
   if (!K[e.code]) JP[e.code] = true;
@@ -50,18 +50,22 @@ document.addEventListener('keydown', function(e) {
 });
 document.addEventListener('keyup', function(e) { K[e.code] = false; });
 
-// ── layout constants ───────────────────────────────────────────────────────────────────────────
+// ── layout constants ───────────────────────────────────────────────────────────
+// Hull outer bounds
 var HULL_TOP = 28;
 var HULL_BOT = 478;
 
+// 3 deck levels — floor y of each level (player stands here)
 var DECK = [168, 308, 448];
+// Ceiling y of each room (top of corridor; also bottom of deck above)
 var CEIL = [48, 180, 320];
 
+// Platforms are solid; holes appear at ladder x positions
 var LADDER_SPACING = 520;
-var LADDER_W = 14;
-var LADDER_RUNG = 18;
+var LADDER_W = 14;         // half-width of passable hole
+var LADDER_RUNG = 18;      // rung spacing
 
-// ── player ────────────────────────────────────────────────────────────────────────────────
+// ── player ────────────────────────────────────────────────────────────────────
 var P_W = 10, P_H = 30;
 var P_WALK  = 135;
 var P_JUMP  = -300;
@@ -78,9 +82,9 @@ var player = {
 };
 
 var camX = player.x - W / 2;
-var gt   = 0;
+var gt   = 0;  // game time
 
-// ── porthole fish ───────────────────────────────────────────────────────────────────────────
+// ── porthole fish ─────────────────────────────────────────────────────────────
 var PFISH = [];
 (function() {
   var rs = 0xabcd5678;
@@ -97,7 +101,7 @@ var PFISH = [];
   }
 }());
 
-// ── touch buttons ───────────────────────────────────────────────────────────────────────────
+// ── touch buttons ─────────────────────────────────────────────────────────────
 var BTNS = [], btnTouch = {};
 (function() {
   var by = H - 58;
@@ -141,7 +145,7 @@ gc.addEventListener('touchcancel', function() {
 gc.addEventListener('touchmove', function(e) { e.preventDefault(); }, { passive: false });
 function isTouch() { return navigator.maxTouchPoints > 0 || 'ontouchstart' in window; }
 
-// ── helpers ───────────────────────────────────────────────────────────────────────────────
+// ── helpers ───────────────────────────────────────────────────────────────────
 function rRect(x, y, w, h, r) {
   r = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
@@ -156,6 +160,7 @@ function rRect(x, y, w, h, r) {
   ctx.closePath();
 }
 
+// Return nearest ladder world-x if player is close enough
 function nearestLadder(px) {
   var idx = Math.round(px / LADDER_SPACING);
   var lx  = idx * LADDER_SPACING;
@@ -163,12 +168,13 @@ function nearestLadder(px) {
   return null;
 }
 
+// True if player x is in the ladder hole of a deck (so no collision)
 function inLadderHole(px) {
   var lx = nearestLadder(px);
   return lx !== null && Math.abs(px - lx) < LADDER_W + 2;
 }
 
-// ── update ──────────────────────────────────────────────────────────────────────────────
+// ── update ────────────────────────────────────────────────────────────────────
 function update(dt) {
   gt += dt;
 
@@ -181,17 +187,22 @@ function update(dt) {
   var lx = nearestLadder(player.x);
 
   if (player.onLadder) {
+    // ── ladder mode ──
     if (upKey) player.y -= P_CLIMB * dt;
     if (dnKey) player.y += P_CLIMB * dt;
 
+    // Step off left/right
     if (left)  { player.face = -1; player.onLadder = false; }
     if (right) { player.face =  1; player.onLadder = false; }
 
+    // Snap x to ladder center
     player.x += (player.ladderX - player.x) * Math.min(1, 14 * dt);
 
+    // Clamp to hull
     if (player.y < HULL_TOP + 6)           { player.y = HULL_TOP + 6; }
     if (player.y + P_H > HULL_BOT - 4)    { player.y = HULL_BOT - P_H - 4; player.onLadder = false; player.onGround = true; }
 
+    // Auto-land on a deck when not pressing
     if (!upKey && !dnKey) {
       for (var di = 0; di < DECK.length; di++) {
         if (Math.abs(player.y + P_H - DECK[di]) < 10) {
@@ -204,22 +215,26 @@ function update(dt) {
     }
 
   } else {
+    // ── normal movement ──
     player.vx = 0;
     if (left)  { player.vx = -P_WALK; player.face = -1; }
     if (right) { player.vx =  P_WALK; player.face =  1; }
 
+    // Jump
     if (jumpP && player.onGround) {
       player.vy = P_JUMP;
       player.onGround = false;
     }
 
+    // Grab / enter ladder
     if (lx !== null) {
       if (dnKey && player.onGround) {
+        // Check we're not already on bottom deck
         var atBot = (Math.abs(player.y + P_H - DECK[DECK.length - 1]) < 8);
         if (!atBot) {
           player.onLadder = true; player.ladderX = lx;
           player.onGround = false; player.vx = 0; player.vy = 0;
-          player.y += 10;
+          player.y += 10; // push through floor hole
         }
       } else if (upKey && player.onGround) {
         var atTop = (Math.abs(player.y + P_H - DECK[0]) < 8);
@@ -228,41 +243,51 @@ function update(dt) {
           player.onGround = false; player.vx = 0; player.vy = 0;
         }
       } else if (!player.onGround && (upKey || dnKey)) {
+        // Grab ladder mid-air
         player.onLadder = true; player.ladderX = lx;
         player.vx = 0; player.vy = 0;
       }
     }
 
+    // Gravity
     if (!player.onGround) player.vy += GRAVITY * dt;
     else player.vy = 0;
 
     player.x += player.vx * dt;
     player.y += player.vy * dt;
 
+    // ── collision ──
     player.onGround = false;
 
+    // Deck floors (solid from both sides unless in ladder hole)
     for (var fi = 0; fi < DECK.length; fi++) {
       var dy = DECK[fi];
       if (inLadderHole(player.x)) continue;
+      // Land on top
       if (player.vy >= 0 && player.y + P_H >= dy && player.y + P_H <= dy + 24) {
         player.y = dy - P_H; player.vy = 0; player.onGround = true; break;
       }
+      // Ceiling bounce (hit deck from below)
       if (player.vy < 0 && player.y <= dy && player.y >= dy - 24) {
         player.y = dy; player.vy = 0; break;
       }
     }
 
+    // Corridor ceilings (tops of rooms — defined by CEIL)
     for (var ci = 0; ci < CEIL.length; ci++) {
       if (player.y < CEIL[ci]) { player.y = CEIL[ci]; if (player.vy < 0) player.vy = 0; }
     }
 
+    // Bottom hull floor
     if (player.y + P_H > HULL_BOT - 4) {
       player.y = HULL_BOT - P_H - 4; player.vy = 0; player.onGround = true;
     }
   }
 
+  // Camera follow
   camX += (player.x - W / 2 - camX) * Math.min(1, 6 * dt);
 
+  // Fish wander
   for (var fi2 = 0; fi2 < PFISH.length; fi2++) {
     var f = PFISH[fi2];
     f.wx += f.vx * dt;
@@ -271,24 +296,29 @@ function update(dt) {
   }
 }
 
-// ── drawing ───────────────────────────────────────────────────────────────────────────────
+// ── drawing ───────────────────────────────────────────────────────────────────
 
 function drawBackground() {
+  // Outer ocean (visible through hull)
   ctx.fillStyle = '#040c10';
   ctx.fillRect(0, 0, W, H);
 }
 
 function drawHull() {
+  // Interior cavity
   ctx.fillStyle = '#111218';
   ctx.fillRect(0, HULL_TOP + 18, W, HULL_BOT - HULL_TOP - 36);
 
+  // Top hull band
   ctx.fillStyle = '#1e1e26';
   ctx.fillRect(0, HULL_TOP, W, 22);
   ctx.fillStyle = '#2a2a36';
   ctx.fillRect(0, HULL_TOP, W, 8);
+  // top inner rim
   ctx.fillStyle = '#181820';
   ctx.fillRect(0, HULL_TOP + 22, W, 4);
 
+  // Bottom hull band
   ctx.fillStyle = '#1e1e26';
   ctx.fillRect(0, HULL_BOT - 22, W, 22);
   ctx.fillStyle = '#2a2a36';
@@ -296,6 +326,7 @@ function drawHull() {
   ctx.fillStyle = '#181820';
   ctx.fillRect(0, HULL_BOT - 26, W, 4);
 
+  // Rivets
   ctx.fillStyle = '#404055';
   var off = (((-Math.floor(camX)) % 44) + 44) % 44;
   for (var rx = off; rx < W; rx += 44) {
@@ -303,6 +334,7 @@ function drawHull() {
     ctx.beginPath(); ctx.arc(rx, HULL_BOT - 14, 2.5, 0, Math.PI * 2); ctx.fill();
   }
 
+  // Vertical panel seams
   ctx.strokeStyle = '#1a1a24'; ctx.lineWidth = 1;
   var panW = 130;
   var poff = (((-Math.floor(camX)) % panW) + panW) % panW;
@@ -314,13 +346,17 @@ function drawHull() {
 function drawDecks() {
   for (var di = 0; di < DECK.length; di++) {
     var dy = DECK[di];
+    var lx = Math.round(camX / LADDER_SPACING) * LADDER_SPACING;
+    // Find all visible ladder x positions for hole drawing
     var ladXs = [];
     var minLi = Math.floor((camX - 40) / LADDER_SPACING);
     var maxLi = Math.ceil((camX + W + 40) / LADDER_SPACING);
     for (var li = minLi; li <= maxLi; li++) ladXs.push(li * LADDER_SPACING - camX);
 
+    // Draw deck in segments, skipping ladder holes
     ctx.fillStyle = '#3a2e1e';
     for (var sx = 0; sx < W; ) {
+      // find next hole
       var holeStart = W + 1, holeEnd = W + 1;
       for (var hi = 0; hi < ladXs.length; hi++) {
         var hx = ladXs[hi];
@@ -338,9 +374,16 @@ function drawDecks() {
       }
     }
 
+    // Deck surface highlight
+    ctx.fillStyle = '#4a3c28';
+    for (var sx2 = 0; sx2 < W; sx2++) {
+      // simplified: just draw a highlight line segment-by-segment is too complex
+      // draw full then we'll just let the hole be dark
+    }
     ctx.fillStyle = '#4a3c28';
     ctx.fillRect(0, dy, W, 4);
 
+    // Plank lines
     ctx.strokeStyle = '#2a1e10'; ctx.lineWidth = 1;
     var plankW = 62;
     var ploff = (((-Math.floor(camX) + di * 31) % plankW) + plankW) % plankW;
@@ -348,6 +391,7 @@ function drawDecks() {
       ctx.beginPath(); ctx.moveTo(ppx, dy); ctx.lineTo(ppx, dy + 12); ctx.stroke();
     }
 
+    // Edge trim
     ctx.strokeStyle = '#6a5038'; ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(0, dy); ctx.lineTo(W, dy); ctx.stroke();
   }
@@ -359,11 +403,13 @@ function drawLadders() {
   for (var li = minL; li <= maxL; li++) {
     var lsx = li * LADDER_SPACING - camX;
 
+    // Vertical rails — run full hull height
     ctx.strokeStyle = '#7a6048'; ctx.lineWidth = 3; ctx.lineCap = 'round';
     ctx.beginPath(); ctx.moveTo(lsx - 9, HULL_TOP + 22); ctx.lineTo(lsx - 9, HULL_BOT - 22); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(lsx + 9, HULL_TOP + 22); ctx.lineTo(lsx + 9, HULL_BOT - 22); ctx.stroke();
     ctx.lineCap = 'butt';
 
+    // Rungs
     ctx.strokeStyle = '#a08860'; ctx.lineWidth = 2;
     for (var ry = HULL_TOP + 22; ry < HULL_BOT - 22; ry += LADDER_RUNG) {
       ctx.beginPath(); ctx.moveTo(lsx - 9, ry); ctx.lineTo(lsx + 9, ry); ctx.stroke();
@@ -378,7 +424,9 @@ function drawPortholes() {
   for (var pi = minP; pi <= maxP; pi++) {
     var pwx = pi * portSpacing + (Math.abs(pi % 3) === 1 ? 60 : 0);
     var psx = pwx - camX;
+    // Top porthole (in top hull)
     drawPorthole(psx, HULL_TOP + 38, 20, pwx, true);
+    // Bottom porthole (in bottom hull)
     drawPorthole(psx, HULL_BOT - 38, 20, pwx, false);
   }
 }
@@ -387,6 +435,7 @@ function drawPorthole(sx, sy, r, wx, isTop) {
   ctx.save();
   ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2); ctx.clip();
 
+  // Water fill
   var og = ctx.createLinearGradient(sx, sy - r, sx, sy + r);
   if (isTop) {
     og.addColorStop(0, '#1a6080'); og.addColorStop(1, '#0a3450');
@@ -395,6 +444,7 @@ function drawPorthole(sx, sy, r, wx, isTop) {
   }
   ctx.fillStyle = og; ctx.fillRect(sx - r, sy - r, r * 2, r * 2);
 
+  // Fish visible through porthole
   for (var fi = 0; fi < PFISH.length; fi++) {
     var f = PFISH[fi];
     var fdx = f.wx - wx;
@@ -408,16 +458,19 @@ function drawPorthole(sx, sy, r, wx, isTop) {
     }
   }
 
+  // Shimmer
   ctx.fillStyle = 'rgba(120,200,240,0.07)';
   ctx.beginPath(); ctx.ellipse(sx - r * 0.2, sy - r * 0.38, r * 0.45, r * 0.22, -0.4, 0, Math.PI * 2); ctx.fill();
 
   ctx.restore();
 
+  // Rim
   ctx.strokeStyle = '#604a38'; ctx.lineWidth = 4;
   ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2); ctx.stroke();
   ctx.strokeStyle = '#907060'; ctx.lineWidth = 1.5;
   ctx.beginPath(); ctx.arc(sx, sy, r - 2, 0, Math.PI * 2); ctx.stroke();
 
+  // Bolts
   ctx.fillStyle = '#786050';
   for (var ba = 0; ba < 4; ba++) {
     var bang = ba * Math.PI / 2 + Math.PI / 4;
@@ -478,9 +531,11 @@ function drawConsole(sx, dy) {
   var scr = Math.floor(gt * 0.8) % 2 === 0;
   ctx.fillStyle = scr ? '#002a18' : '#003820';
   rRect(sx - 24, dy - 36, 48, 26, 2); ctx.fill();
+  // scan line
   ctx.strokeStyle = 'rgba(0,200,80,0.3)'; ctx.lineWidth = 1;
   var scanY = dy - 36 + ((gt * 18) % 26);
   ctx.beginPath(); ctx.moveTo(sx - 24, scanY); ctx.lineTo(sx + 24, scanY); ctx.stroke();
+  // buttons
   var btnCols = ['#ff2020', '#20ff40', '#2060ff', '#ffaa00'];
   for (var bi = 0; bi < 4; bi++) {
     ctx.fillStyle = btnCols[bi];
@@ -550,23 +605,30 @@ function drawPlayer() {
   ctx.translate(sx + P_W * 0.5 * f, sy + P_H);
   ctx.scale(f, 1);
 
+  // Walk cycle
   var walking = player.onGround && Math.abs(player.vx) > 5;
   var wc = walking ? Math.sin(gt * 9) : 0;
 
+  // Legs
   ctx.fillStyle = '#1a3a5a';
   ctx.fillRect(-5, -14 + wc * 4, 4, 14);
   ctx.fillRect(1,  -14 - wc * 4, 4, 14);
+  // Boots
   ctx.fillStyle = '#1a1a28';
   ctx.fillRect(-6, -2, 5, 4);
   ctx.fillRect(1,  -2, 5, 4);
 
+  // Body / wetsuit
   ctx.fillStyle = '#1a4a6a';
   ctx.fillRect(-6, -P_H, 12, 16);
+  // Stripe
   ctx.fillStyle = '#2288cc';
   ctx.fillRect(-5, -P_H + 5, 10, 4);
+  // Belt
   ctx.fillStyle = '#3a2a10';
   ctx.fillRect(-6, -P_H + 16, 12, 3);
 
+  // Arm (forward)
   ctx.fillStyle = '#1a4a6a';
   if (player.onLadder) {
     ctx.fillRect(5, -P_H + 2 + wc * 4, 7, 3);
@@ -575,14 +637,18 @@ function drawPlayer() {
     ctx.fillRect(5, -P_H + 4 + wc * 3, 7, 3);
   }
 
+  // Head
   ctx.fillStyle = '#f0c888';
   ctx.beginPath(); ctx.arc(0, -P_H - 3, 7, 0, Math.PI * 2); ctx.fill();
+  // Bandana (pirate!)
   ctx.fillStyle = '#cc2222';
   ctx.fillRect(-7, -P_H - 8, 14, 5);
   ctx.fillStyle = '#aa0000';
-  ctx.fillRect(5, -P_H - 9, 4, 3);
+  ctx.fillRect(5, -P_H - 9, 4, 3); // knot
+  // Eye
   ctx.fillStyle = '#111';
   ctx.beginPath(); ctx.arc(4, -P_H - 3, 1.8, 0, Math.PI * 2); ctx.fill();
+  // Eyepatch on other side
   ctx.fillStyle = '#111';
   ctx.fillRect(-6, -P_H - 6, 5, 3);
   ctx.strokeStyle = '#222'; ctx.lineWidth = 0.8;
@@ -612,6 +678,7 @@ function drawTouchControls() {
 }
 
 function drawHUD() {
+  // Stage title
   ctx.fillStyle = 'rgba(0,0,0,0.55)';
   rRect(W / 2 - 70, 8, 140, 22, 4); ctx.fill();
   ctx.fillStyle = '#c0a040';
@@ -619,6 +686,7 @@ function drawHUD() {
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText('PIRATE SUB', W / 2, 20);
 
+  // Controls hint (desktop)
   if (!isTouch()) {
     ctx.fillStyle = 'rgba(0,0,0,0.45)';
     rRect(8, 8, 260, 20, 3); ctx.fill();
@@ -628,6 +696,7 @@ function drawHUD() {
     ctx.fillText('ARROWS move/climb  SPACE jump  UP/DN on ladder', 14, 18);
   }
 
+  // Deck indicator
   var curDeck = '?';
   for (var di = 0; di < DECK.length; di++) {
     if (Math.abs(player.y + P_H - DECK[di]) < 30) { curDeck = di + 1; break; }
@@ -653,7 +722,7 @@ function render() {
   drawHUD();
 }
 
-// ── game loop ───────────────────────────────────────────────────────────────────────────
+// ── game loop ─────────────────────────────────────────────────────────────────
 var SIM = 1 / 60, debt = 0, lastTs = 0;
 function loop(ts) {
   if (!lastTs) lastTs = ts;
