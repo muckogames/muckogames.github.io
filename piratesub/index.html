@@ -79,7 +79,8 @@ var player = {
   onGround: false,
   onLadder: false,
   ladderX: 0,
-  ladderEntryY: 0   // y when grabbed ladder, for snap-guard
+  ladderEntryY: 0,
+  ladderEntryDeck: -1   // deck index we came from — don't snap back to it
 };
 
 var camX = player.x - W / 2;
@@ -246,16 +247,14 @@ function update(dt) {
     // Snap x to ladder center
     player.x += (player.ladderX - player.x) * Math.min(1, 14 * dt);
 
-    // Snap to adjacent deck once we've moved far enough from entry point
-    var moved = Math.abs(player.y - player.ladderEntryY);
-    if (moved > 18) {
-      for (var di = 0; di < DECK.length; di++) {
-        if (Math.abs(player.y + P_H - DECK[di]) < 22) {
-          player.y = DECK[di] - P_H;
-          player.onLadder = false;
-          player.onGround = true;
-          break;
-        }
+    // Snap to any deck we're not coming from
+    for (var di = 0; di < DECK.length; di++) {
+      if (di === player.ladderEntryDeck) continue;
+      if (Math.abs(player.y + P_H - DECK[di]) < 22) {
+        player.y = DECK[di] - P_H;
+        player.onLadder = false;
+        player.onGround = true;
+        break;
       }
     }
 
@@ -291,18 +290,21 @@ function update(dt) {
       if (dnKey && player.onGround) {
         var atBot = (Math.abs(player.y + P_H - DECK[DECK.length - 1]) < 8);
         if (!atBot) {
-          player.onLadder = true; player.ladderX = lx; player.ladderEntryY = player.y;
+          player.onLadder = true; player.ladderX = lx;
+          player.ladderEntryY = player.y; player.ladderEntryDeck = playerDeckIdx;
           player.onGround = false; player.vx = 0; player.vy = 0;
           player.y += 12;
         }
       } else if (upKey && player.onGround && nearDoor < 0) {
         var atTop = (Math.abs(player.y + P_H - DECK[0]) < 8);
         if (!atTop) {
-          player.onLadder = true; player.ladderX = lx; player.ladderEntryY = player.y;
+          player.onLadder = true; player.ladderX = lx;
+          player.ladderEntryY = player.y; player.ladderEntryDeck = playerDeckIdx;
           player.onGround = false; player.vx = 0; player.vy = 0;
         }
       } else if (!player.onGround && (upKey || dnKey)) {
-        player.onLadder = true; player.ladderX = lx; player.ladderEntryY = player.y;
+        player.onLadder = true; player.ladderX = lx;
+        player.ladderEntryY = player.y; player.ladderEntryDeck = -1;
         player.vx = 0; player.vy = 0;
       }
     }
