@@ -53,12 +53,40 @@ onResize();
 // ── input ─────────────────────────────────────────────────────────────────────
 var K = {}, JP = {};
 document.addEventListener('keydown', function(e) {
+  unlockAC();
   if (!K[e.code]) JP[e.code] = true;
   K[e.code] = true;
   if (e.code === 'Space' || e.code === 'ShiftLeft' || e.code === 'ShiftRight' ||
       e.code === 'ArrowUp' || e.code === 'ArrowDown') e.preventDefault();
 });
 document.addEventListener('keyup', function(e) { K[e.code] = false; });
+
+var _ac = null;
+function getAC() {
+  if (!_ac) _ac = new (window.AudioContext || window.webkitAudioContext)();
+  return _ac;
+}
+function unlockAC() { var a = getAC(); if (a.state !== 'running') a.resume(); }
+function playTone(freq, vol, dur, type) {
+  var a = getAC(); if (a.state !== 'running') return;
+  var o = a.createOscillator(), g = a.createGain();
+  o.type = type || 'sine'; o.frequency.value = freq;
+  g.gain.setValueAtTime(vol, a.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, a.currentTime + dur);
+  o.connect(g); g.connect(a.destination);
+  o.start(); o.stop(a.currentTime + dur);
+}
+function playNoise(vol, dur) {
+  var a = getAC(); if (a.state !== 'running') return;
+  var buf = a.createBuffer(1, Math.ceil(a.sampleRate * dur), a.sampleRate);
+  var d = buf.getChannelData(0);
+  for (var i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1);
+  var src = a.createBufferSource(), g = a.createGain();
+  g.gain.setValueAtTime(vol, a.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, a.currentTime + dur);
+  src.buffer = buf; src.connect(g); g.connect(a.destination);
+  src.start();
+}
 
 // ── surface wave ─────────────────────────────────────────────────────────────
 var wt = 0;
@@ -92,6 +120,11 @@ var subFace   = 1;               // 1=right -1=left
 var subPitch  = 0, subPitchT = 0;
 var propAng   = 0;
 var hitFlash  = 0;
+
+var shakeX = 0, shakeY = 0, shakeMag = 0;
+var score = 0, scorePopT = 0;
+var WAKE = [];
+var thrustBeepT = 0, surfBreachWas = false;
 
 // ── iceberg sink animation ────────────────────────────────────────────────────
 var gamePhase  = 'playing'; // 'playing' | 'sinking' | 'gameover'
@@ -155,6 +188,8 @@ function krakenHatchY() { return terrain(KRAKEN_WX) + KRAKEN_HOY; }
 
 function triggerKrakenExplosion() {
   krakPhase = 'exploding'; krakExpT = 0; krakFlash = 1.0; krakSettled = 0;
+  playNoise(0.7, 0.5); shakeMag = Math.max(shakeMag, 32);
+  score += 500; scorePopT = 1.0;
   diverOut = false; diverRecalling = false;
   var ty = terrain(KRAKEN_WX);
   krakDebris = [];
@@ -225,6 +260,29 @@ var ICEBERGS = [];
     if (Math.abs(wx - KRAKEN_WX) < 500) continue; // leave space for the Kraken
     var sz = 0.75 + (Math.abs(i * 53) % 25) / 100; // 0.75–1.0
     ICEBERGS.push({ wx: wx, sz: sz });
+  }
+}());
+
+// ── coral reefs (one cluster a bit past each iceberg) ─────────────────────────
+var REEFS = [];
+(function() {
+  var rng = 0xcafe5678;
+  function rr() { rng = ((rng >>> 0) * 1664525 + 1013904223) >>> 0; return rng / 0xffffffff; }
+  var reefCols = ['#ff4466','#ff7722','#ff2288','#aa44ee','#00bbee','#ffcc00','#22dd88','#ff6655'];
+  for (var ri = 0; ri < ICEBERGS.length; ri++) {
+    var ib = ICEBERGS[ri];
+    var reefWx = ib.wx + 340 + rr() * 180; // 340–520px past the iceberg
+    var corals = [];
+    for (var ci = 0; ci < 14; ci++) {
+      corals.push({
+        ox:  (rr() * 2 - 1) * 140,      // spread ±140 around reef center
+        h:   28 + rr() * 52,             // height 28–80
+        w:   8  + rr() * 14,             // trunk width
+        col: reefCols[Math.floor(rr() * reefCols.length)],
+        type: Math.floor(rr() * 3)       // 0=branching 1=fan 2=bulb
+      });
+    }
+    REEFS.push({ wx: reefWx, corals: corals });
   }
 }());
 
@@ -305,6 +363,7 @@ function touchCoord(touch) {
 }
 gc.addEventListener('touchstart', function(e) {
   e.preventDefault();
+  unlockAC();
   for (var i = 0; i < e.changedTouches.length; i++) {
     var t = e.changedTouches[i], c = touchCoord(t);
     for (var j = 0; j < BTNS.length; j++) {
@@ -358,6 +417,20 @@ function tri(cx, cy, sz, dir) {
   else { ctx.moveTo(cx-sz, cy-sz); ctx.lineTo(cx, cy+sz); ctx.lineTo(cx+sz, cy-sz); }
   ctx.closePath();
   ctx.fill();
+}
+
+function drawWake() {
+  for (var wi2 = 0; wi2 < WAKE.length; wi2++) {
+    var wk = WAKE[wi2];
+    ctx.save();
+    ctx.globalAlpha = wk.life * 0.55;
+    ctx.strokeStyle = 'rgba(160,215,255,0.8)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(wk.x - camX, wk.y, wk.r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
 }
 
 // ── update ────────────────────────────────────────────────────────────────────
@@ -490,6 +563,12 @@ function update(dt) {
 
   if (hitFlash > 0) hitFlash -= dt;
   if (airFillTimer > 0) airFillTimer -= dt;
+  if (shakeMag > 0) {
+    shakeX = (Math.random() - 0.5) * shakeMag * 2;
+    shakeY = (Math.random() - 0.5) * shakeMag * 2;
+    shakeMag = Math.max(0, shakeMag - 90 * dt);
+  } else { shakeX = 0; shakeY = 0; }
+  if (scorePopT > 0) scorePopT = Math.max(0, scorePopT - dt * 2.5);
 
   // Air drains passively; refills when at surface
   air = Math.max(0, air - AIR_DRAIN * dt);
@@ -590,6 +669,10 @@ function update(dt) {
 
     // Drain fuel only when propulsion thrusters fire
     if (fwd || rev) fuel = Math.max(0, fuel - FUEL_DRAIN * dt);
+    if ((fwd || rev) && fuel > 0) {
+      thrustBeepT -= dt;
+      if (thrustBeepT <= 0) { thrustBeepT = 0.28; playTone(90, 0.04, 0.09, 'sawtooth'); }
+    } else { thrustBeepT = 0; }
 
     if (!fwd && !rev) sub.vx *= Math.exp(-DRAG_X * dt);
     if (!up  && !dn)  sub.vy *= Math.exp(-DRAG_Y * dt);
@@ -618,6 +701,8 @@ function update(dt) {
 
     // Surface air refill
     atSurface = (sub.y <= wave(sub.x) + SUB_HH + 20);
+    if (atSurface && !surfBreachWas) playTone(380, 0.14, 0.4, 'sine');
+    surfBreachWas = atSurface;
     if (atSurface) {
       air = Math.min(1, air + AIR_FILL * dt);
       airFillTimer = 0.5;
@@ -649,6 +734,7 @@ function update(dt) {
       // Elliptical hit zone covering the underwater mass
       if ((ibdx * ibdx) / (ibW * ibW) + (ibdy * ibdy) / (ibDepth * ibDepth) < 1
           && ibdy > -SUB_HH) {
+        playNoise(0.45, 0.25); shakeMag = Math.max(shakeMag, 20);
         triggerSink();
         break;
       }
@@ -681,8 +767,19 @@ function update(dt) {
   subPitch += (subPitchT - subPitch) * Math.min(1, 5 * dt);
   propAng  += Math.abs(sub.vx) * dt * 0.09;
 
-  // Camera
-  camX += (sub.x - W / 2 - camX) * Math.min(1, 3 * dt);
+  // Wake trail
+  var spd2 = Math.sqrt(sub.vx * sub.vx + sub.vy * sub.vy);
+  if (spd2 > 10 && gamePhase === 'playing') {
+    WAKE.push({ x: sub.x - sub.vx * 0.08, y: sub.y, life: 0.7, r: 5 + Math.random() * 4 });
+  }
+  for (var wi = WAKE.length - 1; wi >= 0; wi--) {
+    WAKE[wi].life -= dt; WAKE[wi].r += 9 * dt;
+    if (WAKE[wi].life <= 0) WAKE.splice(wi, 1);
+  }
+
+  // Camera: follow diver when out and not recalling, otherwise follow sub
+  var camTarget = (diverOut && !diverRecalling) ? diver.x : sub.x;
+  camX += (camTarget - W / 2 - camX) * Math.min(1, 3 * dt);
 
   // Sea life update
   for (var j = 0; j < CREATURES.length; j++) {
@@ -723,6 +820,8 @@ function update(dt) {
     if (dist < minD && dist > 0.1 && c.hit <= 0) {
       c.hit = 0.6;
       hitFlash = 0.25;
+      playNoise(0.25, 0.12); shakeMag = Math.max(shakeMag, 10);
+      score += 10; scorePopT = 0.5;
       var nx = dx / dist, ny = dy / dist;
       // Knock sub back, fling creature away
       sub.vx -= nx * 130;
@@ -890,6 +989,30 @@ function drawCoral(x, ty, h, col, type) {
     }
   }
   ctx.lineCap = 'butt';
+}
+
+function drawReefs() {
+  for (var ri = 0; ri < REEFS.length; ri++) {
+    var reef = REEFS[ri];
+    var rsx = reef.wx - camX;
+    if (rsx < -200 || rsx > W + 200) continue;
+    for (var ci = 0; ci < reef.corals.length; ci++) {
+      var co = reef.corals[ci];
+      var cx = rsx + co.ox;
+      if (cx < -80 || cx > W + 80) continue;
+      var ty = terrain(reef.wx + co.ox);
+      ctx.save();
+      ctx.globalAlpha = 0.92;
+      drawCoral(cx, ty, co.h, co.col, co.type);
+      ctx.restore();
+    }
+    // Subtle glow haze over the reef
+    var rg = ctx.createRadialGradient(rsx, terrain(reef.wx) - 30, 10, rsx, terrain(reef.wx) - 30, 160);
+    rg.addColorStop(0, 'rgba(200,150,255,0.10)');
+    rg.addColorStop(1, 'rgba(200,150,255,0)');
+    ctx.fillStyle = rg;
+    ctx.fillRect(rsx - 160, terrain(reef.wx) - 120, 320, 130);
+  }
 }
 
 function drawWreck(sx, ty) {
@@ -2057,6 +2180,21 @@ function drawHUD() {
   // Air gauge
   drawGauge(8, hudH + 34, 120, 16, air,  'AIR');
 
+  // Score display (top-right)
+  var scPop = scorePopT > 0;
+  var scScale = scPop ? (1 + scorePopT * 0.35) : 1;
+  ctx.save();
+  ctx.translate(W - 12, 14);
+  ctx.scale(scScale, scScale);
+  ctx.fillStyle = 'rgba(5,20,35,0.55)';
+  rRect(-96, -12, 96, 22, 3); ctx.fill();
+  ctx.fillStyle = scPop ? '#ffe066' : '#80d8f8';
+  ctx.font = 'bold 12px monospace';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('SCORE ' + score, -4, 0);
+  ctx.restore();
+
   // Kraken anomaly detector
   if (krakPhase === 'intact' && Math.abs(sub.x - KRAKEN_WX) < 1800) {
     var kdist = Math.round(Math.abs(sub.x - KRAKEN_WX));
@@ -2104,18 +2242,23 @@ function drawHUD() {
 // ── render ────────────────────────────────────────────────────────────────────
 function render() {
   ctx.clearRect(0, 0, W, H);
+  ctx.save();
+  ctx.translate(Math.round(shakeX), Math.round(shakeY));
   drawSky();
   drawOcean();
   drawTerrain();
+  drawReefs();
   drawStations();
   drawKraken();
   drawKrakenDebris();
   drawIcebergs();
   drawBubbles();
   drawCreatures();
+  drawWake();
   if (gamePhase === 'playing') { drawSub(); drawDiver(); }
   else drawSinkingPieces();
   drawPirateSub();
+  ctx.restore();
   drawTouchControls();
   if (gamePhase === 'playing') drawHUD();
   drawKrakenPanel();
