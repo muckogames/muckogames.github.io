@@ -1,2043 +1,1855 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
 <title>Orbital Mechanics</title>
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
-#stage { position: absolute; background: #000; overflow: hidden; }
-#gc {
-  display: block;
-  position: absolute;
-  top: 0; left: 0;
-  width: 100%; height: 100%;
-  touch-action: none;
-  -webkit-tap-highlight-color: transparent;
-}
+  html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
+               background: #000; color: #ddd; font-family: -apple-system, system-ui, sans-serif;
+               touch-action: none; -webkit-tap-highlight-color: transparent; }
+  #stage { position: absolute; }
+  #gc { display: block; background: #000; }
 </style>
 </head>
 <body>
 <div id="stage"><canvas id="gc"></canvas></div>
+
+<script src="physics.js"></script>
+<script src="scenarios.js"></script>
 <script>
+(function () {
 'use strict';
 
-// roundRect polyfill (iOS 12 / Safari < 15.4)
-if (!CanvasRenderingContext2D.prototype.roundRect) {
-  CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
+// ── roundRect polyfill (Safari < 15.4) ──────────────────────────────────────
+if (typeof CanvasRenderingContext2D !== 'undefined' && !CanvasRenderingContext2D.prototype.roundRect) {
+  CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
     r = Math.min(r || 0, Math.abs(w) / 2, Math.abs(h) / 2);
     this.moveTo(x + r, y);
-    this.lineTo(x + w - r, y);     this.quadraticCurveTo(x + w, y,     x + w, y + r);
+    this.lineTo(x + w - r, y); this.quadraticCurveTo(x + w, y, x + w, y + r);
     this.lineTo(x + w, y + h - r); this.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-    this.lineTo(x + r, y + h);     this.quadraticCurveTo(x,     y + h, x,     y + h - r);
-    this.lineTo(x, y + r);         this.quadraticCurveTo(x,     y,     x + r, y);
+    this.lineTo(x + r, y + h); this.quadraticCurveTo(x, y + h, x, y + h - r);
+    this.lineTo(x, y + r); this.quadraticCurveTo(x, y, x + r, y);
     this.closePath();
   };
 }
 
 // ── Canvas setup ─────────────────────────────────────────────────────────────
 var W = 800, H = 800;
-var MAX_DPR = 1.5;
-var stage  = document.getElementById('stage');
+var stage = document.getElementById('stage');
 var canvas = document.getElementById('gc');
-var ctx    = canvas.getContext('2d');
-var dpr    = 1;
+canvas.width = W; canvas.height = H;
+var ctx = canvas.getContext('2d');
 
-function safeViewW() { var vv = window.visualViewport; return vv ? vv.width  : window.innerWidth; }
-function safeViewH() { var vv = window.visualViewport; return vv ? vv.height : window.innerHeight; }
-
+var MAX_RENDER_DPR = 1.5;
+function safeViewW() { var v = window.visualViewport; return v ? v.width  : window.innerWidth; }
+function safeViewH() { var v = window.visualViewport; return v ? v.height : window.innerHeight; }
 function resize() {
   var vw = safeViewW(), vh = safeViewH();
-  if (vw < 1) vw = 1;
-  if (vh < 1) vh = 1;
-  // Pad by 4px so the stage never sits flush with a rounded screen edge.
-  var s  = Math.min(vw / W, (vh - 4) / H);
-  if (s <= 0 || !isFinite(s)) s = 1;
-  var sw = Math.max(1, Math.round(W * s));
-  var sh = Math.max(1, Math.round(H * s));
-  stage.style.width  = sw + 'px';
-  stage.style.height = sh + 'px';
-  stage.style.left   = Math.round((vw - sw) / 2) + 'px';
-  stage.style.top    = Math.round((vh - sh) / 2) + 'px';
-  dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
-  canvas.width  = Math.max(1, Math.round(W * dpr));
-  canvas.height = Math.max(1, Math.round(H * dpr));
-  // Canvas CSS size is 100% of #stage (see stylesheet), so we don't set it here.
+  var s = Math.min(vw / W, (vh - 4) / H);
+  stage.style.width  = Math.round(W * s) + 'px';
+  stage.style.height = Math.round(H * s) + 'px';
+  stage.style.left   = Math.round((vw - W * s) / 2) + 'px';
+  stage.style.top    = Math.round((vh - H * s) / 2) + 'px';
+  var dpr = Math.min(window.devicePixelRatio || 1, MAX_RENDER_DPR);
+  canvas.style.width  = '100%';
+  canvas.style.height = '100%';
+  canvas.width  = Math.round(W * dpr);
+  canvas.height = Math.round(H * dpr);
+  ctx = canvas.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
 }
 window.addEventListener('resize', resize);
-window.addEventListener('orientationchange', function() {
-  // iOS delays the viewport-size update until after orientationchange; re-run
-  // resize on the next two frames to catch the post-rotation layout.
-  resize();
-  setTimeout(resize, 50);
-  setTimeout(resize, 250);
-});
-if (window.visualViewport) {
-  window.visualViewport.addEventListener('resize', resize);
-  window.visualViewport.addEventListener('scroll', resize);
-}
-// Initial sizing — call twice so the second call sees post-layout dimensions.
+if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
 resize();
-requestAnimationFrame(resize);
 
-// ── Input ─────────────────────────────────────────────────────────────────────
-var K = {}, JP = {};
-var mx = W / 2, my = H / 2, mclk = false;
+// ── Module bindings ──────────────────────────────────────────────────────────
+var Phys = window.OrbitPhysics;
+var SC   = window.OrbitMissions;
+var MISSIONS = SC.MISSIONS;
+var SANDBOX  = SC.SANDBOX;
+var PI2 = Phys.PI2;
 
-document.addEventListener('keydown', function(e) {
+// ── Camera (zoom) ────────────────────────────────────────────────────────────
+// 4 discrete levels. Auto-picked from the mission's view.zoomLevel.
+var ZOOM_LEVELS = [1200, 620, 310, 160];   // px per DU
+var zoomIdx = 2;
+function SCALE() { return ZOOM_LEVELS[zoomIdx]; }
+var CX = W / 2, CY = H / 2;
+
+// View transform: world → screen, with optional rotation for the rotating frame.
+function sxw(x, y, t) {
+  if (curMission && curMission.view && curMission.view.preset === 'rotating_moon') {
+    var ma = curState.moonAngle0 + Phys.MOON_W * t;
+    var c = Math.cos(ma), s = Math.sin(ma);
+    return CX + (x * c + y * s) * SCALE();
+  }
+  return CX + x * SCALE();
+}
+function syw(x, y, t) {
+  if (curMission && curMission.view && curMission.view.preset === 'rotating_moon') {
+    var ma = curState.moonAngle0 + Phys.MOON_W * t;
+    var c = Math.cos(ma), s = Math.sin(ma);
+    return CY - (-x * s + y * c) * SCALE();
+  }
+  return CY - y * SCALE();
+}
+function viewAngle(angle, t) {
+  if (curMission && curMission.view && curMission.view.preset === 'rotating_moon') {
+    return angle - (curState.moonAngle0 + Phys.MOON_W * t);
+  }
+  return angle;
+}
+
+// ── Input: keyboard ──────────────────────────────────────────────────────────
+var K  = {};
+var JP = {};
+document.addEventListener('keydown', function (e) {
   if (!K[e.code]) JP[e.code] = true;
   K[e.code] = true;
-});
-document.addEventListener('keyup', function(e) { K[e.code] = false; });
-
-function updatePointer(cx, cy) {
-  var r = canvas.getBoundingClientRect();
-  mx = (cx - r.left) * (W / r.width);
-  my = (cy - r.top)  * (H / r.height);
-}
-canvas.addEventListener('click', function(e) {
-  updatePointer(e.clientX, e.clientY);
-  mclk = true;
-});
-canvas.addEventListener('mousedown', function(e) {
-  updatePointer(e.clientX, e.clientY);
-  if (!pointerDown) { pointerDown = true; pointerJust = true; pointerDX = mx; pointerDY = my; }
-});
-canvas.addEventListener('mousemove', function(e) {
-  updatePointer(e.clientX, e.clientY);
-});
-canvas.addEventListener('mouseup', function(e) {
-  updatePointer(e.clientX, e.clientY);
-  if (pointerDown) { pointerDown = false; pointerUp = true; }
-});
-
-// Unified pointer state (mouse + first-touch) for drag gestures in the
-// placement phase. Held-touch burn buttons use activeTouches below.
-var pointerDown = false;    // true while primary pointer is pressed
-var pointerJust = false;    // true for one frame on press edge
-var pointerUp   = false;    // true for one frame on release edge
-var pointerDX   = 0, pointerDY = 0;  // position at pressdown
-var pointerAimActive = false;        // true when pointer is hold-aiming the ship
-
-// Multi-touch tracking — every active touch keeps a canvas-space (x,y) so the
-// burn buttons can read held state per frame.
-var activeTouches = {};
-function touchToCanvas(cx, cy) {
-  var r = canvas.getBoundingClientRect();
-  return { x: (cx - r.left) * (W / r.width), y: (cy - r.top) * (H / r.height) };
-}
-canvas.addEventListener('touchstart', function(e) {
-  e.preventDefault();
-  for (var i = 0; i < e.changedTouches.length; i++) {
-    var t = e.changedTouches[i];
-    var p = touchToCanvas(t.clientX, t.clientY);
-    activeTouches[t.identifier] = p;
-    mx = p.x; my = p.y;
+  if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'ArrowDown' ||
+      e.code === 'ArrowLeft' || e.code === 'ArrowRight') {
+    e.preventDefault();
   }
-  mclk = true;
-  if (!pointerDown) { pointerDown = true; pointerJust = true; pointerDX = mx; pointerDY = my; }
-}, { passive: false });
-canvas.addEventListener('touchmove', function(e) {
+});
+document.addEventListener('keyup', function (e) { K[e.code] = false; });
+function eat(code) { if (JP[code]) { JP[code] = false; return true; } return false; }
+
+// ── Input: pointer / touch ───────────────────────────────────────────────────
+var mx = W / 2, my = H / 2;
+var mclk = false;
+var pointerDown  = false;
+var pointerJust  = false;          // edge: just pressed this frame
+var pointerUpEd  = false;          // edge: just released this frame
+var pointerAimActive = false;      // dragging on the playfield (sim phase)
+var activeTouches = {};            // map id → {x,y}
+
+function clientToCanvas(e) {
+  var r = canvas.getBoundingClientRect();
+  return {
+    x: (e.clientX - r.left) * (W / r.width),
+    y: (e.clientY - r.top)  * (H / r.height)
+  };
+}
+function clientToCanvasT(t) {
+  var r = canvas.getBoundingClientRect();
+  return {
+    x: (t.clientX - r.left) * (W / r.width),
+    y: (t.clientY - r.top)  * (H / r.height)
+  };
+}
+
+canvas.addEventListener('click', function (e) {
+  var p = clientToCanvas(e);
+  mx = p.x; my = p.y; mclk = true;
+});
+canvas.addEventListener('mousedown', function (e) {
+  var p = clientToCanvas(e); mx = p.x; my = p.y;
+  pointerDown = true; pointerJust = true;
+});
+canvas.addEventListener('mousemove', function (e) {
+  var p = clientToCanvas(e); mx = p.x; my = p.y;
+});
+canvas.addEventListener('mouseup', function () {
+  pointerDown = false; pointerUpEd = true;
+});
+
+canvas.addEventListener('touchstart', function (e) {
   e.preventDefault();
   for (var i = 0; i < e.changedTouches.length; i++) {
     var t = e.changedTouches[i];
-    var p = touchToCanvas(t.clientX, t.clientY);
-    activeTouches[t.identifier] = p;
+    var p = clientToCanvasT(t);
+    activeTouches[t.identifier] = { x: p.x, y: p.y };
+    mx = p.x; my = p.y;
+    pointerDown = true; pointerJust = true;
+  }
+}, { passive: false });
+canvas.addEventListener('touchmove', function (e) {
+  e.preventDefault();
+  for (var i = 0; i < e.changedTouches.length; i++) {
+    var t = e.changedTouches[i];
+    var p = clientToCanvasT(t);
+    if (activeTouches[t.identifier]) { activeTouches[t.identifier].x = p.x; activeTouches[t.identifier].y = p.y; }
     mx = p.x; my = p.y;
   }
 }, { passive: false });
 function endTouches(e) {
-  if (e && e.preventDefault) e.preventDefault();
+  e.preventDefault();
   for (var i = 0; i < e.changedTouches.length; i++) {
-    delete activeTouches[e.changedTouches[i].identifier];
+    var t = e.changedTouches[i];
+    if (activeTouches[t.identifier]) {
+      var p = activeTouches[t.identifier];
+      mx = p.x; my = p.y;
+      delete activeTouches[t.identifier];
+      mclk = true;        // synthesize a click on touchend (no 300 ms delay)
+    }
   }
-  // Only release the unified pointer when no touches remain.
   var any = false;
-  for (var id in activeTouches) { any = true; break; }
-  if (!any && pointerDown) { pointerDown = false; pointerUp = true; }
+  for (var k in activeTouches) if (activeTouches.hasOwnProperty(k)) { any = true; break; }
+  if (!any) { pointerDown = false; pointerUpEd = true; }
 }
 canvas.addEventListener('touchend',    endTouches, { passive: false });
 canvas.addEventListener('touchcancel', endTouches, { passive: false });
 
-function touchOverCircle(cx, cy, r) {
-  var r2 = r * r;
+function hitRect(bx, by, bw, bh) { return mx >= bx && mx <= bx + bw && my >= by && my <= by + bh; }
+function pointerOverCircle(cx, cy, r) {
+  if (!pointerDown) return false;
+  var any = false;
   for (var id in activeTouches) {
-    var t = activeTouches[id];
-    var dx = t.x - cx, dy = t.y - cy;
-    if (dx * dx + dy * dy <= r2) return true;
+    if (activeTouches.hasOwnProperty(id)) {
+      var t = activeTouches[id];
+      var dx = t.x - cx, dy = t.y - cy;
+      if (dx * dx + dy * dy <= r * r) return true;
+      any = true;
+    }
+  }
+  if (!any) {           // mouse path
+    var dxm = mx - cx, dym = my - cy;
+    return dxm * dxm + dym * dym <= r * r;
+  }
+  return false;
+}
+function pointerInRect(bx, by, bw, bh) {
+  if (!pointerDown) return false;
+  for (var id in activeTouches) {
+    if (activeTouches.hasOwnProperty(id)) {
+      var t = activeTouches[id];
+      if (t.x >= bx && t.x <= bx + bw && t.y >= by && t.y <= by + bh) return true;
+    }
   }
   return false;
 }
 
-// ── Physics constants — dimensionless units ──────────────────────────────────
-// DU = Earth-Moon distance (384,400 km)
-// TU = Moon orbital period (27.32 days)
-// From T² = 4π²a³/GM: G*M_earth = 4π² (with a=1 DU, T=1 TU)
-var PI2   = 2 * Math.PI;
-var GM_E  = 4 * Math.PI * Math.PI; // ≈ 39.478
-var MU    = 0.01230;               // Moon/Earth mass ratio
-var GM_M  = GM_E * MU;             // ≈ 0.4856
-
-// Moon: circular orbit, analytical (not simulated)
-var MOON_R = 1.0; // DU
-var MOON_W = PI2; // rad/TU
-
-// ── Display scale ─────────────────────────────────────────────────────────────
-var SCALE = 310; // pixels per DU (Moon orbit radius = 310 px on screen)
-var CX = W / 2, CY = H / 2;
-function sx(x) { return CX + x * SCALE; }
-function sy(y) { return CY - y * SCALE; } // y-axis flip
-
-// View transform: maps a world-space point (x, y) at simulation time t to
-// screen pixels. For presets with rotatingView=true we rotate by -ma so the
-// Moon stays pinned at +x and Earth stays at the origin, revealing the
-// figure-8 pattern in the Earth–Moon co-rotating frame.
-function vsx(x, y, t) {
-  if (curOrbit && curOrbit.rotatingView) {
-    var ma = moonAngle0 + MOON_W * t;
-    var c = Math.cos(ma), s = Math.sin(ma);
-    return CX + (x * c + y * s) * SCALE;
-  }
-  return CX + x * SCALE;
-}
-function vsy(x, y, t) {
-  if (curOrbit && curOrbit.rotatingView) {
-    var ma = moonAngle0 + MOON_W * t;
-    var c = Math.cos(ma), s = Math.sin(ma);
-    return CY - (-x * s + y * c) * SCALE;
-  }
-  return CY - y * SCALE;
-}
-// Rotate a heading angle (physics radians) into the view frame.
-function viewAngle(angle, t) {
-  if (curOrbit && curOrbit.rotatingView) return angle - (moonAngle0 + MOON_W * t);
-  return angle;
+// Web Audio unlock — iOS won't play until first gesture.
+var actx = null;
+try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+function unlockAudio() { if (actx && actx.state !== 'running') actx.resume(); }
+document.addEventListener('touchstart', unlockAudio);
+document.addEventListener('touchend',   unlockAudio);
+document.addEventListener('click',      unlockAudio);
+function playChime(freq, dur, vol) {
+  if (!actx) return;
+  var o = actx.createOscillator(), g = actx.createGain();
+  o.type = 'sine'; o.frequency.value = freq;
+  g.gain.setValueAtTime(0, actx.currentTime);
+  g.gain.linearRampToValueAtTime(vol || 0.15, actx.currentTime + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + (dur || 0.3));
+  o.connect(g); g.connect(actx.destination);
+  o.start(); o.stop(actx.currentTime + (dur || 0.3) + 0.05);
 }
 
-// ── Orbit presets — computed analytically ───────────────────────────────────
-// LEO: circular at r = 0.12 DU (clear of Earth's display radius)
-var R_LEO = 0.12;
-var V_LEO = Math.sqrt(GM_E / R_LEO); // circular velocity ≈ 18.1 DU/TU
+// ── Phases ───────────────────────────────────────────────────────────────────
+// 'select'        — mission picker grid
+// 'brief'         — mission info card with DEMO / FLY buttons
+// 'demo'          — autopilot runs the canonical solution
+// 'fly'           — player flies, demo trajectory shown as ghost
+// 'won'           — success banner
+// 'failed'        — failure banner
+// 'sandbox_place' — drag-to-place sandbox start state
+// 'sandbox_fly'   — sandbox flight, full physics knobs unlocked
+var phase = 'select';
 
-// Figure-8 encounter: a free-return-style retrograde trajectory whose path,
-// viewed in the Earth–Moon co-rotating frame, traces the iconic Apollo
-// figure-8 — a small lobe around Earth and a larger lobe around the Moon.
-// peri=0.12 DU (just above Earth), apo=1.10 DU (just past the Moon's orbit).
-// Period ≈ 0.476 TU; Moon phased so the spacecraft skims the Moon on the
-// outbound leg and is bent back by lunar gravity, repeating the pattern.
-var R_F8_PERI = 0.12;
-var R_F8_APO  = 1.10;
-var A_F8      = (R_F8_PERI + R_F8_APO) / 2;                          // 0.61 DU
-var V_F8_PERI = Math.sqrt(GM_E * (2 / R_F8_PERI - 1 / A_F8));        // ≈ 24.36 DU/TU
-var F8_HALF_T = Math.PI * Math.sqrt(A_F8 * A_F8 * A_F8 / GM_E);      // ≈ 0.238 TU
-// Moon phased so its position at first apoapsis is just past where the
-// spacecraft's apoapsis lands — the +0.20 rad offset gives a clean lunar
-// flyby that swings the craft back toward Earth.
-var F8_MOON_ANGLE0 = Math.PI - MOON_W * F8_HALF_T + 0.20;             // ≈ 1.845 rad
+// ── Sim state (live spacecraft + sim time) ───────────────────────────────────
+var curState = {
+  x: 0, y: 0, vx: 0, vy: 0, t: 0,
+  moonAngle0: 0,
+  heading: 0,
+  dvBudget: 18
+};
+var curMission   = null;
+var missionMode  = 'fly';                  // 'demo' | 'fly' | 'sandbox'
+var trail        = [];
+var trailMax     = 2000;
+var trailSkip    = 0;
+var ghostTrail   = null;                   // captured demo samples ({samples:[]}) for ghost overlay
 
-// Hohmann ellipse: periapsis 0.12 DU, apoapsis 0.55 DU — inside Moon's orbit
-var R_HOH_PERI = 0.12;
-var R_HOH_APO  = 0.55;
-var A_HOH = (R_HOH_PERI + R_HOH_APO) / 2; // 0.335 DU
-var V_HOH = Math.sqrt(GM_E * (2 / R_HOH_PERI - 1 / A_HOH)); // ≈ 23.24 DU/TU
+// Live thrust state (per-frame)
+var thrustFwd  = 0;          // -1, 0, +1
+var rotDir     = 0;          // -1, 0, +1
+var ROT_RATE   = 1.8;        // rad/sec
+var THRUST_MAG = 75;         // DU/TU² base
+var flameParts = [];
+var FLAME_MAX  = 200;
 
-// Hohmann flight-program ΔVs (impulsive burns)
-var V_APO_HOH      = Math.sqrt(GM_E * (2 / R_HOH_APO - 1 / A_HOH));  // ≈ 5.07
-var V_CIRC_APO     = Math.sqrt(GM_E / R_HOH_APO);                    // ≈ 8.47
-var HOHMANN_DV1    = V_HOH     - Math.sqrt(GM_E / R_HOH_PERI);       // ≈ 5.10
-var HOHMANN_DV2    = V_CIRC_APO - V_APO_HOH;                         // ≈ 3.40
+// Demo autopilot
+var demoProgram = null;
+var burnAnnounce = '';
+var burnAnnounceT = 0;
+var burnUpcoming  = null;          // {label, dv, dir, secondsUntil} for HUD preview
 
-// Trans-Lunar Injection: transfer ellipse peri=R_LEO, apo=1.0 DU (Moon's orbit).
-// Moon phased 0.07 rad ahead of rendezvous so spacecraft approaches from behind;
-// three-body sim bends trajectory to periapsis ~0.064 DU from Moon for stable LOI.
-var R_TLI_APO      = 1.0;
-var A_TLI          = (R_LEO + R_TLI_APO) / 2;
-var V_TLI_PERI     = Math.sqrt(GM_E * (2 / R_LEO - 1 / A_TLI));       // ≈ 24.24
-var TLI_DV         = V_TLI_PERI - Math.sqrt(GM_E / R_LEO);            // ≈ 6.10
-var TLI_HALF_PERIOD = Math.PI * Math.sqrt(A_TLI * A_TLI * A_TLI / GM_E); // ≈ 0.210 TU
-// +0.07 offset phases Moon ahead so periapsis is ~0.064 DU from Moon center
-var TLI_MOON_ANGLE0 = Math.PI - MOON_W * (0.003 + TLI_HALF_PERIOD) + 0.07; // ≈ 1.88 rad
+// Sim time pacing
+var TIME_MULTS = [1, 2, 5, 15, 30];
+var timeMultIdx = 1;
+var BASE_SPEED = 0.01;             // TU/sec at 1×
+var SIM_DT = 1 / 3600;
+var paused = false;
 
-// Free Return: apoapsis 0.96 DU, Moon phased 0.12 rad ahead for a close flyby
-// (~0.075 DU) that swings the spacecraft around and sends it home — no LOI burn.
-var R_FR_APO       = 0.96;
-var A_FR           = (R_LEO + R_FR_APO) / 2;
-var V_FR_PERI      = Math.sqrt(GM_E * (2 / R_LEO - 1 / A_FR));
-var FR_TLI_DV      = V_FR_PERI - Math.sqrt(GM_E / R_LEO);
-var FR_HALF_PERIOD = Math.PI * Math.sqrt(A_FR * A_FR * A_FR / GM_E);
-// +0.12 offset phases Moon ahead for a dramatic close flyby before the free return arc
-var FR_MOON_ANGLE0 = Math.PI - MOON_W * (0.003 + FR_HALF_PERIOD) + 0.12;
+// Goal tracking
+var dwellAccum   = 0;
+var minMoonDist  = Infinity;
+var minEarthPost = Infinity;
+var maxR         = -Infinity;
+var passedMoon   = false;
+var prevDrM      = null;
+var prevDrE      = 0;
+var firstApoAfterBurn = null;
+var hadAnyBurn   = false;
+var postSolveFire = false;
+var goalStatus   = 'wip';
+var goalReason   = '';
 
-// Gravity Assist: TLI ellipse with apoapsis 0.90 DU, Moon phased for a prograde slingshot flyby.
-// The Moon's gravity during close encounter boosts the spacecraft to a ~1.19 DU apoapsis orbit.
-var R_GA_APO       = 0.90;
-var A_GA           = (R_LEO + R_GA_APO) / 2;                         // 0.51 DU
-var GA_DV          = Math.sqrt(GM_E * (2 / R_LEO - 1 / A_GA)) - Math.sqrt(GM_E / R_LEO); // ≈ 5.96
-var GA_HALF_PERIOD = Math.PI * Math.sqrt(A_GA * A_GA * A_GA / GM_E); // ≈ 0.182 TU
-// +0.66 rad offset phases Moon for a prograde flyby (slingshot) at close approach
-var GA_MOON_ANGLE0 = Math.PI - MOON_W * (0.003 + GA_HALF_PERIOD) + 0.66; // ≈ 2.638 rad
+// Predictor
+var predCoast  = null;             // { samples, markers }
+var predThrust = null;             // { samples, markers }  — only while burn held
+var showPred   = true;
 
-var ORBITS = [
-  {
-    name:  'Low Earth Orbit',
-    desc:  'Tight circular orbit close to Earth',
-    color: '#4af',
-    trailRGB: [68, 170, 255],
-    // Start at (R_LEO, 0), velocity upward = counterclockwise
-    sx: R_LEO, sy: 0, vx: 0, vy: V_LEO,
-    moonAngle0: 0,
-    speed: 1,      // 1× BASE_SPEED = 0.01 TU/s
-    trailEvery: 1  // every frame
-  },
-  {
-    name:  'Figure-8 Encounter',
-    desc:  'Apollo-style free return — viewed in the Earth–Moon rotating frame',
-    color: '#fa4',
-    trailRGB: [255, 170, 68],
-    // Retrograde free-return: peri 0.12 DU, apo 1.10 DU. The Moon's gravity
-    // bends the outbound leg into a return leg; the path traces a figure-8
-    // when the camera rotates with the Moon (Earth and Moon both held fixed).
-    sx: R_F8_PERI, sy: 0, vx: 0, vy: -V_F8_PERI,
-    moonAngle0: F8_MOON_ANGLE0,
-    rotatingView: true,
-    speed: 2,
-    trailEvery: 2
-  },
-  {
-    name:  'Hohmann Ellipse',
-    desc:  'Elliptical orbit — watch Kepler\'s 2nd law in action',
-    color: '#8f8',
-    trailRGB: [136, 255, 136],
-    // Start at (R_HOH_PERI, 0), velocity upward = counterclockwise, apoapsis at (-0.55, 0)
-    sx: R_HOH_PERI, sy: 0, vx: 0, vy: V_HOH,
-    moonAngle0: 0,
-    speed: 2,      // 2× = 0.02 TU/s
-    trailEvery: 2
-  },
-  {
-    name:   'Custom Orbit',
-    desc:   'Tap to place your spacecraft, then drag to set velocity',
-    color:  '#d9f',
-    trailRGB: [220, 170, 255],
-    custom: true,
-    sx: 0, sy: 0, vx: 0, vy: 0,
-    moonAngle0: 0,
-    speed: 2,
-    trailEvery: 2
-  },
-  {
-    name:    'Hohmann Transfer',
-    desc:    'Auto-pilot: two prograde burns raise LEO to a higher orbit',
-    color:   '#9ff',
-    trailRGB: [150, 240, 255],
-    program: true,
-    story: "Lekan: 'Two burns, minimum fuel. This is how you do it right.'",
-    // Start in circular LEO; first burn fires at t=0.
-    sx: R_LEO, sy: 0, vx: 0, vy: Math.sqrt(GM_E / R_LEO),
-    moonAngle0: 0,
-    speed: 2,
-    trailEvery: 1,
-    burns: [
-      { trigger: 'time',           t: 0.003, dir: 'prograde', dv: HOHMANN_DV1,
-        label: 'BURN 1 — Transfer ellipse' },
-      { trigger: 'apoapsis_earth',           dir: 'prograde', dv: HOHMANN_DV2,
-        label: 'BURN 2 — Circularize' }
-    ]
-  },
-  {
-    name:    'Moon Insertion',
-    desc:    'LEO \u2192 Trans-Lunar Injection \u2192 capture into lunar orbit',
-    color:   '#fe8',
-    trailRGB: [255, 230, 140],
-    program: true,
-    story: "Samster: 'The Moon! Lekan says there is cheese up there. I choose to believe him.'",
-    sx: R_LEO, sy: 0, vx: 0, vy: Math.sqrt(GM_E / R_LEO),
-    moonAngle0: TLI_MOON_ANGLE0,
-    speed: 3,
-    trailEvery: 2,
-    burns: [
-      { trigger: 'time', t: 0.003, dir: 'prograde', dv: TLI_DV,
-        label: 'TLI — Trans-Lunar Injection' },
-      { trigger: 'periapsis_moon', mode: 'circularize_moon',
-        label: 'LOI — Lunar Orbit Insertion' }
-    ]
-  },
-  {
-    name:    'Free Return',
-    desc:    'Apollo 13-style: one burn out, swing past the Moon, coast home',
-    color:   '#f8a',
-    trailRGB: [255, 136, 170],
-    program: true,
-    story: "Lekan: 'One burn. If anything goes wrong, gravity brings you home. That is the beauty of it.'",
-    sx: R_LEO, sy: 0, vx: 0, vy: Math.sqrt(GM_E / R_LEO),
-    moonAngle0: FR_MOON_ANGLE0,
-    speed: 3,
-    trailEvery: 2,
-    burns: [
-      { trigger: 'time', t: 0.003, dir: 'prograde', dv: FR_TLI_DV,
-        label: 'TLI \u2014 single burn, coast home' }
-    ]
-  },
-  {
-    name:    'Gravity Assist',
-    desc:    'Moon\'s gravity slingshots you into a much bigger orbit \u2014 no second burn',
-    color:   '#af8',
-    trailRGB: [170, 255, 136],
-    program: true,
-    story: "Lekan: 'No second burn. The Moon does the work. Let gravity be your engine.'",
-    sx: R_LEO, sy: 0, vx: 0, vy: Math.sqrt(GM_E / R_LEO),
-    moonAngle0: GA_MOON_ANGLE0,
-    speed: 3,
-    trailEvery: 2,
-    burns: [
-      { trigger: 'time', t: 0.003, dir: 'prograde', dv: GA_DV,
-        label: 'Transfer burn' }
-    ]
-  }
-];
-
-// ── Simulation state ──────────────────────────────────────────────────────────
-var phase         = 'select';
-var simT          = 0;   // simulation time, TU
-var scX = 0, scY = 0, scVX = 0, scVY = 0;
-var moonAngle0    = 0;
-var curOrbit      = null;
-var trail         = [];
-var TRAIL_MAX     = 2000;
-var trailSkip     = 0;
-
-// ── Burn engine ───────────────────────────────────────────────────────────────
-// 1 DU/TU ≈ 0.163 km/s, so 18 DU/TU ≈ 2.9 km/s starting budget.
-var DV_START      = 18;
-var THRUST_MAG    = 75;   // DU/TU² main (prograde/retro) — punchy enough that a held burn meaningfully reshapes the orbit
-var DU_PER_TU_TO_KMPS = 0.1629; // 384400 km / (27.32*86400 s)
-var dvBudget      = DV_START;
-var thrustFwd     = 0;    // -1 retro, 0 off, +1 prograde — set per frame
-var rotDir        = 0;    // -1 CW, 0 off, +1 CCW — set per frame
-var ROT_RATE      = 1.8;  // radians per real second (RCS rotation, no ΔV cost)
-var scAngle       = 0;    // spacecraft heading in physics coords (radians, 0=right, π/2=up)
-var flameParts    = [];   // {x,y,vx,vy,life,maxLife,size,r,g,b}
-var FLAME_MAX     = 200;
-
-// ── Autopilot (auto-circularize) ─────────────────────────────────────────────
-// Bang-bang feedback controller: picks Earth or Moon as target (whichever body
-// is closer in orbital terms), then fires thrust to drive the orbit toward a
-// circle at the current radius. Turns itself off on tolerance hit or when the
-// ΔV budget runs out.
-var autopilot       = 'off';   // 'off' | 'on'
-var autoTarget      = 'earth'; // 'earth' | 'moon' — last target picked (for badge)
-var autoLockFrames  = 0;       // consecutive in-tolerance frames before shutoff
-
-// ── Placement (custom orbit) state ────────────────────────────────────────────
-var placeHasPos    = false;
-var placeHasVel    = false;
-var placeScX       = 0, placeScY = 0;
-var placeVX        = 0, placeVY  = 0;
-var placeDragging  = false;
-var PLACE_VEL_SCALE = 0.05;  // DU/TU per screen pixel of drag
-var PLACE_MIN_DRAG  = 8;     // pixels below this = tap, not drag
-
-// ── Flight program state ──────────────────────────────────────────────────────
-var programNextBurn  = 0;     // index of next burn to fire
-var programPrevDr    = null;  // dr/dt vs Earth at previous step (for apoapsis)
-var programPrevDrm   = null;  // dr/dt vs Moon at previous step (for periapsis)
-var programAnnounce  = '';    // label of most-recent burn
-var programAnnounceT = 0;     // real seconds remaining of announcement
-
-// Time multiplier
-var TIME_MULTS = [1, 2, 5, 10];
-var timeMultIdx = 0;
-var BASE_SPEED  = 0.01; // TU per real second at 1× (each orbit has a speed multiplier)
-var SIM_DT      = 1 / 3600; // integration step (TU) — fine grain for accuracy
-
-// ── Orbit predictor ────────────────────────────────────────────────────────────
-var predPts  = [];    // {sx, sy, f} coast trajectory dots  (f: 0=near → 1=far)
-var predMkrs = [];    // {sx, sy, type:'apo'|'peri'} apoapsis / periapsis markers
-var showPred = true;  // toggled from OPT panel
-
-// ── Options panel (Phase 4.5 / 5 / 6) ────────────────────────────────────────
-var showOpts   = false;
-var autoOrient = false;   // auto-rotate toward burn direction before firing
-
-// Physics multiplier presets — index 1 (earth) or 2 (moon) is the 1× default
+// Options
+var showOpts    = false;
+var autoOrient  = false;
 var EARTH_MASS_STEPS = [0.5, 1.0, 2.0, 4.0];
 var MOON_MASS_STEPS  = [0.0, 0.5, 1.0, 2.0, 4.0];
 var THRUST_STEPS     = [0.2, 0.5, 1.0, 2.0, 5.0];
-var earthMassIdx = 1;   // 1.0×
-var moonMassIdx  = 2;   // 1.0×
-var thrustIdx    = 2;   // 1.0×
-var skinIdx      = 0;   // 0=capsule  1=saturn v  2=duck dieb  3=samster
+var earthMassIdx = 1;
+var moonMassIdx  = 2;
+var thrustIdx    = 2;
+var skinIdx      = 0;
+var showGhost    = true;
+var showNavBall  = true;
 
-// ── Narration (Phase 6) ───────────────────────────────────────────────────────
-var narration  = '';   // text currently shown in toast
-var narrationT = 0;    // real seconds remaining
-var narrated   = {};   // {eventId: true} — prevents re-triggering per session
-
-// ── Achievement system ────────────────────────────────────────────────────────
+// Narration & achievements
+var narration  = '';
+var narrationT = 0;
+var narrated   = {};
 var achStore = {};
-try { achStore = JSON.parse(localStorage.getItem('orbit_ach') || '{}'); } catch(e) {}
-var achToast  = '';   // achievement badge text
-var achToastT = 0;    // real seconds remaining
+try { achStore = JSON.parse(localStorage.getItem('orbit_ach') || '{}'); } catch (e) {}
+var missionStars = {};
+try { missionStars = JSON.parse(localStorage.getItem('orbit_missions') || '{}'); } catch (e) {}
+var achToast = '';
+var achToastT = 0;
 
 function unlockAch(id, label) {
   if (achStore[id]) return;
   achStore[id] = true;
-  try { localStorage.setItem('orbit_ach', JSON.stringify(achStore)); } catch(e) {}
-  achToast  = '\u2605 ' + label;
-  achToastT = 3.5;
+  try { localStorage.setItem('orbit_ach', JSON.stringify(achStore)); } catch (e) {}
+  achToast = '★ ' + label; achToastT = 3.5;
+}
+function recordStars(missionId, stars) {
+  var prev = missionStars[missionId] || 0;
+  if (stars > prev) {
+    missionStars[missionId] = stars;
+    try { localStorage.setItem('orbit_missions', JSON.stringify(missionStars)); } catch (e) {}
+  }
 }
 
-// Lunar orbit angle tracker — accumulated angle in Moon frame, for moon_orbit event
-var lunarAnglePrev = null;
-var lunarAngleTot  = 0;
+// ── UI button hitboxes ───────────────────────────────────────────────────────
+var BACK_BTN     = { x: 10, y: 10, w: 84, h: 44 };
+var PAUSE_BTN    = { x: 0, y: 10, w: 48, h: 44 };     // x set dynamically
+var WARP_BTN     = { x: 0, y: 10, w: 48, h: 44 };
+var TIME_BTN     = { x: 0, y: 10, w: 78, h: 44 };
+var OPT_BTN      = { x: 0, y: 10, w: 72, h: 44 };
+var LAUNCH_BTN   = { x: (W - 240) / 2, y: H - 80, w: 240, h: 56 };
+var DEMO_BTN     = { x: 0, y: 0, w: 0, h: 0 };
+var FLY_BTN      = { x: 0, y: 0, w: 0, h: 0 };
+var STOP_BTN     = { x: 0, y: 0, w: 0, h: 0 };
+var TRYIT_BTN    = { x: 0, y: 0, w: 0, h: 0 };
+var REPLAY_BTN   = { x: 0, y: 0, w: 0, h: 0 };
+var NEXT_BTN     = { x: 0, y: 0, w: 0, h: 0 };
+var MENU_BTN     = { x: 0, y: 0, w: 0, h: 0 };
 
-var NARRATION_EVENTS = [
-  { id: 'moon_soi',
-    check: function() {
-      var mp = moonPos(simT); var dx = scX - mp.x, dy = scY - mp.y;
-      return dx * dx + dy * dy < 0.14 * 0.14;
-    },
-    text: "Lekan: 'Entering lunar sphere of influence.'",
-    ach:  { id: 'lunar_tourist', label: 'Lunar Tourist' } },
-  { id: 'escape_vel',
-    check: function() {
-      var v2 = scVX * scVX + scVY * scVY;
-      var r  = Math.sqrt(scX * scX + scY * scY);
-      return v2 > 2.0 * GM_E * EARTH_MASS_STEPS[earthMassIdx] / r;
-    },
-    text: "Lekan: 'Escape velocity. You are no longer bound to Earth.'",
-    ach:  { id: 'escape_artist', label: 'Escape Artist' } },
-  { id: 'close_earth',
-    check: function() { return scX * scX + scY * scY < 0.065 * 0.065; },
-    text: "Samster: 'Too close! Pull up!'" },
-  { id: 'moon_encounter',
-    check: function() {
-      var mp = moonPos(simT); var dx = scX - mp.x, dy = scY - mp.y;
-      return dx * dx + dy * dy < 0.06 * 0.06;
-    },
-    text: "Samster: 'The Moon is HUGE up close!'" },
-  { id: 'high_speed',
-    check: function() {
-      return scVX * scVX + scVY * scVY > 30 * 30;
-    },
-    text: "Lekan: 'Impressive velocity. Watch the periapsis.'" },
-  { id: 'fig8_encounter',
-    check: function() {
-      if (!curOrbit || curOrbit.name !== 'Figure-8 Encounter') return false;
-      var mp = moonPos(simT); var dx = scX - mp.x, dy = scY - mp.y;
-      return dx * dx + dy * dy < 0.12 * 0.12;
-    },
-    text: "Lekan: 'Lunar flyby — that loop is half of your figure-8.'",
-    ach:  { id: 'fig8_flyer', label: 'Figure-8 Flyer' } },
-  { id: 'hohmann_done',
-    check: function() {
-      return curOrbit && curOrbit.name === 'Hohmann Transfer' &&
-             programNextBurn >= curOrbit.burns.length;
-    },
-    text: "Lekan: 'Circularization complete. New orbit achieved. Efficient.'",
-    ach:  { id: 'hohmann_ace', label: 'Hohmann Ace' } },
-  { id: 'moon_orbit',
-    check: function() {
-      var mp = moonPos(simT); var dx = scX - mp.x, dy = scY - mp.y;
-      var rm = Math.sqrt(dx * dx + dy * dy);
-      if (rm > 0.14) { lunarAnglePrev = null; lunarAngleTot = 0; return false; }
-      var angle = Math.atan2(dy, dx);
-      if (lunarAnglePrev !== null) {
-        var da = angle - lunarAnglePrev;
-        if (da > Math.PI)  da -= 2 * Math.PI;
-        if (da < -Math.PI) da += 2 * Math.PI;
-        lunarAngleTot += Math.abs(da);
-      }
-      lunarAnglePrev = angle;
-      return lunarAngleTot > 2 * Math.PI;
-    },
-    text: "Lekan: 'A complete orbit of the Moon. This is history.'",
-    ach:  { id: 'moon_circler', label: 'Moon Circler' } }
+// On-canvas held controls
+var BURN_BTN     = { cx: W - 90, cy: H - 100, r: 56 };
+var RETRO_BTN    = { cx: W - 90, cy: H - 220, r: 42 };
+var LEFT_BTN     = { cx: 80,     cy: H - 100, r: 46 };
+var RIGHT_BTN    = { cx: 188,    cy: H - 100, r: 46 };
+var AUTO_BTN     = { cx: 80,     cy: H - 220, r: 42 };
+
+// ── Earth, Moon, spacecraft sprites — ported from previous build ─────────────
+var EARTH_ROT_RATE = PI2 * 2.732;
+var CONTINENTS = [
+  { lon: -1.35, lat:  0.40, r: 7, c: '#4a8a4a' },
+  { lon: -0.95, lat: -0.30, r: 5, c: '#3a7a3a' },
+  { lon:  0.35, lat:  0.28, r: 3, c: '#8a7a4a' },
+  { lon:  0.55, lat: -0.22, r: 6, c: '#a07a3a' },
+  { lon:  1.55, lat:  0.18, r: 9, c: '#5a8a4a' },
+  { lon:  2.35, lat: -0.55, r: 4, c: '#8a6a3a' },
+  { lon:  0.00, lat: -0.88, r: 7, c: '#d8e4ea' }
 ];
 
-function moonPos(t) {
-  var a = moonAngle0 + MOON_W * t;
-  return { x: MOON_R * Math.cos(a), y: MOON_R * Math.sin(a) };
-}
+function drawEarthSprite(ex, ey, R, simTime) {
+  ctx.beginPath(); ctx.arc(ex, ey, R, 0, PI2);
+  var eg = ctx.createRadialGradient(ex - R * 0.3, ey - R * 0.3, R * 0.1, ex, ey, R);
+  eg.addColorStop(0, '#5caaff'); eg.addColorStop(0.5, '#1a6fff'); eg.addColorStop(1, '#0830a0');
+  ctx.fillStyle = eg; ctx.fill();
 
-function moonVel(t) {
-  var a = moonAngle0 + MOON_W * t;
-  return { x: -MOON_R * MOON_W * Math.sin(a), y: MOON_R * MOON_W * Math.cos(a) };
-}
-
-function startSim(idx) {
-  var o   = ORBITS[idx];
-  curOrbit    = o;
-  scX = o.sx; scY = o.sy;
-  scVX = o.vx; scVY = o.vy;
-  moonAngle0 = o.moonAngle0;
-  simT = 0;
-  trail = [];
-  trailSkip = 0;
-  dvBudget = DV_START;
-  flameParts = [];
-  thrustFwd = 0;
-  rotDir = 0;
-  scAngle = Math.atan2(o.vy, o.vx);
-  autopilot = 'off';
-  autoLockFrames = 0;
-  narrated = {};
-  lunarAnglePrev = null; lunarAngleTot = 0;
-  phase = 'sim';
-}
-
-function startPlace(idx) {
-  curOrbit      = ORBITS[idx];
-  placeHasPos   = false;
-  placeHasVel   = false;
-  placeScX = 0; placeScY = 0;
-  placeVX  = 0; placeVY  = 0;
-  placeDragging = false;
-  moonAngle0    = 0;  // show Moon at +x while placing
-  phase         = 'place';
-}
-
-function launchFromPlace() {
-  scX  = placeScX;  scY  = placeScY;
-  scVX = placeVX;   scVY = placeVY;
-  simT = 0;
-  trail = [];
-  trailSkip = 0;
-  dvBudget = DV_START;
-  flameParts = [];
-  thrustFwd = 0;
-  rotDir = 0;
-  scAngle = Math.atan2(scVY, scVX);
-  autopilot = 'off';
-  autoLockFrames = 0;
-  narrated = {};
-  moonAngle0 = 0;
-  lunarAnglePrev = null; lunarAngleTot = 0;
-  phase = 'sim';
-}
-
-function startProgram(idx) {
-  var o = ORBITS[idx];
-  curOrbit = o;
-  scX = o.sx; scY = o.sy;
-  scVX = o.vx; scVY = o.vy;
-  moonAngle0 = o.moonAngle0;
-  simT = 0;
-  trail = [];
-  trailSkip = 0;
-  dvBudget = DV_START;
-  flameParts = [];
-  thrustFwd = 0;
-  rotDir = 0;
-  scAngle = Math.atan2(o.vy, o.vx);
-  autopilot = 'off';
-  autoLockFrames = 0;
-  narrated = {};
-  programNextBurn  = 0;
-  programPrevDr    = null;
-  programPrevDrm   = null;
-  programAnnounce  = '';
-  programAnnounceT = 0;
-  lunarAnglePrev   = null;
-  lunarAngleTot    = 0;
-  if (o.story) { narration = o.story; narrationT = 5.5; }
-  phase = 'sim';
-}
-
-// Impulsive ΔV applied to the spacecraft in a specified direction.
-// Directions are resolved against current velocity (or velocity relative to
-// the Moon for *_moon variants) at the moment the burn fires.
-function applyImpulsiveBurn(burn) {
-  var dx = 0, dy = 0;
-  var dvMag = burn.dv || 0;
-
-  if (burn.mode === 'circularize_moon') {
-    unlockAch('moon_walker', 'Moon Walker');
-    if (simT < 0.30) unlockAch('fast_insertion', 'Fast Insertion');
-    // Slow spacecraft to Moon-centered circular velocity at current altitude.
-    var mp1 = moonPos(simT);
-    var mv1 = moonVel(simT);
-    var mdx1 = scX - mp1.x, mdy1 = scY - mp1.y;
-    var rvx1 = scVX - mv1.x, rvy1 = scVY - mv1.y;
-    var rm1  = Math.sqrt(mdx1 * mdx1 + mdy1 * mdy1);
-    var vr1  = Math.sqrt(rvx1 * rvx1 + rvy1 * rvy1);
-    if (rm1 < 0.01) rm1 = 0.01;
-    if (vr1 < 0.0001) return;
-    var vcirc = Math.sqrt(GM_M * MOON_MASS_STEPS[moonMassIdx] / rm1);
-    dvMag = vr1 - vcirc;              // positive ⇒ retrograde slowdown
-    dx = -rvx1 / vr1; dy = -rvy1 / vr1;
-  } else if (burn.dir === 'prograde' || burn.dir === 'retrograde') {
-    var vl = Math.sqrt(scVX * scVX + scVY * scVY);
-    if (vl < 0.0001) return;
-    var fx = scVX / vl, fy = scVY / vl;
-    var s = burn.dir === 'prograde' ? 1 : -1;
-    dx = s * fx; dy = s * fy;
-  } else if (burn.dir === 'prograde_moon' || burn.dir === 'retrograde_moon') {
-    var mv = moonVel(simT);
-    var rvx = scVX - mv.x, rvy = scVY - mv.y;
-    var rl = Math.sqrt(rvx * rvx + rvy * rvy);
-    if (rl < 0.0001) return;
-    var fxm = rvx / rl, fym = rvy / rl;
-    var sm = burn.dir === 'prograde_moon' ? 1 : -1;
-    dx = sm * fxm; dy = sm * fym;
+  ctx.save();
+  ctx.beginPath(); ctx.arc(ex, ey, R, 0, PI2); ctx.clip();
+  var rot = simTime * EARTH_ROT_RATE;
+  for (var i = 0; i < CONTINENTS.length; i++) {
+    var c = CONTINENTS[i];
+    var lon = c.lon + rot, cl = Math.cos(lon);
+    if (cl < 0.08) continue;
+    var gx = Math.sin(lon) * Math.sqrt(1 - c.lat * c.lat);
+    var size = c.r * cl;
+    if (size < 0.4) continue;
+    ctx.beginPath(); ctx.arc(ex + R * gx, ey + R * -c.lat, size, 0, PI2);
+    ctx.fillStyle = c.c; ctx.globalAlpha = Math.min(1, cl * 1.2); ctx.fill();
   }
-  scVX += dx * dvMag;
-  scVY += dy * dvMag;
+  ctx.globalAlpha = 1; ctx.restore();
 
-  // Visual flash — spawn a fat flame burst in the exhaust direction (-dx,-dy)
-  var spx0 = vsx(scX, scY, simT), spy0 = vsy(scX, scY, simT);
-  // dx/dy are inertial-physics; rotate into the view frame for the burst.
-  var burnHead = viewAngle(Math.atan2(dy, dx), simT);
-  var ndx0 = Math.cos(burnHead), ndy0 = -Math.sin(burnHead); // to screen
-  for (var p = 0; p < 14; p++) {
-    spawnFlameBurst(spx0 - ndx0 * 6, spy0 - ndy0 * 6,
-                    -ndx0 * 90, -ndy0 * 90,
-                    2, 0.7, 4, 255, 190, 80, 60);
-  }
-  programAnnounce  = burn.label;
-  programAnnounceT = 3.2;
+  ctx.beginPath(); ctx.arc(ex, ey, R, 0, PI2);
+  ctx.strokeStyle = 'rgba(150,210,255,0.4)'; ctx.lineWidth = 2; ctx.stroke();
 }
 
-// Called once per physics sub-step to check whether the next burn's trigger is
-// satisfied. Keeps dr/dt history for apoapsis/periapsis edge-detection.
-function tickProgram() {
-  if (!curOrbit || !curOrbit.program)             return;
-  if (programNextBurn >= curOrbit.burns.length)   return;
-
-  var burn = curOrbit.burns[programNextBurn];
-
-  // Earth-relative radial velocity (sign of dr/dt)
-  var dr = scX * scVX + scY * scVY;
-
-  // Moon-relative radial velocity
-  var mp  = moonPos(simT);
-  var mv  = moonVel(simT);
-  var mdx = scX - mp.x, mdy = scY - mp.y;
-  var rvx = scVX - mv.x, rvy = scVY - mv.y;
-  var drm = mdx * rvx + mdy * rvy;
-
-  var fire = false;
-  if (burn.trigger === 'time') {
-    if (simT >= burn.t) fire = true;
-  } else if (burn.trigger === 'apoapsis_earth') {
-    if (programPrevDr !== null && programPrevDr > 0 && dr <= 0) fire = true;
-  } else if (burn.trigger === 'periapsis_moon') {
-    // Only arm near the Moon so stray edge-crossings far from the Moon don't fire.
-    var rmNow = Math.sqrt(mdx * mdx + mdy * mdy);
-    if (programPrevDrm !== null && programPrevDrm < 0 && drm >= 0 && rmNow < 0.15) fire = true;
-  }
-
-  programPrevDr  = dr;
-  programPrevDrm = drm;
-
-  if (fire) {
-    applyImpulsiveBurn(burn);
-    programNextBurn++;
-    // Reset edge detectors so a stale dr/drm doesn't fire the next burn.
-    programPrevDr  = null;
-    programPrevDrm = null;
-  }
+function drawMoonSprite(mpx, mpy, R) {
+  ctx.beginPath(); ctx.arc(mpx, mpy, R, 0, PI2);
+  var mg = ctx.createRadialGradient(mpx + R * 0.5, mpy - R * 0.2, 0, mpx, mpy, R * 1.25);
+  mg.addColorStop(0, '#f0f0f0'); mg.addColorStop(0.55, '#888'); mg.addColorStop(1, '#333');
+  ctx.fillStyle = mg; ctx.fill();
+  ctx.save(); ctx.beginPath(); ctx.arc(mpx, mpy, R, 0, PI2); ctx.clip();
+  var tg = ctx.createLinearGradient(mpx - R, mpy, mpx + R * 0.3, mpy);
+  tg.addColorStop(0, 'rgba(0,0,0,0.55)'); tg.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = tg; ctx.fillRect(mpx - R, mpy - R, R * 2, R * 2);
+  ctx.restore();
 }
 
-// Auto-circularize controller — called once per animation frame (not per
-// physics sub-step), sets thrustFwd / rotDir to drive the orbit toward a
-// circle at the current radius around the selected primary.
-var AUTO_DV_TOL      = 0.08;  // DU/TU — below this, treat orbit as circular
-var AUTO_LOCK_FRAMES = 18;    // consecutive in-tolerance frames before shutoff
-var AUTO_SOI         = 0.14;  // rm below which Moon becomes the target
-var AUTO_PROG_THRESH = 0.04;  // Δv projection needed to fire prograde/retro
-var AUTO_LAT_THRESH  = 0.02;  // ... to fire lateral steering
-
-function stepAutopilot(elapsed) {
-  thrustFwd = 0;
-  if (autopilot !== 'on' || phase !== 'sim' || dvBudget <= 0) return;
-
-  // Pick target body. Inside Moon's sphere of influence → Moon, else Earth.
-  var cx = 0, cy = 0, cvx = 0, cvy = 0, GM = GM_E * EARTH_MASS_STEPS[earthMassIdx];
-  var mp = moonPos(simT), mv = moonVel(simT);
-  var rmx = scX - mp.x, rmy = scY - mp.y;
-  var rm  = Math.sqrt(rmx * rmx + rmy * rmy);
-  if (rm < AUTO_SOI) {
-    cx = mp.x; cy = mp.y; cvx = mv.x; cvy = mv.y; GM = GM_M * MOON_MASS_STEPS[moonMassIdx];
-    autoTarget = 'moon';
-  } else {
-    autoTarget = 'earth';
-  }
-
-  // State relative to primary
-  var rx = scX - cx, ry = scY - cy;
-  var r  = Math.sqrt(rx * rx + ry * ry);
-  if (r < 0.008) return;
-  var rvx = scVX - cvx, rvy = scVY - cvy;
-
-  // Angular momentum sign picks direction of travel
-  var angMom = rx * rvy - ry * rvx;
-  var dir    = angMom >= 0 ? 1 : -1;
-  var tx = -ry / r, ty = rx / r;
-  if (dir < 0) { tx = -tx; ty = -ty; }
-
-  // Required impulse: Δv = v_circ*tangent − v_relative
-  var vcirc = Math.sqrt(GM / r);
-  var dvx   = tx * vcirc - rvx;
-  var dvy   = ty * vcirc - rvy;
-  var dvMag = Math.sqrt(dvx * dvx + dvy * dvy);
-
-  if (dvMag < AUTO_DV_TOL) {
-    autoLockFrames++;
-    if (autoLockFrames >= AUTO_LOCK_FRAMES) {
-      autopilot = 'off';
-      autoLockFrames = 0;
-      if (!narrated['auto_done']) {
-        narrated['auto_done'] = true;
-        narration  = "Lekan: 'Orbit stabilized.'";
-        narrationT = 4.0;
-        unlockAch('smooth_op', 'Smooth Operator');
-      }
-    }
-    return;
-  }
-  autoLockFrames = 0;
-
-  // Orient craft toward desired ΔV direction, then fire when aligned
-  var desiredAngle = Math.atan2(dvy, dvx); // physics coords (y-up)
-  var angleDiff = desiredAngle - scAngle;
-  // Normalize to [-π, π]
-  while (angleDiff >  Math.PI) angleDiff -= PI2;
-  while (angleDiff < -Math.PI) angleDiff += PI2;
-
-  var maxRot = ROT_RATE * elapsed;
-  if (Math.abs(angleDiff) < 0.05) {
-    // Aligned — fire main engine
-    scAngle = desiredAngle;
-    thrustFwd = 1;
-  } else {
-    // Rotate toward target heading, emit RCS puffs
-    var aRot = angleDiff > 0 ? 1 : -1;
-    scAngle += aRot * Math.min(maxRot, Math.abs(angleDiff));
-    rotDir = aRot;
-  }
-}
-
-// Symplectic Euler: v += a*dt, x += v*dt  (conserves energy far better than plain Euler)
-function stepPhysics(dt) {
-  var m   = moonPos(simT);
-  // Vectors from each body to spacecraft
-  var dex = scX,       dey = scY;
-  var dmx = scX - m.x, dmy = scY - m.y;
-
-  var re2 = dex * dex + dey * dey;
-  var rm2 = dmx * dmx + dmy * dmy;
-  var re  = Math.sqrt(re2);
-  var rm  = Math.sqrt(rm2);
-
-  // Guard: avoid singularity if craft is inside body radius
-  if (re < 0.001) re = 0.001;
-  if (rm < 0.001) rm = 0.001;
-
-  var re3 = re * re * re;
-  var rm3 = rm * rm * rm;
-
-  var geM = GM_E * EARTH_MASS_STEPS[earthMassIdx];
-  var gmM = GM_M * MOON_MASS_STEPS[moonMassIdx];
-  var ax = -geM * dex / re3 - gmM * dmx / rm3;
-  var ay = -geM * dey / re3 - gmM * dmy / rm3;
-
-  // Thrust acceleration along spacecraft heading (scAngle), no lateral steer
-  if (dvBudget > 0 && thrustFwd !== 0) {
-    var tMag = THRUST_MAG * THRUST_STEPS[thrustIdx];
-    var headX = Math.cos(scAngle); // physics coords (y-up)
-    var headY = Math.sin(scAngle);
-    ax += thrustFwd * tMag * headX;
-    ay += thrustFwd * tMag * headY;
-    var dvSpent = Math.abs(thrustFwd) * tMag * dt;
-    dvBudget -= dvSpent;
-    if (dvBudget < 0) dvBudget = 0;
-  }
-
-  // Velocity half-step then position full step (symplectic Euler)
-  scVX += ax * dt;
-  scVY += ay * dt;
-  scX  += scVX * dt;
-  scY  += scVY * dt;
-  simT += dt;
-}
-
-// ── Orbit predictor — coast trajectory preview ───────────────────────────────
-// Runs physics forward 0.2 TU without thrust; stores dots + apo/peri markers.
-function computePredictor() {
-  predPts  = [];
-  predMkrs = [];
-  var PRED_TOTAL = 0.20;
-  var PRED_STEPS = 500;
-  var PRED_SKIP  = 4;       // store every 4th point → ~125 dots
-  var pdt  = PRED_TOTAL / PRED_STEPS;
-  var px = scX, py = scY, pvx = scVX, pvy = scVY, pt = simT;
-  var prevDr = px * pvx + py * pvy;
-  var nApo = 0, nPeri = 0;
-  var geP = GM_E * EARTH_MASS_STEPS[earthMassIdx];
-  var gmP = GM_M * MOON_MASS_STEPS[moonMassIdx];
-
-  for (var i = 1; i <= PRED_STEPS; i++) {
-    var mpa  = moonAngle0 + MOON_W * pt;
-    var mx2  = MOON_R * Math.cos(mpa), my2 = MOON_R * Math.sin(mpa);
-    var dex  = px, dey = py;
-    var dmx2 = px - mx2, dmy2 = py - my2;
-    var re   = Math.sqrt(dex * dex + dey * dey); if (re < 0.001) re = 0.001;
-    var rm2  = Math.sqrt(dmx2 * dmx2 + dmy2 * dmy2); if (rm2 < 0.001) rm2 = 0.001;
-    pvx += (-geP * dex / (re*re*re) - gmP * dmx2 / (rm2*rm2*rm2)) * pdt;
-    pvy += (-geP * dey / (re*re*re) - gmP * dmy2 / (rm2*rm2*rm2)) * pdt;
-    px  += pvx * pdt;
-    py  += pvy * pdt;
-    pt  += pdt;
-    var dr = px * pvx + py * pvy;
-    if (nApo  < 2 && prevDr > 0 && dr <= 0) { predMkrs.push({ sx: vsx(px, py, pt), sy: vsy(px, py, pt), type: 'apo'  }); nApo++;  }
-    if (nPeri < 2 && prevDr < 0 && dr >= 0) { predMkrs.push({ sx: vsx(px, py, pt), sy: vsy(px, py, pt), type: 'peri' }); nPeri++; }
-    prevDr = dr;
-    if (i % PRED_SKIP === 0) predPts.push({ sx: vsx(px, py, pt), sy: vsy(px, py, pt), f: i / PRED_STEPS });
-  }
-}
-
-function drawPredictor() {
-  var n = predPts.length;
-  for (var i = 0; i < n; i++) {
-    var p = predPts[i];
-    var a = (1 - p.f) * 0.55;
-    ctx.beginPath();
-    ctx.arc(p.sx, p.sy, 1.5, 0, PI2);
-    ctx.fillStyle = 'rgba(255,255,255,' + a.toFixed(2) + ')';
-    ctx.fill();
-  }
-  for (var j = 0; j < predMkrs.length; j++) {
-    var m = predMkrs[j];
-    var mc = m.type === 'apo' ? '255,175,55' : '90,215,255';
-    ctx.beginPath();
-    ctx.arc(m.sx, m.sy, 4, 0, PI2);
-    ctx.strokeStyle = 'rgba(' + mc + ',0.8)';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-    ctx.fillStyle = 'rgba(' + mc + ',0.8)';
-    ctx.font = '9px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText(m.type === 'apo' ? 'APO' : 'PER', m.sx, m.sy - 5);
-  }
-}
-
-// ── Spacecraft shape (skin-aware) ─────────────────────────────────────────────
 function drawSpacecraftShape(spx, spy, ndx, ndy) {
   if (skinIdx === 0) {
-    // Capsule: classic triangle
     var nose = 9, wing = 4;
     ctx.beginPath();
     ctx.moveTo(spx + ndx * nose, spy + ndy * nose);
     ctx.lineTo(spx - ndy * wing - ndx * 4, spy - ndx * wing - ndy * 4);
     ctx.lineTo(spx + ndy * wing - ndx * 4, spy + ndx * wing - ndy * 4);
-    ctx.closePath();
-    ctx.fillStyle = '#fff';
-    ctx.fill();
+    ctx.closePath(); ctx.fillStyle = '#fff'; ctx.fill();
   } else if (skinIdx === 1) {
-    // Saturn V: tapered rocket body with engine bell and stage band
-    var rx = -ndy, ry = ndx;   // craft-right in screen (90° CCW of heading)
-    var L = 14, Wn = 1.2, Wb = 2.8;
-    // White body
+    var rx = -ndy, ry = ndx, L = 14, Wn = 1.2, Wb = 2.8;
     ctx.beginPath();
-    ctx.moveTo(spx + ndx * L,                spy + ndy * L);
-    ctx.lineTo(spx + rx * Wn + ndx * (L-3),  spy + ry * Wn + ndy * (L-3));
-    ctx.lineTo(spx + rx * Wb - ndx * 2,      spy + ry * Wb - ndy * 2);
-    ctx.lineTo(spx - rx * Wb - ndx * 2,      spy - ry * Wb - ndy * 2);
-    ctx.lineTo(spx - rx * Wn + ndx * (L-3),  spy - ry * Wn + ndy * (L-3));
-    ctx.closePath();
-    ctx.fillStyle = '#f2f2f0';
-    ctx.fill();
-    // Engine bell (brass/gold)
+    ctx.moveTo(spx + ndx * L,                 spy + ndy * L);
+    ctx.lineTo(spx + rx * Wn + ndx * (L - 3), spy + ry * Wn + ndy * (L - 3));
+    ctx.lineTo(spx + rx * Wb - ndx * 2,       spy + ry * Wb - ndy * 2);
+    ctx.lineTo(spx - rx * Wb - ndx * 2,       spy - ry * Wb - ndy * 2);
+    ctx.lineTo(spx - rx * Wn + ndx * (L - 3), spy - ry * Wn + ndy * (L - 3));
+    ctx.closePath(); ctx.fillStyle = '#f2f2f0'; ctx.fill();
     ctx.beginPath();
     ctx.moveTo(spx + rx * Wb - ndx * 2,        spy + ry * Wb - ndy * 2);
     ctx.lineTo(spx + rx * (Wb + 2) - ndx * 6,  spy + ry * (Wb + 2) - ndy * 6);
     ctx.lineTo(spx - rx * (Wb + 2) - ndx * 6,  spy - ry * (Wb + 2) - ndy * 6);
     ctx.lineTo(spx - rx * Wb - ndx * 2,        spy - ry * Wb - ndy * 2);
-    ctx.closePath();
-    ctx.fillStyle = '#c88830';
-    ctx.fill();
-    // Stage separation band
-    ctx.beginPath();
-    ctx.moveTo(spx + rx * (Wn + 1) + ndx * 4, spy + ry * (Wn + 1) + ndy * 4);
-    ctx.lineTo(spx - rx * (Wn + 1) + ndx * 4, spy - ry * (Wn + 1) + ndy * 4);
-    ctx.strokeStyle = 'rgba(0,0,0,0.45)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
+    ctx.closePath(); ctx.fillStyle = '#c88830'; ctx.fill();
   } else if (skinIdx === 2) {
-    // Duck Dieb's Escape Pod: round yellow body, green head, orange bill, bandit mask
     var rx3 = -ndy, ry3 = ndx;
-    // Yellow body
-    ctx.beginPath();
-    ctx.arc(spx - ndx * 2, spy - ndy * 2, 6.5, 0, PI2);
-    ctx.fillStyle = '#ffe135';
-    ctx.fill();
-    ctx.strokeStyle = '#b89000';
-    ctx.lineWidth = 0.8;
-    ctx.stroke();
-    // Green mallard head
-    ctx.beginPath();
-    ctx.arc(spx + ndx * 2.5, spy + ndy * 2.5, 3.5, 0, PI2);
-    ctx.fillStyle = '#2d8040';
-    ctx.fill();
-    // Bandit mask (dark oval)
-    ctx.beginPath();
-    ctx.arc(spx + ndx * 2.5, spy + ndy * 2.5, 2, 0, PI2);
-    ctx.fillStyle = 'rgba(12,12,12,0.72)';
-    ctx.fill();
-    // White eye gleam
-    ctx.beginPath();
-    ctx.arc(spx + ndx * 2.5 + rx3 * 0.8, spy + ndy * 2.5 + ry3 * 0.8, 0.9, 0, PI2);
-    ctx.fillStyle = '#fff';
-    ctx.fill();
-    // Orange bill
+    ctx.beginPath(); ctx.arc(spx - ndx * 2, spy - ndy * 2, 6.5, 0, PI2);
+    ctx.fillStyle = '#ffe135'; ctx.fill();
+    ctx.strokeStyle = '#b89000'; ctx.lineWidth = 0.8; ctx.stroke();
+    ctx.beginPath(); ctx.arc(spx + ndx * 2.5, spy + ndy * 2.5, 3.5, 0, PI2);
+    ctx.fillStyle = '#2d8040'; ctx.fill();
+    ctx.beginPath(); ctx.arc(spx + ndx * 2.5, spy + ndy * 2.5, 2, 0, PI2);
+    ctx.fillStyle = 'rgba(12,12,12,0.72)'; ctx.fill();
+    ctx.beginPath(); ctx.arc(spx + ndx * 2.5 + rx3 * 0.8, spy + ndy * 2.5 + ry3 * 0.8, 0.9, 0, PI2);
+    ctx.fillStyle = '#fff'; ctx.fill();
     ctx.beginPath();
     ctx.moveTo(spx + ndx * 6 + rx3 * 1.5, spy + ndy * 6 + ry3 * 1.5);
     ctx.lineTo(spx + ndx * 6 - rx3 * 1.5, spy + ndy * 6 - ry3 * 1.5);
     ctx.lineTo(spx + ndx * 10, spy + ndy * 10);
-    ctx.closePath();
-    ctx.fillStyle = '#ff8c00';
-    ctx.fill();
+    ctx.closePath(); ctx.fillStyle = '#ff8c00'; ctx.fill();
   } else if (skinIdx === 3) {
-    // Samster the hamster — round tan body, lighter head, pink-lined ears, black eye
     var rx4 = -ndy, ry4 = ndx;
-    // Body (warm tan)
-    ctx.beginPath();
-    ctx.arc(spx - ndx * 1.5, spy - ndy * 1.5, 6, 0, PI2);
-    ctx.fillStyle = '#c8956c';
-    ctx.fill();
-    // Head (lighter)
-    ctx.beginPath();
-    ctx.arc(spx + ndx * 5, spy + ndy * 5, 4, 0, PI2);
+    ctx.beginPath(); ctx.arc(spx - ndx * 1.5, spy - ndy * 1.5, 6, 0, PI2);
+    ctx.fillStyle = '#c8956c'; ctx.fill();
+    ctx.beginPath(); ctx.arc(spx + ndx * 5, spy + ndy * 5, 4, 0, PI2);
+    ctx.fillStyle = '#dba878'; ctx.fill();
+    var hx = spx + ndx * 4, hy = spy + ndy * 4;
     ctx.fillStyle = '#dba878';
-    ctx.fill();
-    // Ears (two outer + pink inner)
-    var ex = spx + ndx * 4, ey = spy + ndy * 4;
-    ctx.fillStyle = '#dba878';
-    ctx.beginPath(); ctx.arc(ex + rx4 * 3.2, ey + ry4 * 3.2, 1.9, 0, PI2); ctx.fill();
-    ctx.beginPath(); ctx.arc(ex - rx4 * 3.2, ey - ry4 * 3.2, 1.9, 0, PI2); ctx.fill();
+    ctx.beginPath(); ctx.arc(hx + rx4 * 3.2, hy + ry4 * 3.2, 1.9, 0, PI2); ctx.fill();
+    ctx.beginPath(); ctx.arc(hx - rx4 * 3.2, hy - ry4 * 3.2, 1.9, 0, PI2); ctx.fill();
     ctx.fillStyle = '#f088a0';
-    ctx.beginPath(); ctx.arc(ex + rx4 * 3.2, ey + ry4 * 3.2, 0.95, 0, PI2); ctx.fill();
-    ctx.beginPath(); ctx.arc(ex - rx4 * 3.2, ey - ry4 * 3.2, 0.95, 0, PI2); ctx.fill();
-    // Eye (dark)
-    ctx.beginPath();
-    ctx.arc(spx + ndx * 6.5 + rx4 * 1.4, spy + ndy * 6.5 + ry4 * 1.4, 0.9, 0, PI2);
-    ctx.fillStyle = '#0a0500';
-    ctx.fill();
-    // Tiny pink nose
-    ctx.beginPath();
-    ctx.arc(spx + ndx * 8.5, spy + ndy * 8.5, 0.6, 0, PI2);
-    ctx.fillStyle = '#ff9999';
-    ctx.fill();
+    ctx.beginPath(); ctx.arc(hx + rx4 * 3.2, hy + ry4 * 3.2, 0.95, 0, PI2); ctx.fill();
+    ctx.beginPath(); ctx.arc(hx - rx4 * 3.2, hy - ry4 * 3.2, 0.95, 0, PI2); ctx.fill();
+    ctx.beginPath(); ctx.arc(spx + ndx * 6.5 + rx4 * 1.4, spy + ndy * 6.5 + ry4 * 1.4, 0.9, 0, PI2);
+    ctx.fillStyle = '#0a0500'; ctx.fill();
   }
 }
 
-// ── Flame / puff particles (visual only, real-time) ──────────────────────────
-function spawnFlameBurst(px, py, baseVX, baseVY, count, life, size, r, g, b, spread) {
+// Chevron (instead of Unicode arrows — iOS renders those as boxes).
+function drawChevron(cx, cy, size, dir, color) {
+  // dir: 'left' | 'right' | 'up' | 'down'
+  ctx.strokeStyle = color || 'rgba(255,255,255,0.9)';
+  ctx.lineWidth = Math.max(2, size * 0.18);
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  if (dir === 'left') {
+    ctx.moveTo(cx + size * 0.4, cy - size * 0.6);
+    ctx.lineTo(cx - size * 0.4, cy);
+    ctx.lineTo(cx + size * 0.4, cy + size * 0.6);
+  } else if (dir === 'right') {
+    ctx.moveTo(cx - size * 0.4, cy - size * 0.6);
+    ctx.lineTo(cx + size * 0.4, cy);
+    ctx.lineTo(cx - size * 0.4, cy + size * 0.6);
+  } else if (dir === 'up') {
+    ctx.moveTo(cx - size * 0.6, cy + size * 0.4);
+    ctx.lineTo(cx, cy - size * 0.4);
+    ctx.lineTo(cx + size * 0.6, cy + size * 0.4);
+  } else if (dir === 'down') {
+    ctx.moveTo(cx - size * 0.6, cy - size * 0.4);
+    ctx.lineTo(cx, cy + size * 0.4);
+    ctx.lineTo(cx + size * 0.6, cy - size * 0.4);
+  }
+  ctx.stroke();
+}
+
+// Flame particles — visual exhaust.
+function spawnFlame(px, py, baseVX, baseVY, count, life, size, r, g, b, spread) {
   for (var i = 0; i < count; i++) {
     if (flameParts.length > FLAME_MAX) flameParts.shift();
     var jx = (Math.random() - 0.5) * spread;
     var jy = (Math.random() - 0.5) * spread;
     var lj = life * (0.6 + Math.random() * 0.6);
     flameParts.push({
-      x: px, y: py,
-      vx: baseVX + jx, vy: baseVY + jy,
+      x: px, y: py, vx: baseVX + jx, vy: baseVY + jy,
       life: lj, maxLife: lj,
       size: size * (0.7 + Math.random() * 0.6),
       r: r, g: g, b: b
     });
   }
 }
-
-function updateFlameParts(rdt) {
+function updateFlame(rdt) {
   for (var i = flameParts.length - 1; i >= 0; i--) {
     var p = flameParts[i];
-    p.x += p.vx * rdt;
-    p.y += p.vy * rdt;
-    p.life -= rdt;
+    p.x += p.vx * rdt; p.y += p.vy * rdt; p.life -= rdt;
     if (p.life <= 0) flameParts.splice(i, 1);
   }
 }
-
-function drawFlameParts() {
+function drawFlame() {
   for (var i = 0; i < flameParts.length; i++) {
     var p = flameParts[i];
-    var a = p.life / p.maxLife;
-    if (a < 0) a = 0;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, p.size * (0.4 + a * 0.6), 0, PI2);
+    var a = p.life / p.maxLife; if (a < 0) a = 0;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.size * (0.4 + a * 0.6), 0, PI2);
     ctx.fillStyle = 'rgba(' + p.r + ',' + p.g + ',' + p.b + ',' + (a * 0.8) + ')';
     ctx.fill();
   }
 }
 
-// ── UI layout ──────────────────────────────────────────────────────────────────
-var BTN_W = 330, BTN_H = 54;
-var BTN_X = (W - BTN_W) / 2;
-function orbitBtnY(i) { return 290 + i * 68; }
-
-function hitRect(bx, by, bw, bh) {
-  return mx >= bx && mx <= bx + bw && my >= by && my <= by + bh;
+// ── Mission lifecycle ────────────────────────────────────────────────────────
+function selectMission(m) {
+  curMission = m;
+  applyMissionView(m);
+  phase = 'brief';
+  narrated = {};
 }
 
-var BACK_BTN  = { x: 10,      y: 10, w: 96,  h: 44, label: '\u2190 Back' };
-var TIME_BTN  = { x: W - 102, y: 10, w: 92,  h: 44, label: '1\u00d7' };
-var OPT_BTN   = { x: W - 214, y: 10, w: 108, h: 44, label: 'OPT' };
-var RESET_BTN  = { x: W - 102, y: 10, w: 92,  h: 44, label: 'Reset' };
-var LAUNCH_BTN = { x: (W - 240) / 2, y: H - 90, w: 240, h: 60, label: 'LAUNCH' };
-
-// Burn buttons — held-touch controls for iPad
-var BURN_BTN  = { cx: W - 100, cy: H - 110, r: 58 };  // main prograde
-var RETRO_BTN = { cx: W - 100, cy: H - 226, r: 44 };
-var LEFT_BTN  = { cx:   80,    cy: H - 110, r: 48 };
-var RIGHT_BTN = { cx:  190,    cy: H - 110, r: 48 };
-var AUTO_BTN  = { cx:   80,    cy: H - 226, r: 44 };   // mirrors RETRO on the left
-
-// ── Drawing helpers ───────────────────────────────────────────────────────────
-function fillCircle(x, y, r, color) {
-  ctx.beginPath();
-  ctx.arc(x, y, r, 0, PI2);
-  ctx.fillStyle = color;
-  ctx.fill();
+function applyMissionView(m) {
+  if (m && m.view && m.view.zoomLevel != null) zoomIdx = m.view.zoomLevel;
+  if (zoomIdx < 0) zoomIdx = 0;
+  if (zoomIdx >= ZOOM_LEVELS.length) zoomIdx = ZOOM_LEVELS.length - 1;
 }
 
-// Earth rotation: real rate is 27.32 rot/TU. Scaled 1/10 so continents drift
-// visibly but don't whirl at high time-multipliers.
-var EARTH_ROT_RATE = PI2 * 2.732;  // rad/TU
+function resetCurStateFromMission(m) {
+  curState.x = m.start.x; curState.y = m.start.y;
+  curState.vx = m.start.vx; curState.vy = m.start.vy;
+  curState.t = 0;
+  curState.moonAngle0 = m.start.moonAngle0;
+  curState.heading    = m.start.heading != null ? m.start.heading : Math.atan2(m.start.vy, m.start.vx);
+  curState.dvBudget   = m.start.dvBudget;
+  trail = []; trailSkip = 0;
+  flameParts = [];
+  thrustFwd = 0; rotDir = 0;
+  dwellAccum = 0;
+  minMoonDist = Infinity; minEarthPost = Infinity; maxR = -Infinity;
+  passedMoon = false; prevDrM = null;
+  prevDrE = curState.x * curState.vx + curState.y * curState.vy;
+  firstApoAfterBurn = null;
+  hadAnyBurn = false; postSolveFire = false;
+  goalStatus = 'wip'; goalReason = '';
+  burnAnnounce = ''; burnAnnounceT = 0;
+  paused = false;
+}
 
-// Continent blobs for the rotating Earth. (lon in radians, lat in [-1,1], r
-// = blob pixel radius at equator/front, color).
-var CONTINENTS = [
-  { lon: -1.35, lat:  0.40, r: 7,  c: '#4a8a4a' },  // N America
-  { lon: -0.95, lat: -0.30, r: 5,  c: '#3a7a3a' },  // S America
-  { lon:  0.35, lat:  0.28, r: 3,  c: '#8a7a4a' },  // Europe
-  { lon:  0.55, lat: -0.22, r: 6,  c: '#a07a3a' },  // Africa
-  { lon:  1.55, lat:  0.18, r: 9,  c: '#5a8a4a' },  // Asia
-  { lon:  2.35, lat: -0.55, r: 4,  c: '#8a6a3a' },  // Australia
-  { lon:  0.00, lat: -0.88, r: 7,  c: '#d8e4ea' }   // Antarctica cap
-];
+function startDemo() {
+  resetCurStateFromMission(curMission);
+  demoProgram = Phys.makeImpulsiveProgram((curMission.solution && curMission.solution.burns) || []);
+  ghostTrail = null;
+  missionMode = 'demo';
+  phase = 'demo';
+  if (curMission.story) { narration = curMission.story; narrationT = 6.0; }
+}
 
-function drawEarthSprite(ex, ey, R, simTime) {
-  // Blue ocean globe
-  ctx.beginPath();
-  ctx.arc(ex, ey, R, 0, PI2);
-  var eg = ctx.createRadialGradient(ex - R * 0.3, ey - R * 0.3, R * 0.1, ex, ey, R);
-  eg.addColorStop(0, '#5caaff');
-  eg.addColorStop(0.5, '#1a6fff');
-  eg.addColorStop(1, '#0830a0');
-  ctx.fillStyle = eg;
-  ctx.fill();
+function startFly() {
+  resetCurStateFromMission(curMission);
+  demoProgram = null;
+  missionMode = 'fly';
+  phase = 'fly';
+  if (curMission.story && !narrated['story']) { narration = curMission.story; narrationT = 5.0; narrated['story'] = true; }
+}
 
-  // Continents — clipped to sphere so polar blobs don't overflow the edge
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(ex, ey, R, 0, PI2);
-  ctx.clip();
-  var rot = simTime * EARTH_ROT_RATE;
-  for (var i = 0; i < CONTINENTS.length; i++) {
-    var c = CONTINENTS[i];
-    var lon = c.lon + rot;
-    var cl  = Math.cos(lon);
-    if (cl < 0.08) continue;             // back of globe
-    var gx  = Math.sin(lon) * Math.sqrt(1 - c.lat * c.lat);
-    var px  = ex + R * gx;
-    var py  = ey + R * -c.lat;           // screen y-down
-    var size = c.r * cl;
-    if (size < 0.4) continue;
-    ctx.beginPath();
-    ctx.arc(px, py, size, 0, PI2);
-    ctx.fillStyle = c.c;
-    ctx.globalAlpha = Math.min(1, cl * 1.2);
+function startSandboxPlace() {
+  curMission = SANDBOX;
+  applyMissionView(SANDBOX);
+  phase = 'sandbox_place';
+  curState.x = 0; curState.y = 0; curState.vx = 0; curState.vy = 0; curState.t = 0;
+  curState.moonAngle0 = 0; curState.heading = 0; curState.dvBudget = 18;
+  placeHasPos = false; placeHasVel = false; placeDragging = false;
+}
+
+function returnToMenu() {
+  phase = 'select';
+  curMission = null;
+  trail = []; ghostTrail = null; flameParts = [];
+}
+
+// ── Demo trail capture: re-run the demo via simulate() to make a ghost ──────
+function captureGhostFromDemo() {
+  // Re-run from start of mission, applying impulses where the program would
+  // fire. Returns sample list in world coordinates.
+  var m = curMission;
+  var st = {
+    x: m.start.x, y: m.start.y, vx: m.start.vx, vy: m.start.vy, t: 0
+  };
+  var opts = {
+    moonAngle0: m.start.moonAngle0,
+    gmEMul: EARTH_MASS_STEPS[earthMassIdx],
+    gmMMul: MOON_MASS_STEPS[moonMassIdx],
+    thrust: null
+  };
+  var prog = Phys.makeImpulsiveProgram((m.solution && m.solution.burns) || []);
+  var samples = [{ x: st.x, y: st.y, t: 0 }];
+  var dt = SIM_DT;
+  var TMAX = (m.solution.expectedDuration || 0.5) * 1.5;
+  while (st.t < TMAX) {
+    prog.tick(st, opts);
+    var step = Phys.stepPhysics(st, dt, opts);
+    st.x = step.x; st.y = step.y; st.vx = step.vx; st.vy = step.vy; st.t = step.t;
+    if (step.collision) break;
+    if ((samples.length === 1) || ((st.t - samples[samples.length - 1].t) > 0.005)) {
+      samples.push({ x: st.x, y: st.y, t: st.t });
+    }
+  }
+  return { samples: samples };
+}
+
+// ── Maneuver predictor ───────────────────────────────────────────────────────
+function refreshPredictor() {
+  var optsBase = {
+    moonAngle0: curState.moonAngle0,
+    gmEMul: EARTH_MASS_STEPS[earthMassIdx],
+    gmMMul: MOON_MASS_STEPS[moonMassIdx],
+    thrust: null
+  };
+  predCoast = Phys.simulate(curState, optsBase, 0.20, 400, 4, false);
+  if (thrustFwd !== 0 && curState.dvBudget > 0) {
+    var tMag = THRUST_MAG * THRUST_STEPS[thrustIdx];
+    var horizon = Math.min(0.5, curState.dvBudget / tMag);
+    if (horizon > 0.005) {
+      var optsT = {
+        moonAngle0: curState.moonAngle0,
+        gmEMul: EARTH_MASS_STEPS[earthMassIdx],
+        gmMMul: MOON_MASS_STEPS[moonMassIdx],
+        thrust: { fwd: thrustFwd, scAngle: curState.heading, mag: tMag }
+      };
+      predThrust = Phys.simulate(curState, optsT, horizon, 200, 2, false);
+    } else predThrust = null;
+  } else {
+    predThrust = null;
+  }
+}
+
+function drawPredictorBranch(pred, baseRGB, dotR) {
+  if (!pred) return;
+  var s = pred.samples;
+  for (var i = 1; i < s.length; i++) {
+    var p = s[i];
+    var sx = sxw(p.x, p.y, p.t), sy = syw(p.x, p.y, p.t);
+    var a = (1 - p.f) * 0.55;
+    ctx.beginPath(); ctx.arc(sx, sy, dotR, 0, PI2);
+    ctx.fillStyle = 'rgba(' + baseRGB + ',' + a.toFixed(2) + ')';
     ctx.fill();
   }
-  ctx.globalAlpha = 1;
-  ctx.restore();
-
-  // Rim highlight
-  ctx.beginPath();
-  ctx.arc(ex, ey, R, 0, PI2);
-  ctx.strokeStyle = 'rgba(150,210,255,0.4)';
-  ctx.lineWidth = 2;
-  ctx.stroke();
-}
-
-// Moon — lit from the Sun (fixed at +x). Right side bright, left shaded so the
-// craft's relative position to Moon/Sun reads at a glance.
-function drawMoonSprite(mpx, mpy, R) {
-  ctx.beginPath();
-  ctx.arc(mpx, mpy, R, 0, PI2);
-  var mg = ctx.createRadialGradient(mpx + R * 0.5, mpy - R * 0.2, 0,
-                                    mpx, mpy, R * 1.25);
-  mg.addColorStop(0, '#f0f0f0');
-  mg.addColorStop(0.55, '#888');
-  mg.addColorStop(1, '#333');
-  ctx.fillStyle = mg;
-  ctx.fill();
-  // Terminator — linear dark overlay on the shadow side
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(mpx, mpy, R, 0, PI2);
-  ctx.clip();
-  var tg = ctx.createLinearGradient(mpx - R, mpy, mpx + R * 0.3, mpy);
-  tg.addColorStop(0, 'rgba(0,0,0,0.55)');
-  tg.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = tg;
-  ctx.fillRect(mpx - R, mpy - R, R * 2, R * 2);
-  ctx.restore();
-}
-
-function drawRoundBtn(cx, cy, r, label, held, glowColor, enabled) {
-  var a = enabled ? (held ? 0.55 : 0.28) : 0.1;
-  ctx.beginPath();
-  ctx.arc(cx, cy, r, 0, PI2);
-  ctx.fillStyle = 'rgba(255,255,255,' + (enabled ? (held ? 0.18 : 0.06) : 0.02) + ')';
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(' + glowColor + ',' + a + ')';
-  ctx.lineWidth = held ? 3 : 2;
-  ctx.stroke();
-  if (held && enabled) {
-    ctx.beginPath();
-    ctx.arc(cx, cy, r + 4, 0, PI2);
-    ctx.strokeStyle = 'rgba(' + glowColor + ',0.35)';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
+  for (var j = 0; j < pred.markers.length; j++) {
+    var m = pred.markers[j];
+    var msx = sxw(m.x, m.y, m.t), msy = syw(m.x, m.y, m.t);
+    var col = m.type.indexOf('apo')  === 0 ? '255,175,55' : '90,215,255';
+    ctx.beginPath(); ctx.arc(msx, msy, 4, 0, PI2);
+    ctx.strokeStyle = 'rgba(' + col + ',0.85)';
+    ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.fillStyle = 'rgba(' + col + ',0.9)';
+    ctx.font = '9px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    var lbl = m.type === 'apo_earth'  ? 'APO'  :
+              m.type === 'peri_earth' ? 'PER'  :
+              m.type === 'apo_moon'   ? 'mAPO' : 'mPER';
+    ctx.fillText(lbl, msx, msy - 5);
   }
-  ctx.fillStyle = enabled ? ('rgba(' + glowColor + ',' + (held ? 1 : 0.85) + ')') : 'rgba(255,255,255,0.25)';
-  ctx.font = 'bold ' + Math.round(r * 0.32) + 'px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(label, cx, cy);
 }
 
-function drawBtn(x, y, w, h, label, hover) {
-  ctx.beginPath();
-  ctx.roundRect(x, y, w, h, 8);
-  ctx.fillStyle = hover ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.07)';
-  ctx.fill();
-  ctx.strokeStyle = hover ? 'rgba(255,255,255,0.65)' : 'rgba(255,255,255,0.28)';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-  ctx.fillStyle = '#fff';
-  ctx.font = '14px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(label, x + w / 2, y + h / 2);
+// ── Stepping the world ───────────────────────────────────────────────────────
+function stepWorld(elapsed) {
+  if (paused) return;
+  var tu_target = elapsed * BASE_SPEED * TIME_MULTS[timeMultIdx];
+  var nSteps = Math.max(1, Math.ceil(tu_target / SIM_DT));
+  var dt = tu_target / nSteps;
+
+  for (var i = 0; i < nSteps && goalStatus === 'wip'; i++) {
+    // 1. Trigger impulsive burns in DEMO mode.
+    if (missionMode === 'demo' && demoProgram) {
+      var fired = demoProgram.tick(curState, {
+        moonAngle0: curState.moonAngle0,
+        gmEMul: EARTH_MASS_STEPS[earthMassIdx],
+        gmMMul: MOON_MASS_STEPS[moonMassIdx]
+      });
+      if (fired) {
+        hadAnyBurn = true;
+        var dvSpent = fired.magnitude;
+        curState.dvBudget -= dvSpent;
+        if (curState.dvBudget < 0) curState.dvBudget = 0;
+        burnAnnounce  = fired.burn.label || 'BURN';
+        burnAnnounceT = 3.5;
+        spawnBurnBurst();
+        if (fired.burn.mode === 'circularize_moon') {
+          unlockAch('moon_walker', 'Moon Walker');
+          if (curState.t < 0.30) unlockAch('fast_insertion', 'Fast Insertion');
+        }
+      }
+    }
+
+    // 2. Player-driven thrust (in FLY or SANDBOX modes).
+    var thrustForStep = null;
+    if ((missionMode === 'fly' || missionMode === 'sandbox') && thrustFwd !== 0 && curState.dvBudget > 0) {
+      thrustForStep = {
+        fwd: thrustFwd,
+        scAngle: curState.heading,
+        mag: THRUST_MAG * THRUST_STEPS[thrustIdx]
+      };
+      if (!hadAnyBurn) hadAnyBurn = true;
+      if (curMission && curMission.solution &&
+          demoProgram == null && demoProgram === null && missionMode === 'fly') {
+        // Player firing during fly — record for "no-fire-after" check.
+      }
+      // postSolveFire flag — if demo solution is done (or there's no demo) and
+      // the player keeps firing, we record it for gravity_assist/figure_8 fail checks.
+      if (curMission && curMission.solution && curMission.solution.burns &&
+          curMission.solution.burns.length > 0 &&
+          curState.t > (curMission.fail && curMission.fail.refireAfter != null ? curMission.fail.refireAfter : 0.05)) {
+        postSolveFire = true;
+      } else if (curMission && curMission.solution && (!curMission.solution.burns || curMission.solution.burns.length === 0)) {
+        // figure_8 — no burns allowed at all.
+        postSolveFire = true;
+      }
+    }
+
+    // 3. Step physics.
+    var step = Phys.stepPhysics(curState, dt, {
+      moonAngle0: curState.moonAngle0,
+      gmEMul: EARTH_MASS_STEPS[earthMassIdx],
+      gmMMul: MOON_MASS_STEPS[moonMassIdx],
+      thrust: thrustForStep,
+      dvBudget: curState.dvBudget
+    });
+    curState.x = step.x; curState.y = step.y;
+    curState.vx = step.vx; curState.vy = step.vy;
+    curState.t = step.t;
+    curState.dvBudget -= step.dvSpent;
+    if (curState.dvBudget < 0) curState.dvBudget = 0;
+
+    if (step.collision) {
+      goalStatus = 'failed';
+      goalReason = (step.collision === 'earth') ? 'Crashed into Earth' : 'Crashed into the Moon';
+      playChime(140, 0.5, 0.2);
+      return;
+    }
+
+    // 4. Track minima/maxima.
+    var rE = Math.sqrt(curState.x * curState.x + curState.y * curState.y);
+    if (rE > maxR) maxR = rE;
+    var mp = Phys.moonPos(curState.t, curState.moonAngle0);
+    var mv = Phys.moonVel(curState.t, curState.moonAngle0);
+    var dMx = curState.x - mp.x, dMy = curState.y - mp.y;
+    var rM = Math.sqrt(dMx * dMx + dMy * dMy);
+    if (rM < minMoonDist) minMoonDist = rM;
+
+    var rvx = curState.vx - mv.x, rvy = curState.vy - mv.y;
+    var drM = dMx * rvx + dMy * rvy;
+    if (!passedMoon && prevDrM !== null && prevDrM < 0 && drM >= 0 && rM < 0.20) passedMoon = true;
+    prevDrM = drM;
+    if (passedMoon && rE < minEarthPost) minEarthPost = rE;
+
+    var drE = curState.x * curState.vx + curState.y * curState.vy;
+    var atApo = (prevDrE > 0 && drE <= 0 && rE > 0.4);
+    if (atApo && hadAnyBurn && !firstApoAfterBurn) {
+      firstApoAfterBurn = { x: curState.x, y: curState.y, r: rE, t: curState.t };
+    }
+    prevDrE = drE;
+
+    // 5. Evaluate goal.
+    if (missionMode === 'fly' || missionMode === 'demo') {
+      var ge = SC.evaluateGoal(curMission.goal, {
+        state: curState,
+        opts: {
+          moonAngle0: curState.moonAngle0,
+          gmEMul: EARTH_MASS_STEPS[earthMassIdx],
+          gmMMul: MOON_MASS_STEPS[moonMassIdx]
+        },
+        dwellAccum: dwellAccum,
+        minMoonDistSoFar: minMoonDist,
+        minEarthPost: isFinite(minEarthPost) ? minEarthPost : null,
+        maxRsoFar: isFinite(maxR) ? maxR : null,
+        passedMoon: passedMoon,
+        atApoapsisEarth: atApo,
+        firstApoAfterBurn: firstApoAfterBurn,
+        postSolveFire: postSolveFire,
+        dt: dt
+      });
+      dwellAccum = ge.dwell;
+      if (ge.status === 'success' && missionMode === 'fly') {
+        goalStatus = 'success'; goalReason = ge.reason || '';
+        finalizeFlySuccess();
+        return;
+      }
+      if (ge.status === 'failed' && missionMode === 'fly') {
+        goalStatus = 'failed'; goalReason = ge.reason || '';
+        finalizeFlyFailure();
+        return;
+      }
+    }
+  }
+
+  // After the physics steps for this frame, sample the trail.
+  trailSkip++;
+  if (trailSkip >= 1) {
+    trailSkip = 0;
+    trail.push({ x: curState.x, y: curState.y, t: curState.t });
+    if (trail.length > trailMax) trail.shift();
+  }
 }
 
-// Deterministic star field (no Math.random to avoid per-frame flickering)
-function drawStars(n, alpha) {
-  ctx.fillStyle = 'rgba(255,255,255,' + alpha + ')';
+function spawnBurnBurst() {
+  // Visual: blast of orange particles trailing off the spacecraft.
+  var spx = sxw(curState.x, curState.y, curState.t);
+  var spy = syw(curState.x, curState.y, curState.t);
+  var hd = viewAngle(curState.heading, curState.t);
+  var ndx = Math.cos(hd), ndy = -Math.sin(hd);
+  for (var p = 0; p < 14; p++) {
+    spawnFlame(spx - ndx * 6, spy - ndy * 6, -ndx * 90, -ndy * 90, 1, 0.75, 4.5, 255, 190, 80, 60);
+  }
+}
+
+function finalizeFlySuccess() {
+  // Stars: 1 = pass, 2 = ΔV used ≤ 1.3× canonical, 3 = ΔV used ≤ 1.1× canonical
+  var canon = canonicalDV(curMission);
+  var used  = (curMission.start.dvBudget - curState.dvBudget);
+  var stars = 1;
+  if (canon > 0.01) {
+    if (used <= canon * 1.3) stars = 2;
+    if (used <= canon * 1.1) stars = 3;
+  } else {
+    if (used <= 0.05) stars = 3;       // no-burn mission
+  }
+  recordStars(curMission.id, stars);
+  var ach = curMission.achievements || [];
+  for (var i = 0; i < ach.length; i++) unlockAch(ach[i], titleCase(ach[i].replace(/_/g, ' ')));
+  playChime(880, 0.4, 0.18);
+  setTimeout(function () { playChime(1320, 0.6, 0.16); }, 180);
+  phase = 'won';
+}
+function finalizeFlyFailure() {
+  playChime(180, 0.6, 0.18);
+  phase = 'failed';
+}
+function canonicalDV(m) {
+  var sum = 0;
+  var burns = (m.solution && m.solution.burns) || [];
+  for (var i = 0; i < burns.length; i++) {
+    if (burns[i].dv != null) sum += Math.abs(burns[i].dv);
+    else if (burns[i].mode === 'circularize_moon') sum += 1.8;   // typical LOI impulse
+  }
+  return sum;
+}
+function titleCase(s) {
+  return s.replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+}
+
+// ── Sandbox placement ────────────────────────────────────────────────────────
+var placeHasPos = false, placeHasVel = false;
+var placeDragging = false;
+var PLACE_VEL_SCALE = 0.05;        // DU/TU per drag pixel
+var PLACE_MIN_DRAG = 8;
+
+function updateSandboxPlace() {
+  // Tap to set position (must be outside R_EARTH_DU, inside ~1.3 DU)
+  if (pointerJust) {
+    pointerJust = false;
+    // Ignore taps on top bar
+    if (my < 60) return;
+    if (my > H - 100) return;   // ignore taps near the LAUNCH button row
+    var wx = (mx - CX) / SCALE();
+    var wy = (CY - my) / SCALE();
+    var r = Math.sqrt(wx * wx + wy * wy);
+    if (r > 0.05 && r < 1.3) {
+      curState.x = wx; curState.y = wy;
+      placeHasPos = true; placeHasVel = false; placeDragging = true;
+    }
+  }
+  if (pointerDown && placeHasPos) {
+    var spx = sxw(curState.x, curState.y, 0), spy = syw(curState.x, curState.y, 0);
+    var dx = mx - spx, dy = my - spy;
+    var d = Math.sqrt(dx * dx + dy * dy);
+    if (d > PLACE_MIN_DRAG) {
+      curState.vx =  dx * PLACE_VEL_SCALE / 1;
+      curState.vy = -dy * PLACE_VEL_SCALE / 1;   // y flip
+      placeHasVel = true;
+    }
+  }
+  if (pointerUpEd) {
+    pointerUpEd = false;
+    placeDragging = false;
+  }
+  if (placeHasPos && placeHasVel && hitRect(LAUNCH_BTN.x, LAUNCH_BTN.y, LAUNCH_BTN.w, LAUNCH_BTN.h) && mclk) {
+    mclk = false;
+    curState.t = 0;
+    curState.heading = Math.atan2(curState.vy, curState.vx);
+    curState.dvBudget = 18;
+    trail = []; flameParts = [];
+    missionMode = 'sandbox';
+    phase = 'sandbox_fly';
+  }
+}
+
+// ── Top-bar / mission-screen UI ──────────────────────────────────────────────
+function layoutTopBar() {
+  // Right-justify the cluster: [time mult] [opt] [pause] [warp]
+  var x = W - 10;
+  WARP_BTN.x  = x - WARP_BTN.w;  x -= WARP_BTN.w + 6;
+  PAUSE_BTN.x = x - PAUSE_BTN.w; x -= PAUSE_BTN.w + 6;
+  TIME_BTN.x  = x - TIME_BTN.w;  x -= TIME_BTN.w + 6;
+  OPT_BTN.x   = x - OPT_BTN.w;
+}
+layoutTopBar();
+
+// ── Update phases ────────────────────────────────────────────────────────────
+function updateSelect() {
+  // Mission cards: 2 columns × 4 rows (7 missions + sandbox)
+  if (mclk) {
+    if (hitRect(BACK_BTN.x, BACK_BTN.y, BACK_BTN.w, BACK_BTN.h)) { mclk = false; }
+    for (var i = 0; i < MISSIONS.length; i++) {
+      var c = missionCardRect(i);
+      if (hitRect(c.x, c.y, c.w, c.h)) { mclk = false; selectMission(MISSIONS[i]); return; }
+    }
+    var sb = sandboxCardRect();
+    if (hitRect(sb.x, sb.y, sb.w, sb.h)) { mclk = false; startSandboxPlace(); return; }
+    mclk = false;
+  }
+}
+function missionCardRect(i) {
+  var col = i % 2, row = Math.floor(i / 2);
+  var W2 = 350, H2 = 92, gap = 12;
+  var totalW = 2 * W2 + gap;
+  var x = (W - totalW) / 2 + col * (W2 + gap);
+  var y = 130 + row * (H2 + gap);
+  return { x: x, y: y, w: W2, h: H2 };
+}
+function sandboxCardRect() {
+  return { x: (W - 360) / 2, y: 130 + 4 * (92 + 12), w: 360, h: 70 };
+}
+
+function updateBrief() {
+  if (mclk) {
+    if (hitRect(BACK_BTN.x, BACK_BTN.y, BACK_BTN.w, BACK_BTN.h)) { mclk = false; returnToMenu(); return; }
+    if (hitRect(DEMO_BTN.x, DEMO_BTN.y, DEMO_BTN.w, DEMO_BTN.h)) { mclk = false; startDemo(); return; }
+    if (hitRect(FLY_BTN.x,  FLY_BTN.y,  FLY_BTN.w,  FLY_BTN.h))  { mclk = false; startFly();  return; }
+    mclk = false;
+  }
+}
+
+function updateDemo(elapsed) {
+  // Live controls: just pause/time/back/opt/zoom (no thrust).
+  handleTopBarInputs(elapsed);
+  stepWorld(elapsed);
+  refreshPredictor();
+  if (mclk) {
+    if (hitRect(STOP_BTN.x, STOP_BTN.y, STOP_BTN.w, STOP_BTN.h)) {
+      mclk = false; ghostTrail = { samples: trail.slice() }; startFly(); return;
+    }
+    if (demoProgram && demoProgram.done() && hitRect(TRYIT_BTN.x, TRYIT_BTN.y, TRYIT_BTN.w, TRYIT_BTN.h)) {
+      mclk = false; ghostTrail = { samples: trail.slice() }; startFly(); return;
+    }
+    mclk = false;
+  }
+}
+
+function updateFly(elapsed) {
+  handleTopBarInputs(elapsed);
+  handleFlightControls(elapsed);
+  stepWorld(elapsed);
+  refreshPredictor();
+  mclk = false;
+}
+
+function updateWon(elapsed) {
+  if (mclk) {
+    if (hitRect(REPLAY_BTN.x, REPLAY_BTN.y, REPLAY_BTN.w, REPLAY_BTN.h)) { mclk = false; startFly(); return; }
+    if (hitRect(NEXT_BTN.x, NEXT_BTN.y, NEXT_BTN.w, NEXT_BTN.h))         { mclk = false; gotoNextMission(); return; }
+    if (hitRect(MENU_BTN.x, MENU_BTN.y, MENU_BTN.w, MENU_BTN.h))         { mclk = false; returnToMenu(); return; }
+    mclk = false;
+  }
+}
+function updateFailed(elapsed) {
+  if (mclk) {
+    if (hitRect(REPLAY_BTN.x, REPLAY_BTN.y, REPLAY_BTN.w, REPLAY_BTN.h)) { mclk = false; startFly(); return; }
+    if (hitRect(MENU_BTN.x, MENU_BTN.y, MENU_BTN.w, MENU_BTN.h))         { mclk = false; returnToMenu(); return; }
+    mclk = false;
+  }
+}
+
+function gotoNextMission() {
+  for (var i = 0; i < MISSIONS.length; i++) {
+    if (MISSIONS[i].id === curMission.id) {
+      var nxt = MISSIONS[(i + 1) % MISSIONS.length];
+      selectMission(nxt);
+      return;
+    }
+  }
+  returnToMenu();
+}
+
+function updateSandboxFly(elapsed) {
+  handleTopBarInputs(elapsed);
+  handleFlightControls(elapsed);
+  stepWorld(elapsed);
+  refreshPredictor();
+  mclk = false;
+}
+
+function handleTopBarInputs(elapsed) {
+  if (mclk) {
+    if (hitRect(BACK_BTN.x, BACK_BTN.y, BACK_BTN.w, BACK_BTN.h)) {
+      mclk = false;
+      if (phase === 'sandbox_fly') startSandboxPlace();
+      else if (curMission) { phase = 'brief'; }
+      else returnToMenu();
+      return;
+    }
+    if (hitRect(PAUSE_BTN.x, PAUSE_BTN.y, PAUSE_BTN.w, PAUSE_BTN.h)) { mclk = false; paused = !paused; return; }
+    if (hitRect(TIME_BTN.x, TIME_BTN.y, TIME_BTN.w, TIME_BTN.h))    { mclk = false; timeMultIdx = (timeMultIdx + 1) % TIME_MULTS.length; return; }
+    if (hitRect(WARP_BTN.x, WARP_BTN.y, WARP_BTN.w, WARP_BTN.h))    { mclk = false; warpToNextEvent(); return; }
+    if (hitRect(OPT_BTN.x, OPT_BTN.y, OPT_BTN.w, OPT_BTN.h))        { mclk = false; showOpts = !showOpts; return; }
+  }
+  if (eat('KeyP')) paused = !paused;
+  if (eat('KeyT')) timeMultIdx = (timeMultIdx + 1) % TIME_MULTS.length;
+  if (eat('KeyO')) showOpts = !showOpts;
+  if (eat('KeyR')) returnToMenu();
+  if (eat('Equal') || eat('NumpadAdd'))  zoomIdx = Math.max(0, zoomIdx - 1);    // closer
+  if (eat('Minus') || eat('NumpadSubtract')) zoomIdx = Math.min(ZOOM_LEVELS.length - 1, zoomIdx + 1);
+
+  if (showOpts) handleOptsClick();
+}
+
+function warpToNextEvent() {
+  // Jump simulation to next upcoming scripted event:
+  // 1) next demo burn time (if demo), or
+  // 2) next earth apoapsis / Moon periapsis on coast forecast, or
+  // 3) +0.05 TU as a fallback.
+  var target = curState.t + 0.05;
+  if (missionMode === 'demo' && demoProgram && !demoProgram.done()) {
+    var burn = demoProgram.currentBurn();
+    if (burn && burn.trigger === 'time' && burn.t > curState.t) target = burn.t - 0.002;
+  } else if (predCoast && predCoast.markers && predCoast.markers.length) {
+    var first = predCoast.markers[0];
+    target = first.t - 0.002;
+  }
+  // Fast-forward in larger chunks of time. We just call stepWorld with a big
+  // synthetic "elapsed" so the existing pacing applies.
+  var dT = target - curState.t;
+  if (dT <= 0) return;
+  var prevMult = timeMultIdx;
+  timeMultIdx = TIME_MULTS.length - 1;
+  // Convert dT (TU) to elapsed (s).
+  var simElapsed = dT / (BASE_SPEED * TIME_MULTS[timeMultIdx]);
+  stepWorld(simElapsed);
+  timeMultIdx = prevMult;
+}
+
+function handleFlightControls(elapsed) {
+  thrustFwd = 0;
+  rotDir = 0;
+  // Keyboard
+  if (K.Space || K.ArrowUp)   thrustFwd =  1;
+  if (K.ArrowDown)             thrustFwd = -1;
+  if (K.ArrowLeft)             rotDir   =  1;
+  if (K.ArrowRight)            rotDir   = -1;
+  // Touch buttons
+  if (pointerOverCircle(BURN_BTN.cx, BURN_BTN.cy, BURN_BTN.r))   thrustFwd =  1;
+  if (pointerOverCircle(RETRO_BTN.cx, RETRO_BTN.cy, RETRO_BTN.r)) thrustFwd = -1;
+  if (pointerOverCircle(LEFT_BTN.cx, LEFT_BTN.cy, LEFT_BTN.r))   rotDir   =  1;
+  if (pointerOverCircle(RIGHT_BTN.cx, RIGHT_BTN.cy, RIGHT_BTN.r)) rotDir   = -1;
+  // RCS rotation: real-time (not sim-time) so it remains snappy at any time mult.
+  curState.heading += rotDir * ROT_RATE * elapsed;
+
+  // Flame puffs for visual feedback (real-time, not sim-time)
+  if (thrustFwd !== 0 && curState.dvBudget > 0) {
+    var spx = sxw(curState.x, curState.y, curState.t);
+    var spy = syw(curState.x, curState.y, curState.t);
+    var hd = viewAngle(curState.heading, curState.t);
+    var ndx = Math.cos(hd), ndy = -Math.sin(hd);
+    var bk = thrustFwd > 0 ? -1 : 1;
+    spawnFlame(spx + ndx * bk * 8, spy + ndy * bk * 8,
+               ndx * bk * 60, ndy * bk * 60, 2, 0.4, 3.4, 255, 180, 70, 30);
+  }
+  if (rotDir !== 0) {
+    var spx2 = sxw(curState.x, curState.y, curState.t);
+    var spy2 = syw(curState.x, curState.y, curState.t);
+    spawnFlame(spx2 + (Math.random() - 0.5) * 10, spy2 + (Math.random() - 0.5) * 10,
+               (Math.random() - 0.5) * 30, (Math.random() - 0.5) * 30, 1, 0.25, 1.8, 200, 220, 255, 6);
+  }
+}
+
+// ── Options panel click handling ─────────────────────────────────────────────
+function handleOptsClick() {
+  if (!mclk) return;
+  var panelX = 60, panelY = 80, panelW = W - 120;
+  if (!hitRect(panelX, panelY, panelW, H - 160)) { showOpts = false; mclk = false; return; }
+  // Rows are laid out in drawOptsPanel; we mirror layout for clicks.
+  var ry = panelY + 60;
+  var rowH = 56;
+  // Trajectory toggle
+  if (clickRow(panelX + panelW - 100, ry, 80, 44)) { showPred = !showPred; mclk = false; return; }
+  ry += rowH;
+  // Ghost toggle
+  if (clickRow(panelX + panelW - 100, ry, 80, 44)) { showGhost = !showGhost; mclk = false; return; }
+  ry += rowH;
+  // Nav-ball toggle
+  if (clickRow(panelX + panelW - 100, ry, 80, 44)) { showNavBall = !showNavBall; mclk = false; return; }
+  ry += rowH;
+  // Auto-orient toggle
+  if (clickRow(panelX + panelW - 100, ry, 80, 44)) { autoOrient = !autoOrient; mclk = false; return; }
+  ry += rowH;
+  // Earth mass chips
+  if (handleChipRow(panelX, ry, panelW, EARTH_MASS_STEPS, earthMassIdx, function (i) { earthMassIdx = i; })) { mclk = false; return; }
+  ry += rowH;
+  // Moon mass chips
+  if (handleChipRow(panelX, ry, panelW, MOON_MASS_STEPS, moonMassIdx, function (i) { moonMassIdx = i; })) { mclk = false; return; }
+  ry += rowH;
+  // Thrust chips
+  if (handleChipRow(panelX, ry, panelW, THRUST_STEPS, thrustIdx, function (i) { thrustIdx = i; })) { mclk = false; return; }
+  ry += rowH;
+  // Skin row (cycle button)
+  if (clickRow(panelX + panelW - 100, ry, 80, 44)) { skinIdx = (skinIdx + 1) % 4; mclk = false; return; }
+  ry += rowH;
+  // Zoom row
+  if (clickChip(panelX + panelW - 220, ry, 60, 44)) { zoomIdx = Math.max(0, zoomIdx - 1); mclk = false; return; }
+  if (clickChip(panelX + panelW - 100, ry, 60, 44)) { zoomIdx = Math.min(ZOOM_LEVELS.length - 1, zoomIdx + 1); mclk = false; return; }
+  // Close-X
+  if (hitRect(panelX + panelW - 54, panelY + 8, 44, 44)) { showOpts = false; mclk = false; return; }
+}
+function clickRow(bx, by, bw, bh) { return hitRect(bx, by, bw, bh); }
+function clickChip(cx, cy, cw, ch) { return hitRect(cx, cy, cw, ch); }
+function handleChipRow(panelX, ry, panelW, steps, currentIdx, setter) {
+  var n = steps.length;
+  var avail = 220;
+  var chipW = (avail - (n - 1) * 6) / n;
+  var startX = panelX + panelW - avail - 10;
   for (var i = 0; i < n; i++) {
-    ctx.fillRect(
-      (i * 137 + 17) % W,
-      (i * 211 + 53) % H,
-      1, 1
-    );
+    var cx = startX + i * (chipW + 6);
+    if (hitRect(cx, ry, chipW, 44)) { setter(i); return true; }
+  }
+  return false;
+}
+
+// ── Rendering ────────────────────────────────────────────────────────────────
+function clear() {
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+  drawStars();
+}
+
+// Deterministic starfield. Seeded so it doesn't twinkle.
+function drawStars() {
+  for (var i = 0; i < 90; i++) {
+    var x = (i * 137 + 17) % W;
+    var y = (i * 89  + 43) % H;
+    var s = ((i * 31) % 5) / 5 + 0.4;
+    ctx.fillStyle = 'rgba(255,255,255,' + (0.15 + 0.4 * s).toFixed(2) + ')';
+    ctx.fillRect(x, y, 1.2, 1.2);
   }
 }
 
-// ── Draw: select screen ────────────────────────────────────────────────────────
-function drawSelect() {
-  ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, W, H);
-  drawStars(130, 0.6);
+function drawWorld() {
+  var rotating = curMission && curMission.view && curMission.view.preset === 'rotating_moon';
+  var simT = curState.t;
+  // Earth at origin
+  var ex = sxw(0, 0, simT), ey = syw(0, 0, simT);
+  // Moon (analytical) — use moonPos
+  var mp = Phys.moonPos(simT, curState.moonAngle0);
+  var mpx = sxw(mp.x, mp.y, simT), mpy = syw(mp.x, mp.y, simT);
 
-  // Title
-  ctx.fillStyle = '#fff';
-  ctx.font = 'bold 34px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'alphabetic';
-  ctx.fillText('Orbital Mechanics', W / 2, 110);
-
-  ctx.fillStyle = 'rgba(255,255,255,0.5)';
-  ctx.font = '15px sans-serif';
-  ctx.fillText('Three-body physics simulator', W / 2, 143);
-
-  // Mini Earth-Moon diagram
-  var diag_cx = W / 2, diag_cy = 215;
-  ctx.beginPath();
-  ctx.arc(diag_cx, diag_cy, 62, 0, PI2);
-  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-  drawEarthSprite(diag_cx, diag_cy, 13, 0);
-  drawMoonSprite(diag_cx + 62, diag_cy, 4);
-
-  // Orbit buttons
-  for (var i = 0; i < ORBITS.length; i++) {
-    var o  = ORBITS[i];
-    var by = orbitBtnY(i);
-    var hover = hitRect(BTN_X, by, BTN_W, BTN_H);
-
+  // Moon orbit guide circle (only when not rotating).
+  if (!rotating) {
     ctx.beginPath();
-    ctx.roundRect(BTN_X, by, BTN_W, BTN_H, 10);
-    ctx.fillStyle = hover ? 'rgba(255,255,255,0.11)' : 'rgba(255,255,255,0.05)';
-    ctx.fill();
-    ctx.strokeStyle = o.color;
-    ctx.lineWidth = hover ? 2 : 1.5;
-    ctx.stroke();
-
-    ctx.fillStyle = o.color;
-    ctx.font = 'bold 15px sans-serif';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillText(o.name, BTN_X + 16, by + 21);
-
-    ctx.fillStyle = 'rgba(255,255,255,0.48)';
-    ctx.font = '12px sans-serif';
-    ctx.fillText(o.desc, BTN_X + 16, by + 40);
+    ctx.arc(ex, ey, Phys.MOON_R * SCALE(), 0, PI2);
+    ctx.strokeStyle = 'rgba(140,160,200,0.18)';
+    ctx.lineWidth = 1; ctx.stroke();
   }
 
-  ctx.fillStyle = 'rgba(255,255,255,0.28)';
-  ctx.font = '11px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'alphabetic';
-  ctx.fillText('Space / \u2191 burn  \u2193 retro  \u2190\u2192 rotate   \u2022   T time  \u2022  O options  \u2022  R back',
-               W / 2, orbitBtnY(ORBITS.length) + 14);
-}
+  // Earth surface ring (for collision visualization at higher zoom levels).
+  if (Phys.R_EARTH_DU * SCALE() > 20) {
+    drawEarthSprite(ex, ey, Phys.R_EARTH_DU * SCALE(), simT);
+  } else {
+    drawEarthSprite(ex, ey, 22, simT);
+  }
 
-// ── Draw: placement phase ──────────────────────────────────────────────────────
-function drawVelArrow(fromX, fromY, toX, toY, color) {
-  var dx = toX - fromX, dy = toY - fromY;
-  var len = Math.sqrt(dx * dx + dy * dy);
-  if (len < 1) return;
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 2;
+  // Moon SOI ring
   ctx.beginPath();
-  ctx.moveTo(fromX, fromY);
-  ctx.lineTo(toX, toY);
-  ctx.stroke();
-  // Arrowhead
-  var ax = dx / len, ay = dy / len;
-  var perp_x = -ay, perp_y = ax;
-  var hx = toX - ax * 10, hy = toY - ay * 10;
-  ctx.beginPath();
-  ctx.moveTo(toX, toY);
-  ctx.lineTo(hx + perp_x * 5, hy + perp_y * 5);
-  ctx.lineTo(hx - perp_x * 5, hy - perp_y * 5);
-  ctx.closePath();
-  ctx.fillStyle = color;
-  ctx.fill();
-}
+  ctx.arc(mpx, mpy, Phys.SOI_MOON_DU * SCALE(), 0, PI2);
+  ctx.strokeStyle = 'rgba(180,200,240,0.12)';
+  ctx.lineWidth = 1; ctx.stroke();
 
-function drawPlace() {
-  ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, W, H);
-  drawStars(130, 0.45);
+  // Moon sprite — radius scales with zoom but capped.
+  var moonR = Math.max(6, Phys.R_MOON_DU * SCALE() * 1.2);
+  drawMoonSprite(mpx, mpy, moonR);
 
-  // Moon orbit guide
-  ctx.beginPath();
-  ctx.arc(CX, CY, MOON_R * SCALE, 0, PI2);
-  ctx.strokeStyle = 'rgba(255,255,255,0.07)';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-
-  // Earth exclusion ring (visual hint that you can't place inside)
-  ctx.beginPath();
-  ctx.arc(CX, CY, 0.10 * SCALE, 0, PI2);
-  ctx.setLineDash([4, 4]);
-  ctx.strokeStyle = 'rgba(255,80,80,0.35)';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  // Earth (rotation paused in the placement phase — simTime = 0)
-  var ex = sx(0), ey = sy(0);
-  drawEarthSprite(ex, ey, 24, 0);
-
-  // Moon at +x
-  var mp = moonPos(0);
-  var mpx = sx(mp.x), mpy = sy(mp.y);
-  drawMoonSprite(mpx, mpy, 7);
-
-  // Spacecraft + velocity indicator
-  if (placeHasPos) {
-    var shipSX = sx(placeScX), shipSY = sy(placeScY);
-    // Live drag preview takes precedence over committed velocity
-    if (placeDragging) {
-      drawVelArrow(shipSX, shipSY, mx, my, '#fff');
-      // Show live speed
-      var liveDX = mx - shipSX, liveDY = my - shipSY;
-      var liveLen = Math.sqrt(liveDX * liveDX + liveDY * liveDY);
-      var liveDU  = liveLen * PLACE_VEL_SCALE;
-      var liveKmps = (liveDU * DU_PER_TU_TO_KMPS).toFixed(2);
-      ctx.fillStyle = 'rgba(255,255,255,0.9)';
-      ctx.font = 'bold 13px sans-serif';
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'bottom';
-      ctx.fillText(liveDU.toFixed(2) + ' DU/TU (' + liveKmps + ' km/s)', mx + 10, my - 8);
-    } else if (placeHasVel) {
-      // Render committed velocity at same scale as drag
-      var velPX = placeVX / PLACE_VEL_SCALE;
-      var velPY = -placeVY / PLACE_VEL_SCALE;
-      drawVelArrow(shipSX, shipSY, shipSX + velPX, shipSY + velPY, '#d9f');
+  // Ghost trail (faint)
+  if (showGhost && ghostTrail && ghostTrail.samples && phase === 'fly') {
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    var s0 = ghostTrail.samples[0];
+    ctx.moveTo(sxw(s0.x, s0.y, s0.t), syw(s0.x, s0.y, s0.t));
+    for (var gi = 1; gi < ghostTrail.samples.length; gi++) {
+      var sg = ghostTrail.samples[gi];
+      ctx.lineTo(sxw(sg.x, sg.y, sg.t), syw(sg.x, sg.y, sg.t));
     }
-    // Ship dot
-    fillCircle(shipSX, shipSY, 4, '#fff');
-    ctx.beginPath();
-    ctx.arc(shipSX, shipSY, 8, 0, PI2);
-    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
-    ctx.lineWidth = 1.5;
     ctx.stroke();
   }
 
-  // HUD buttons
-  var backHover = hitRect(BACK_BTN.x, BACK_BTN.y, BACK_BTN.w, BACK_BTN.h);
-  drawBtn(BACK_BTN.x, BACK_BTN.y, BACK_BTN.w, BACK_BTN.h, BACK_BTN.label, backHover);
-  var resetHover = hitRect(RESET_BTN.x, RESET_BTN.y, RESET_BTN.w, RESET_BTN.h);
-  drawBtn(RESET_BTN.x, RESET_BTN.y, RESET_BTN.w, RESET_BTN.h, RESET_BTN.label, resetHover);
-
-  // Launch button (enabled only with pos + velocity)
-  var launchReady = placeHasPos && placeHasVel;
-  var launchHover = hitRect(LAUNCH_BTN.x, LAUNCH_BTN.y, LAUNCH_BTN.w, LAUNCH_BTN.h);
-  ctx.beginPath();
-  ctx.roundRect(LAUNCH_BTN.x, LAUNCH_BTN.y, LAUNCH_BTN.w, LAUNCH_BTN.h, 12);
-  ctx.fillStyle = launchReady
-    ? (launchHover ? 'rgba(150,255,170,0.25)' : 'rgba(150,255,170,0.14)')
-    : 'rgba(255,255,255,0.05)';
-  ctx.fill();
-  ctx.strokeStyle = launchReady ? '#9fd' : 'rgba(255,255,255,0.2)';
-  ctx.lineWidth = launchReady ? 2.5 : 1;
-  ctx.stroke();
-  ctx.fillStyle = launchReady ? '#9fd' : 'rgba(255,255,255,0.3)';
-  ctx.font = 'bold 22px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('LAUNCH', LAUNCH_BTN.x + LAUNCH_BTN.w / 2, LAUNCH_BTN.y + LAUNCH_BTN.h / 2);
-
-  // Hint text
-  ctx.font = '13px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-  ctx.fillStyle = 'rgba(255,255,255,0.55)';
-  var hint;
-  if (!placeHasPos)      hint = 'Tap anywhere outside Earth to place your spacecraft';
-  else if (!placeHasVel) hint = 'Drag from the ship to set its initial velocity';
-  else                   hint = 'Drag to re-aim, or tap LAUNCH to begin the simulation';
-  ctx.fillText(hint, W / 2, 50);
-}
-
-// ── Draw: simulation ───────────────────────────────────────────────────────────
-function drawSim() {
-  ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, W, H);
-  drawStars(130, 0.45);
-
-  // Moon orbit guide — only meaningful in the inertial frame; in the rotating
-  // frame the Moon is held stationary so the ring would be misleading.
-  if (!(curOrbit && curOrbit.rotatingView)) {
+  // Live trail
+  if (trail.length > 1) {
+    var col = (curMission && curMission.trailRGB) ? curMission.trailRGB : [220, 220, 255];
+    ctx.strokeStyle = 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',0.85)';
+    ctx.lineWidth = 1.6;
     ctx.beginPath();
-    ctx.arc(CX, CY, MOON_R * SCALE, 0, PI2);
-    ctx.strokeStyle = 'rgba(255,255,255,0.07)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-  }
-
-  // Trail
-  if (trail.length > 1 && curOrbit) {
-    var r = curOrbit.trailRGB[0];
-    var g = curOrbit.trailRGB[1];
-    var b = curOrbit.trailRGB[2];
-    for (var i = 1; i < trail.length; i++) {
-      var a = (i / trail.length) * 0.75;
-      ctx.beginPath();
-      ctx.moveTo(trail[i - 1].x, trail[i - 1].y);
-      ctx.lineTo(trail[i].x, trail[i].y);
-      ctx.strokeStyle = 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
+    var t0 = trail[0];
+    ctx.moveTo(sxw(t0.x, t0.y, t0.t), syw(t0.x, t0.y, t0.t));
+    for (var ti = 1; ti < trail.length; ti++) {
+      var tp = trail[ti];
+      ctx.lineTo(sxw(tp.x, tp.y, tp.t), syw(tp.x, tp.y, tp.t));
     }
-  }
-
-  // Earth (rotating continents)
-  var ex = sx(0), ey = sy(0);
-  drawEarthSprite(ex, ey, 24, simT);
-
-  ctx.fillStyle = 'rgba(255,255,255,0.7)';
-  ctx.font = '11px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-  ctx.fillText('Earth', ex, ey + 28);
-
-  // Moon — drawn at its real position in the inertial frame, or pinned to
-  // (1, 0) DU in the rotating frame. vsx/vsy handles both via curOrbit.
-  var mp  = moonPos(simT);
-  var mpx = vsx(mp.x, mp.y, simT), mpy = vsy(mp.x, mp.y, simT);
-  drawMoonSprite(mpx, mpy, 7);
-
-  ctx.fillStyle = 'rgba(255,255,255,0.55)';
-  ctx.font = '10px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-  ctx.fillText('Moon', mpx, mpy + 10);
-
-  // Orbit predictor — coast trajectory dots + apo/peri markers
-  if (showPred) drawPredictor();
-
-  // Flame particles (behind spacecraft)
-  drawFlameParts();
-
-  // Spacecraft — points toward scAngle in physics, rotated into view frame.
-  var spx = vsx(scX, scY, simT), spy = vsy(scX, scY, simT);
-  var viewHeading = viewAngle(scAngle, simT);
-  var ndx = Math.cos(viewHeading);
-  var ndy = -Math.sin(viewHeading); // y-flip: physics y-up → screen y-down
-
-  // Aim line — show the player exactly where their tap-and-hold is steering.
-  if (pointerAimActive) {
-    ctx.save();
-    ctx.strokeStyle = dvBudget > 0 ? 'rgba(255,200,90,0.55)' : 'rgba(180,180,180,0.4)';
-    ctx.lineWidth = 1.5;
-    if (ctx.setLineDash) ctx.setLineDash([6, 6]);
-    ctx.beginPath();
-    ctx.moveTo(spx, spy);
-    ctx.lineTo(mx, my);
-    ctx.stroke();
-    ctx.restore();
-    // Crosshair at the tap point.
-    fillCircle(mx, my, 6, 'rgba(255,200,90,0.18)');
-    ctx.beginPath();
-    ctx.arc(mx, my, 8, 0, PI2);
-    ctx.strokeStyle = 'rgba(255,200,90,0.7)';
-    ctx.lineWidth = 1.5;
     ctx.stroke();
   }
 
+  // Predictor (coast + with-thrust)
+  if (showPred) {
+    drawPredictorBranch(predCoast,  '255,255,255', 1.4);
+    drawPredictorBranch(predThrust, '255,170,80',  1.8);
+  }
+
+  drawFlame();
+
+  // Spacecraft
+  var spx = sxw(curState.x, curState.y, simT);
+  var spy = syw(curState.x, curState.y, simT);
+  var hd  = viewAngle(curState.heading, simT);
+  var ndx = Math.cos(hd), ndy = -Math.sin(hd);
   drawSpacecraftShape(spx, spy, ndx, ndy);
 
-  // HUD buttons
-  var backHover = hitRect(BACK_BTN.x, BACK_BTN.y, BACK_BTN.w, BACK_BTN.h);
-  drawBtn(BACK_BTN.x, BACK_BTN.y, BACK_BTN.w, BACK_BTN.h, BACK_BTN.label, backHover);
-
-  var multLabel = TIME_MULTS[timeMultIdx] + '\u00d7 speed';
-  var timeHover = hitRect(TIME_BTN.x, TIME_BTN.y, TIME_BTN.w, TIME_BTN.h);
-  drawBtn(TIME_BTN.x, TIME_BTN.y, TIME_BTN.w, TIME_BTN.h, multLabel, timeHover);
-
-  var optHover = hitRect(OPT_BTN.x, OPT_BTN.y, OPT_BTN.w, OPT_BTN.h);
-  drawBtn(OPT_BTN.x, OPT_BTN.y, OPT_BTN.w, OPT_BTN.h, showOpts ? 'OPT \u25b2' : 'OPT \u25bc', optHover || showOpts);
-
-  // Burn control buttons (held-touch)
-  var fuelOK = dvBudget > 0;
-  drawRoundBtn(BURN_BTN.cx,  BURN_BTN.cy,  BURN_BTN.r,  'BURN',  thrustFwd === 1,  '255,180,60', fuelOK);
-  drawRoundBtn(RETRO_BTN.cx, RETRO_BTN.cy, RETRO_BTN.r, 'RETRO', thrustFwd === -1, '160,220,255', fuelOK);
-  drawRoundBtn(LEFT_BTN.cx,  LEFT_BTN.cy,  LEFT_BTN.r,  '\u25c0', rotDir === 1,  '220,230,240', true);
-  drawRoundBtn(RIGHT_BTN.cx, RIGHT_BTN.cy, RIGHT_BTN.r, '\u25b6', rotDir === -1, '220,230,240', true);
-  drawRoundBtn(AUTO_BTN.cx,  AUTO_BTN.cy,  AUTO_BTN.r,  'AUTO',  autopilot === 'on', '140,255,200', fuelOK);
-
-  // ΔV meter — top center
-  var dvFrac = dvBudget / DV_START;
-  if (dvFrac < 0) dvFrac = 0;
-  var meterW = 160, meterH = 10;
-  var meterX = (W - meterW) / 2, meterY = 16;
-  ctx.fillStyle = 'rgba(255,255,255,0.08)';
-  ctx.fillRect(meterX, meterY, meterW, meterH);
-  var barColor = dvFrac > 0.3 ? '#8fa' : (dvFrac > 0.1 ? '#fc6' : '#f66');
-  ctx.fillStyle = barColor;
-  ctx.fillRect(meterX, meterY, meterW * dvFrac, meterH);
-  ctx.strokeStyle = 'rgba(255,255,255,0.28)';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(meterX + 0.5, meterY + 0.5, meterW - 1, meterH - 1);
-  ctx.fillStyle = 'rgba(255,255,255,0.75)';
-  ctx.font = '11px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-  var dvKmps = (dvBudget * DU_PER_TU_TO_KMPS).toFixed(2);
-  ctx.fillText('\u0394V ' + dvKmps + ' km/s', W / 2, meterY + meterH + 4);
-
-  // Info strip
-  ctx.fillStyle = 'rgba(255,255,255,0.3)';
-  ctx.font = '11px sans-serif';
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'bottom';
-  var days = simT * 27.32;
-  ctx.fillText('T + ' + days.toFixed(2) + ' days', 10, H - 10);
-
-  // Current speed, km/s
-  var spdKmps = (Math.sqrt(scVX * scVX + scVY * scVY) * DU_PER_TU_TO_KMPS).toFixed(2);
-  ctx.textAlign = 'center';
-  ctx.fillText(spdKmps + ' km/s', W / 2, H - 10);
-
-  if (curOrbit) {
-    ctx.textAlign = 'right';
-    ctx.fillStyle = curOrbit.color;
-    ctx.fillText(curOrbit.name, W - 10, H - 10);
-    if (curOrbit.rotatingView) {
-      ctx.fillStyle = 'rgba(255,255,255,0.45)';
-      ctx.fillText('Earth–Moon rotating frame', W - 10, H - 24);
-    }
+  // Nav-ball chevrons (prograde / retrograde)
+  if (showNavBall && (curState.vx * curState.vx + curState.vy * curState.vy) > 1e-6) {
+    var vL = Math.sqrt(curState.vx * curState.vx + curState.vy * curState.vy);
+    var pgAngle = Math.atan2(curState.vy, curState.vx);
+    var pgView = viewAngle(pgAngle, simT);
+    var pgx = Math.cos(pgView), pgy = -Math.sin(pgView);
+    drawChevron(spx + pgx * 22, spy + pgy * 22, 8, vectorToDir(pgx, pgy), '#5cf');
+    drawChevron(spx - pgx * 22, spy - pgy * 22, 8, vectorToDir(-pgx, -pgy), '#f55');
   }
-
-  // Auto-circularize badge (takes precedence over flight-program badge)
-  if (autopilot === 'on') {
-    ctx.fillStyle = 'rgba(140,255,200,0.8)';
-    ctx.font = 'bold 11px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    var tgtLabel = autoTarget === 'moon' ? 'MOON' : 'EARTH';
-    ctx.fillText('\u2022 AUTO CIRC \u2192 ' + tgtLabel + ' \u2022', W / 2, 62);
-  }
-
-  // Flight-program autopilot badge + burn announcement
-  if (curOrbit && curOrbit.program) {
-    ctx.fillStyle = 'rgba(150,240,255,0.65)';
-    ctx.font = 'bold 10px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    ctx.fillText('\u2022 AUTOPILOT \u2022', W / 2, 62);
-
-    if (programAnnounceT > 0 && programAnnounce) {
-      var aAlpha = Math.min(1, programAnnounceT / 0.6);
-      ctx.fillStyle = 'rgba(255,240,180,' + aAlpha + ')';
-      ctx.font = 'bold 20px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(programAnnounce, W / 2, 110);
-    } else if (programNextBurn >= curOrbit.burns.length) {
-      ctx.fillStyle = 'rgba(180,255,200,0.7)';
-      ctx.font = 'bold 13px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'top';
-      ctx.fillText('Program complete', W / 2, 72);
-    }
-  }
-
-  // Narration toast (Phase 6)
-  if (narrationT > 0 && narration) {
-    var na = Math.min(1, narrationT / 0.5);
-    ctx.beginPath();
-    ctx.roundRect(W / 2 - 195, 90, 390, 34, 8);
-    ctx.fillStyle = 'rgba(12,16,28,' + (na * 0.82).toFixed(2) + ')';
-    ctx.fill();
-    ctx.fillStyle = 'rgba(255,240,195,' + na.toFixed(2) + ')';
-    ctx.font = '13px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(narration, W / 2, 107);
-  }
-
-  // Achievement toast — gold, bottom-center, fades in/out
-  if (achToastT > 0 && achToast) {
-    var aa = Math.min(1, achToastT / 0.5);
-    ctx.beginPath();
-    ctx.roundRect(W / 2 - 135, H - 62, 270, 30, 8);
-    ctx.fillStyle = 'rgba(255,210,0,' + (aa * 0.15).toFixed(2) + ')';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,210,0,' + (aa * 0.45).toFixed(2) + ')';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.fillStyle = 'rgba(255,225,80,' + aa.toFixed(2) + ')';
-    ctx.font = 'bold 13px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(achToast, W / 2, H - 47);
-  }
-
-  // Options panel overlay
-  if (showOpts) drawOptionsPanel();
 }
 
-// ── Options panel ─────────────────────────────────────────────────────────────
-// Chip-list layout helper shared by draw and click.
-// Rows 2/3/4 (Earth/Moon mass, Thrust) show tappable chips for direct value selection.
-var OPT_PX = 0;
-var OPT_PW = 380, OPT_ROW_H = 52;
-function optChipLayout(N) {
-  // leftEdge is relative to the panel's PX (the caller adds PX). Reserve the
-  // first 130px of the panel for the row label.
-  var labelGutter = 130;
-  var rightPad    = 14;
-  var chipGap     = 4;
-  var chipW       = Math.floor((OPT_PW - labelGutter - rightPad - (N - 1) * chipGap) / N);
-  var chipH       = OPT_ROW_H - 12;
-  return { leftEdge: labelGutter, chipW: chipW, chipH: chipH, chipGap: chipGap };
+function vectorToDir(dx, dy) {
+  // Chevron dir picks the cardinal direction nearest the vector.
+  if (Math.abs(dx) > Math.abs(dy)) return dx > 0 ? 'right' : 'left';
+  return dy > 0 ? 'down' : 'up';
 }
 
-function drawOptionsPanel() {
-  OPT_PX = W / 2 - OPT_PW / 2;
-  var PX = OPT_PX, PY = 60, PW = OPT_PW, rowH = OPT_ROW_H;
-  var skinNames = ['Capsule', 'Saturn V', 'Duck Dieb', 'Samster'];
-  var nRows = 6;
-  var PH = 54 + nRows * rowH;
+// ── HUD ───────────────────────────────────────────────────────────────────────
+function drawTopBar() {
+  // Background strip
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(0, 0, W, 60);
+  ctx.fillStyle = 'rgba(255,255,255,0.06)';
+  ctx.fillRect(0, 58, W, 2);
+  // Back button
+  drawBox(BACK_BTN.x, BACK_BTN.y, BACK_BTN.w, BACK_BTN.h, 'rgba(255,255,255,0.10)', 'rgba(255,255,255,0.5)');
+  ctx.fillStyle = '#ddd'; ctx.font = '15px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  drawChevron(BACK_BTN.x + 16, BACK_BTN.y + BACK_BTN.h / 2, 8, 'left', '#ddd');
+  ctx.fillText('Back', BACK_BTN.x + 32, BACK_BTN.y + BACK_BTN.h / 2);
+  // Mission name
+  if (curMission) {
+    ctx.fillStyle = curMission.color || '#fff';
+    ctx.font = 'bold 17px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(curMission.name, BACK_BTN.x + BACK_BTN.w + 14, 32);
+  }
+  // Right cluster: OPT, time mult, pause, warp
+  drawBox(OPT_BTN.x, OPT_BTN.y, OPT_BTN.w, OPT_BTN.h, 'rgba(255,255,255,0.10)', 'rgba(255,255,255,0.5)');
+  ctx.fillStyle = '#ddd'; ctx.font = '14px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('OPT', OPT_BTN.x + OPT_BTN.w / 2, OPT_BTN.y + OPT_BTN.h / 2);
 
-  ctx.beginPath();
-  ctx.roundRect(PX, PY, PW, PH, 12);
-  ctx.fillStyle = 'rgba(6,10,22,0.93)';
+  drawBox(TIME_BTN.x, TIME_BTN.y, TIME_BTN.w, TIME_BTN.h, 'rgba(255,255,255,0.10)', 'rgba(255,255,255,0.5)');
+  ctx.fillStyle = '#ddd'; ctx.font = 'bold 15px sans-serif';
+  ctx.fillText(TIME_MULTS[timeMultIdx] + '×', TIME_BTN.x + TIME_BTN.w / 2, TIME_BTN.y + TIME_BTN.h / 2);
+
+  drawBox(PAUSE_BTN.x, PAUSE_BTN.y, PAUSE_BTN.w, PAUSE_BTN.h,
+          paused ? 'rgba(255,200,80,0.18)' : 'rgba(255,255,255,0.10)',
+          paused ? 'rgba(255,200,80,0.9)'  : 'rgba(255,255,255,0.5)');
+  ctx.fillStyle = paused ? '#fec' : '#ddd';
+  if (paused) {
+    // play triangle
+    ctx.beginPath();
+    ctx.moveTo(PAUSE_BTN.x + 14, PAUSE_BTN.y + 10);
+    ctx.lineTo(PAUSE_BTN.x + 14, PAUSE_BTN.y + PAUSE_BTN.h - 10);
+    ctx.lineTo(PAUSE_BTN.x + PAUSE_BTN.w - 12, PAUSE_BTN.y + PAUSE_BTN.h / 2);
+    ctx.closePath(); ctx.fill();
+  } else {
+    // pause bars
+    ctx.fillRect(PAUSE_BTN.x + 13, PAUSE_BTN.y + 10, 6, PAUSE_BTN.h - 20);
+    ctx.fillRect(PAUSE_BTN.x + PAUSE_BTN.w - 19, PAUSE_BTN.y + 10, 6, PAUSE_BTN.h - 20);
+  }
+
+  drawBox(WARP_BTN.x, WARP_BTN.y, WARP_BTN.w, WARP_BTN.h, 'rgba(255,255,255,0.10)', 'rgba(255,255,255,0.5)');
+  drawChevron(WARP_BTN.x + WARP_BTN.w / 2 - 4, WARP_BTN.y + WARP_BTN.h / 2, 7, 'right', '#ddd');
+  drawChevron(WARP_BTN.x + WARP_BTN.w / 2 + 4, WARP_BTN.y + WARP_BTN.h / 2, 7, 'right', '#ddd');
+}
+
+function drawGoalBanner() {
+  if (!curMission || !curMission.goal) return;
+  var alpha = 0.95;
+  if (curState.t > 0.04) alpha = 0.35;
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.fillRect(0, 60, W, 28);
+  ctx.fillStyle = 'rgba(' + (curMission.trailRGB ? curMission.trailRGB.join(',') : '255,255,255') + ',' + alpha + ')';
+  ctx.font = '14px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('Goal: ' + curMission.goal.hudLabel, W / 2, 74);
+}
+
+function drawDvMeter() {
+  var barX = 130, barY = 100, barW = W - 260, barH = 14;
+  ctx.fillStyle = 'rgba(255,255,255,0.05)';
+  ctx.fillRect(barX, barY, barW, barH);
+  var frac = curState.dvBudget / 18;
+  if (frac < 0) frac = 0; if (frac > 1) frac = 1;
+  var col = frac > 0.30 ? '110,220,140' : frac > 0.10 ? '240,210,90' : '230,90,90';
+  ctx.fillStyle = 'rgba(' + col + ',0.9)';
+  ctx.fillRect(barX, barY, barW * frac, barH);
+  ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 1;
+  ctx.strokeRect(barX, barY, barW, barH);
+  ctx.fillStyle = '#ddd'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  var kms = curState.dvBudget * Phys.DU_PER_TU_TO_KMPS;
+  ctx.fillText('ΔV  ' + curState.dvBudget.toFixed(1) + ' / 18  (' + kms.toFixed(2) + ' km/s left)', W / 2, barY + barH / 2);
+
+  // Mass-multiplier warning pill
+  if (earthMassIdx !== 1 || moonMassIdx !== 2 || thrustIdx !== 2) {
+    var pillX = W - 220, pillY = 100, pillW = 200, pillH = 18;
+    ctx.fillStyle = 'rgba(255,180,60,0.18)';
+    ctx.beginPath(); ctx.roundRect(pillX, pillY, pillW, pillH, 9); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,180,60,0.6)'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = '#fec'; ctx.font = '11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('Physics modified', pillX + pillW / 2, pillY + pillH / 2);
+  }
+}
+
+function drawBottomInfo() {
+  var oeE = Phys.orbitalElements(curState, Phys.GM_E * EARTH_MASS_STEPS[earthMassIdx], { x: 0, y: 0, vx: 0, vy: 0 });
+  var alt_km = (oeE.r - Phys.R_EARTH_DU) * Phys.DU_TO_KM;
+  var apo_km = isFinite(oeE.apo)  ? oeE.apo  * Phys.DU_TO_KM : null;
+  var per_km =                        oeE.peri * Phys.DU_TO_KM;
+  var per_TU = isFinite(oeE.period) ? oeE.period : null;
+  var v_kms  = oeE.v * Phys.DU_PER_TU_TO_KMPS;
+  var mp = Phys.moonPos(curState.t, curState.moonAngle0);
+  var moonD_km = Math.sqrt((curState.x - mp.x) * (curState.x - mp.x) + (curState.y - mp.y) * (curState.y - mp.y)) * Phys.DU_TO_KM;
+
+  var stripY = H - 140;
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(0, stripY, W, 38);
+  ctx.fillStyle = '#bcd';
+  ctx.font = '12px monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  var line1 = 'Alt ' + fmtKm(alt_km) +
+              '   Apo ' + (apo_km == null ? 'esc' : fmtKm(apo_km)) +
+              '   Peri ' + fmtKm(per_km) +
+              '   Period ' + (per_TU == null ? '∞' : per_TU.toFixed(3) + ' TU');
+  ctx.fillText(line1, 14, stripY + 12);
+
+  var days = curState.t * Phys.TU_TO_DAYS;
+  var line2 = 'T+' + curState.t.toFixed(3) + ' TU (' + days.toFixed(2) + ' d)' +
+              '   v ' + v_kms.toFixed(2) + ' km/s' +
+              '   Moon dist ' + fmtKm(moonD_km);
+  ctx.fillText(line2, 14, stripY + 26);
+}
+function fmtKm(km) {
+  if (Math.abs(km) >= 1e6) return (km / 1e6).toFixed(2) + 'M km';
+  if (Math.abs(km) >= 1e3) return Math.round(km / 100) / 10 + 'k km';
+  return Math.round(km) + ' km';
+}
+
+function drawControlButtons(enabled) {
+  // Only drawn in fly / sandbox_fly modes.
+  drawRoundBtn(BURN_BTN.cx,  BURN_BTN.cy,  BURN_BTN.r,  'BURN',  thrustFwd > 0, '255,170,80', enabled);
+  drawRoundBtn(RETRO_BTN.cx, RETRO_BTN.cy, RETRO_BTN.r, 'RETRO', thrustFwd < 0, '120,180,255', enabled);
+  // Chevrons drawn with directional triangles inside circles.
+  drawRoundBtn(LEFT_BTN.cx,  LEFT_BTN.cy,  LEFT_BTN.r,  '',  rotDir > 0, '255,255,255', enabled);
+  drawChevron(LEFT_BTN.cx, LEFT_BTN.cy, 14, 'left', rotDir > 0 ? '#fff' : 'rgba(255,255,255,0.7)');
+  drawRoundBtn(RIGHT_BTN.cx, RIGHT_BTN.cy, RIGHT_BTN.r, '', rotDir < 0, '255,255,255', enabled);
+  drawChevron(RIGHT_BTN.cx, RIGHT_BTN.cy, 14, 'right', rotDir < 0 ? '#fff' : 'rgba(255,255,255,0.7)');
+}
+function drawRoundBtn(cx, cy, r, label, held, glowColor, enabled) {
+  var a = enabled ? (held ? 0.65 : 0.32) : 0.1;
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, PI2);
+  ctx.fillStyle = 'rgba(255,255,255,' + (enabled ? (held ? 0.20 : 0.06) : 0.02) + ')';
   ctx.fill();
-  ctx.strokeStyle = 'rgba(255,255,255,0.22)';
-  ctx.lineWidth = 1;
-  ctx.stroke();
+  ctx.strokeStyle = 'rgba(' + glowColor + ',' + a + ')';
+  ctx.lineWidth = held ? 3 : 2; ctx.stroke();
+  if (held && enabled) {
+    ctx.beginPath(); ctx.arc(cx, cy, r + 4, 0, PI2);
+    ctx.strokeStyle = 'rgba(' + glowColor + ',0.35)'; ctx.lineWidth = 1.5; ctx.stroke();
+  }
+  if (label) {
+    ctx.fillStyle = enabled ? ('rgba(' + glowColor + ',' + (held ? 1 : 0.9) + ')') : 'rgba(255,255,255,0.25)';
+    ctx.font = 'bold ' + Math.round(r * 0.34) + 'px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(label, cx, cy);
+  }
+}
+function drawBox(x, y, w, h, fill, stroke) {
+  ctx.fillStyle = fill;
+  ctx.beginPath(); ctx.roundRect(x, y, w, h, 10); ctx.fill();
+  ctx.strokeStyle = stroke; ctx.lineWidth = 1; ctx.stroke();
+}
 
-  ctx.fillStyle = 'rgba(255,255,255,0.65)';
-  ctx.font = 'bold 12px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'alphabetic';
-  ctx.fillText('OPTIONS', W / 2, PY + 22);
+function drawBurnAnnounce() {
+  if (burnAnnounceT > 0 && burnAnnounce) {
+    ctx.font = 'bold 22px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    var alpha = Math.min(1, burnAnnounceT / 1.5);
+    ctx.fillStyle = 'rgba(255,210,80,' + alpha.toFixed(2) + ')';
+    ctx.fillText(burnAnnounce, W / 2, 160);
+  }
+}
+function drawNarration() {
+  if (narrationT > 0 && narration) {
+    var pad = 14, maxW = W - 80, alpha = Math.min(1, narrationT / 1.2);
+    ctx.font = '14px sans-serif';
+    var lines = wrapText(narration, maxW - 2 * pad);
+    var th = lines.length * 18 + 2 * pad;
+    var bx = 40, by = H - 230 - th, bw = maxW, bh = th;
+    ctx.fillStyle = 'rgba(0,0,0,' + (0.7 * alpha).toFixed(2) + ')';
+    ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 8); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,' + (0.3 * alpha).toFixed(2) + ')'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,' + alpha.toFixed(2) + ')';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    for (var i = 0; i < lines.length; i++) ctx.fillText(lines[i], bx + pad, by + pad + i * 18);
+  }
+}
+function wrapText(s, maxW) {
+  var words = s.split(' ');
+  var lines = [], line = '';
+  for (var i = 0; i < words.length; i++) {
+    var trial = line ? line + ' ' + words[i] : words[i];
+    if (ctx.measureText(trial).width > maxW && line) { lines.push(line); line = words[i]; }
+    else line = trial;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
 
-  var rowLabels  = ['Auto-Orient', 'Trajectory', 'Earth mass', 'Moon mass', 'Thrust', 'Spacecraft'];
-  var stepArrays = [null, null, EARTH_MASS_STEPS, MOON_MASS_STEPS, THRUST_STEPS, null];
-  var stepIdxs   = [0, 0, earthMassIdx, moonMassIdx, thrustIdx, 0];
-  var defIdxs    = [0, 0, 1, 2, 2, 0]; // index of the 1.0x default in each array
+function drawAchToast() {
+  if (achToastT > 0 && achToast) {
+    var alpha = Math.min(1, achToastT / 1.5);
+    ctx.font = 'bold 16px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    var w = ctx.measureText(achToast).width + 32;
+    var x = (W - w) / 2, y = 200;
+    ctx.fillStyle = 'rgba(0,0,0,' + (0.7 * alpha).toFixed(2) + ')';
+    ctx.beginPath(); ctx.roundRect(x, y, w, 32, 16); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,210,80,' + (0.8 * alpha).toFixed(2) + ')'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = 'rgba(255,220,120,' + alpha.toFixed(2) + ')';
+    ctx.fillText(achToast, W / 2, y + 16);
+  }
+}
 
-  for (var i = 0; i < nRows; i++) {
-    var ry = PY + 36 + i * rowH;
-    ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    ctx.font = '15px sans-serif';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(rowLabels[i], PX + 18, ry + (rowH - 2) / 2);
+// ── Phase-specific overlays ──────────────────────────────────────────────────
+function drawSelect() {
+  clear();
+  // Title
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 34px sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  ctx.fillText('Orbital Mechanics', W / 2, 30);
+  ctx.fillStyle = '#9ab'; ctx.font = '15px sans-serif';
+  ctx.fillText('Real three-body physics. Watch a maneuver, then fly it yourself.', W / 2, 76);
 
-    if (stepArrays[i] === null) {
-      var rHov = hitRect(PX + 8, ry, PW - 16, rowH - 2);
-      if (rHov) {
-        ctx.beginPath();
-        ctx.roundRect(PX + 8, ry, PW - 16, rowH - 2, 6);
-        ctx.fillStyle = 'rgba(255,255,255,0.06)';
-        ctx.fill();
-      }
-      var tval, tcol;
-      if (i === 0)      { tval = autoOrient ? 'ON' : 'OFF'; tcol = autoOrient ? '#8ef' : '#aaa'; }
-      else if (i === 1) { tval = showPred   ? 'ON' : 'OFF'; tcol = showPred   ? '#8ef' : '#aaa'; }
-      else              { tval = skinNames[skinIdx];         tcol = '#bdf'; }
-      ctx.fillStyle = tcol;
-      ctx.font = 'bold 15px sans-serif';
-      ctx.textAlign = 'right';
-      ctx.fillText(tval, PX + PW - 18, ry + (rowH - 2) / 2);
-    } else {
-      var steps  = stepArrays[i];
-      var curIdx = stepIdxs[i];
-      var L = optChipLayout(steps.length);
-      for (var j = 0; j < steps.length; j++) {
-        var chipX = PX + L.leftEdge + j * (L.chipW + L.chipGap);
-        var chipY = ry + 5;
-        var active   = (j === curIdx);
-        var chipHov  = hitRect(chipX, chipY, L.chipW, L.chipH);
-        ctx.beginPath();
-        ctx.roundRect(chipX, chipY, L.chipW, L.chipH, 4);
-        if (active) {
-          var isDefault = (j === defIdxs[i]);
-          ctx.fillStyle = isDefault ? 'rgba(136,238,255,0.28)' : 'rgba(255,168,68,0.32)';
-          ctx.fill();
-          ctx.strokeStyle = isDefault ? 'rgba(136,238,255,0.75)' : 'rgba(255,168,68,0.75)';
-          ctx.lineWidth = 1;
-          ctx.stroke();
-        } else {
-          ctx.fillStyle = chipHov ? 'rgba(255,255,255,0.09)' : 'rgba(255,255,255,0.04)';
-          ctx.fill();
-        }
-        ctx.fillStyle = active ? '#fff' : 'rgba(255,255,255,0.42)';
-        ctx.font = (active ? 'bold ' : '') + '14px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(steps[j] + '×', chipX + L.chipW / 2, chipY + L.chipH / 2);
-      }
+  // Mission cards
+  for (var i = 0; i < MISSIONS.length; i++) {
+    var c = missionCardRect(i);
+    var m = MISSIONS[i];
+    var stars = missionStars[m.id] || 0;
+    var hover = hitRect(c.x, c.y, c.w, c.h);
+    ctx.fillStyle = hover ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.05)';
+    ctx.beginPath(); ctx.roundRect(c.x, c.y, c.w, c.h, 10); ctx.fill();
+    ctx.strokeStyle = m.color || 'rgba(255,255,255,0.4)';
+    ctx.lineWidth = 1.5; ctx.stroke();
+    // Difficulty badge
+    var diff = m.difficulty || 1;
+    ctx.fillStyle = m.color || '#bbb';
+    ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    var diffText = ''; for (var dd = 0; dd < diff; dd++) diffText += '◆';   // diamond
+    ctx.fillText(diffText, c.x + 12, c.y + 10);
+    // Stars
+    ctx.fillStyle = stars > 0 ? '#fc6' : 'rgba(255,255,255,0.18)';
+    ctx.textAlign = 'right'; ctx.font = '14px sans-serif';
+    var st = '';
+    for (var s = 0; s < 3; s++) st += (s < stars ? '★' : '☆');
+    ctx.fillText(st, c.x + c.w - 12, c.y + 10);
+    // Title
+    ctx.fillStyle = m.color || '#fff';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.font = 'bold 18px sans-serif';
+    ctx.fillText(m.name, c.x + 12, c.y + 28);
+    // Blurb
+    ctx.fillStyle = '#bbc'; ctx.font = '12px sans-serif';
+    var blurbLines = wrapText(m.blurb, c.w - 24);
+    for (var bi = 0; bi < Math.min(blurbLines.length, 2); bi++) {
+      ctx.fillText(blurbLines[bi], c.x + 12, c.y + 52 + bi * 16);
+    }
+  }
+  // Sandbox tile
+  var sb = sandboxCardRect();
+  var sbHover = hitRect(sb.x, sb.y, sb.w, sb.h);
+  ctx.fillStyle = sbHover ? 'rgba(220,160,255,0.16)' : 'rgba(220,160,255,0.06)';
+  ctx.beginPath(); ctx.roundRect(sb.x, sb.y, sb.w, sb.h, 10); ctx.fill();
+  ctx.strokeStyle = 'rgba(220,170,255,0.6)'; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.fillStyle = '#dac3ff'; ctx.font = 'bold 18px sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('Sandbox — free play', sb.x + sb.w / 2, sb.y + 20);
+  ctx.fillStyle = '#bbc'; ctx.font = '12px sans-serif';
+  ctx.fillText('Tap to place, drag to set velocity. All physics knobs unlocked.', sb.x + sb.w / 2, sb.y + 46);
+}
+
+function drawBrief() {
+  // Underlying play world as a faint backdrop.
+  clear();
+  // Card overlay
+  var bw = 600, bh = 470, bx = (W - bw) / 2, by = (H - bh) / 2;
+  ctx.fillStyle = 'rgba(20,20,30,0.95)';
+  ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 14); ctx.fill();
+  ctx.strokeStyle = curMission.color; ctx.lineWidth = 2; ctx.stroke();
+
+  ctx.fillStyle = curMission.color; ctx.font = 'bold 24px sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  ctx.fillText(curMission.name, W / 2, by + 28);
+
+  ctx.fillStyle = '#bbc'; ctx.font = '14px sans-serif';
+  var blurb = wrapText(curMission.blurb, bw - 60);
+  for (var i = 0; i < blurb.length; i++) ctx.fillText(blurb[i], W / 2, by + 70 + i * 20);
+
+  ctx.fillStyle = '#aab'; ctx.font = '13px sans-serif';
+  ctx.fillText('Teaches: ' + curMission.teaches, W / 2, by + 130);
+
+  ctx.fillStyle = '#fec'; ctx.font = '14px sans-serif'; ctx.textAlign = 'left';
+  var storyLines = wrapText(curMission.story || '', bw - 100);
+  for (var sli = 0; sli < storyLines.length; sli++) {
+    ctx.fillText(storyLines[sli], bx + 50, by + 180 + sli * 22);
+  }
+
+  ctx.fillStyle = '#ddd'; ctx.font = 'bold 15px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('Goal', W / 2, by + 280);
+  ctx.fillStyle = '#bcd'; ctx.font = '13px sans-serif';
+  var goalLines = wrapText(curMission.goal.hudLabel, bw - 80);
+  for (var gli = 0; gli < goalLines.length; gli++) ctx.fillText(goalLines[gli], W / 2, by + 304 + gli * 18);
+
+  // Buttons
+  var btnY = by + bh - 80;
+  DEMO_BTN = { x: bx + 60,           y: btnY, w: (bw - 140) / 2, h: 54 };
+  FLY_BTN  = { x: bx + 60 + DEMO_BTN.w + 20, y: btnY, w: (bw - 140) / 2, h: 54 };
+  drawActionBtn(DEMO_BTN, 'WATCH DEMO',   'See it solved', '#9cf');
+  drawActionBtn(FLY_BTN,  'FLY IT',       'Take the controls', curMission.color);
+  // Back button at top-left
+  drawTopBarBackOnly();
+}
+function drawTopBarBackOnly() {
+  drawBox(BACK_BTN.x, BACK_BTN.y, BACK_BTN.w, BACK_BTN.h, 'rgba(255,255,255,0.10)', 'rgba(255,255,255,0.5)');
+  ctx.fillStyle = '#ddd'; ctx.font = '15px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  drawChevron(BACK_BTN.x + 16, BACK_BTN.y + BACK_BTN.h / 2, 8, 'left', '#ddd');
+  ctx.fillText('Back', BACK_BTN.x + 32, BACK_BTN.y + BACK_BTN.h / 2);
+}
+function drawActionBtn(btn, label, sub, color) {
+  var hover = hitRect(btn.x, btn.y, btn.w, btn.h);
+  ctx.fillStyle = hover ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.07)';
+  ctx.beginPath(); ctx.roundRect(btn.x, btn.y, btn.w, btn.h, 10); ctx.fill();
+  ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke();
+  ctx.fillStyle = color; ctx.font = 'bold 18px sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(label, btn.x + btn.w / 2, btn.y + btn.h / 2 - 8);
+  ctx.fillStyle = '#bbc'; ctx.font = '12px sans-serif';
+  ctx.fillText(sub, btn.x + btn.w / 2, btn.y + btn.h / 2 + 14);
+}
+
+function drawWon() {
+  // Underlying world stays visible behind a dim wash.
+  ctx.fillStyle = 'rgba(0,30,10,0.55)';
+  ctx.fillRect(0, 0, W, H);
+  var bw = 520, bh = 320, bx = (W - bw) / 2, by = (H - bh) / 2;
+  ctx.fillStyle = 'rgba(8,30,18,0.96)';
+  ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 14); ctx.fill();
+  ctx.strokeStyle = '#9f7'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.fillStyle = '#cfa'; ctx.font = 'bold 30px sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  ctx.fillText('Mission Complete', W / 2, by + 28);
+
+  ctx.fillStyle = '#ddd'; ctx.font = '15px sans-serif';
+  var used = (curMission.start.dvBudget - curState.dvBudget);
+  ctx.fillText('ΔV used: ' + used.toFixed(2) + ' DU/TU  (' + (used * Phys.DU_PER_TU_TO_KMPS).toFixed(2) + ' km/s)', W / 2, by + 80);
+  ctx.fillText('Time: ' + (curState.t * Phys.TU_TO_DAYS).toFixed(2) + ' days', W / 2, by + 104);
+
+  var stars = missionStars[curMission.id] || 0;
+  ctx.fillStyle = '#fc6'; ctx.font = '36px sans-serif';
+  var sb = ''; for (var i = 0; i < 3; i++) sb += (i < stars ? '★ ' : '☆ ');
+  ctx.fillText(sb.trim(), W / 2, by + 140);
+
+  var btnY = by + bh - 80; var bw3 = (bw - 100) / 3;
+  REPLAY_BTN = { x: bx + 30,                    y: btnY, w: bw3, h: 50 };
+  NEXT_BTN   = { x: bx + 30 + bw3 + 20,         y: btnY, w: bw3, h: 50 };
+  MENU_BTN   = { x: bx + 30 + (bw3 + 20) * 2,   y: btnY, w: bw3, h: 50 };
+  drawActionBtn(REPLAY_BTN, 'REPLAY',  '', '#fff');
+  drawActionBtn(NEXT_BTN,   'NEXT',    '', '#9f7');
+  drawActionBtn(MENU_BTN,   'MENU',    '', '#aab');
+}
+function drawFailed() {
+  ctx.fillStyle = 'rgba(50,10,10,0.55)';
+  ctx.fillRect(0, 0, W, H);
+  var bw = 520, bh = 280, bx = (W - bw) / 2, by = (H - bh) / 2;
+  ctx.fillStyle = 'rgba(30,12,12,0.96)';
+  ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 14); ctx.fill();
+  ctx.strokeStyle = '#f88'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.fillStyle = '#fcc'; ctx.font = 'bold 30px sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  ctx.fillText('Mission Failed', W / 2, by + 28);
+  ctx.fillStyle = '#fbb'; ctx.font = '14px sans-serif';
+  var rlines = wrapText(goalReason || '', bw - 60);
+  for (var i = 0; i < rlines.length; i++) ctx.fillText(rlines[i], W / 2, by + 90 + i * 20);
+  var btnY = by + bh - 80; var bw2 = (bw - 80) / 2;
+  REPLAY_BTN = { x: bx + 30,                y: btnY, w: bw2, h: 50 };
+  MENU_BTN   = { x: bx + 30 + bw2 + 20,     y: btnY, w: bw2, h: 50 };
+  drawActionBtn(REPLAY_BTN, 'REPLAY',  '', '#fff');
+  drawActionBtn(MENU_BTN,   'MENU',    '', '#aab');
+}
+
+function drawDemoOverlay() {
+  // Stop / Try-It button row
+  STOP_BTN  = { x: 20,         y: H - 80, w: 200, h: 56 };
+  TRYIT_BTN = { x: W - 280,    y: H - 80, w: 260, h: 56 };
+  drawActionBtn(STOP_BTN, 'STOP DEMO', '', '#aab');
+  if (demoProgram && demoProgram.done()) {
+    drawActionBtn(TRYIT_BTN, 'TRY IT YOURSELF', '', curMission.color);
+  }
+}
+
+function drawSandboxPlaceOverlay() {
+  // Title strip + instructions
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(0, 60, W, 30);
+  ctx.fillStyle = '#dac3ff'; ctx.font = '14px sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  var msg = !placeHasPos ? 'Tap anywhere outside Earth to place the spacecraft.' :
+            !placeHasVel ? 'Drag from the spacecraft to set initial velocity.' :
+                            'Ready to launch. Or tap elsewhere to reposition.';
+  ctx.fillText(msg, W / 2, 75);
+
+  // Draw the placed spacecraft + velocity arrow
+  if (placeHasPos) {
+    var spx = sxw(curState.x, curState.y, 0), spy = syw(curState.x, curState.y, 0);
+    ctx.beginPath(); ctx.arc(spx, spy, 8, 0, PI2);
+    ctx.fillStyle = '#fff'; ctx.fill();
+    if (placeHasVel) {
+      var endX = spx + curState.vx / PLACE_VEL_SCALE;
+      var endY = spy - curState.vy / PLACE_VEL_SCALE;
+      ctx.beginPath();
+      ctx.moveTo(spx, spy); ctx.lineTo(endX, endY);
+      ctx.strokeStyle = '#dac3ff'; ctx.lineWidth = 2; ctx.stroke();
+      drawChevron(endX, endY, 9, vectorToDir(curState.vx, curState.vy), '#dac3ff');
     }
   }
 
-  ctx.fillStyle = 'rgba(255,255,255,0.22)';
-  ctx.font = '10px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'alphabetic';
-  ctx.fillText('tap to select', W / 2, PY + PH - 8);
-}
-
-function handleOptsClick() {
-  OPT_PX = W / 2 - OPT_PW / 2;
-  var PX = OPT_PX, PY = 60, PW = OPT_PW, rowH = OPT_ROW_H;
-  var nRows = 6;
-  var stepArrays = [null, null, EARTH_MASS_STEPS, MOON_MASS_STEPS, THRUST_STEPS, null];
-
-  for (var i = 0; i < nRows; i++) {
-    var ry = PY + 36 + i * rowH;
-    if (!hitRect(PX + 8, ry, PW - 16, rowH - 2)) continue;
-
-    if (i === 0)      { autoOrient = !autoOrient; }
-    else if (i === 1) { showPred   = !showPred;   }
-    else if (i === 5) { skinIdx    = (skinIdx + 1) % 4; }
-    else if (stepArrays[i]) {
-      var steps = stepArrays[i];
-      var L = optChipLayout(steps.length);
-      for (var j = 0; j < steps.length; j++) {
-        var chipX = PX + L.leftEdge + j * (L.chipW + L.chipGap);
-        var chipY = ry + 5;
-        if (hitRect(chipX, chipY, L.chipW, L.chipH)) {
-          if      (i === 2) earthMassIdx = j;
-          else if (i === 3) moonMassIdx  = j;
-          else if (i === 4) thrustIdx    = j;
-          break;
-        }
-      }
-    }
-    break;
+  // Launch button (only when both pos and vel set)
+  if (placeHasPos && placeHasVel) {
+    drawActionBtn(LAUNCH_BTN, 'LAUNCH', '', '#dac3ff');
   }
 }
-// ── Game loop ─────────────────────────────────────────────────────────────────
-var LOW_FPS = { select: true };
-var SIM_REAL_STEP = 1 / 60; // real seconds per simulation batch
-var simDebt = 0, lastTs = 0;
 
+function drawOptsPanel() {
+  var panelX = 60, panelY = 80, panelW = W - 120, panelH = H - 160;
+  ctx.fillStyle = 'rgba(10,10,18,0.95)';
+  ctx.beginPath(); ctx.roundRect(panelX, panelY, panelW, panelH, 12); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 1; ctx.stroke();
+
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 18px sans-serif';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText('Options', panelX + 18, panelY + 28);
+  // Close X
+  ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.font = '22px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText('×', panelX + panelW - 22, panelY + 30);
+
+  var ry = panelY + 60;
+  var rowH = 56;
+  drawToggleRow(panelX, ry, panelW, 'Trajectory predictor', showPred);   ry += rowH;
+  drawToggleRow(panelX, ry, panelW, 'Ghost trail (in FLY)', showGhost);  ry += rowH;
+  drawToggleRow(panelX, ry, panelW, 'Nav-ball markers',     showNavBall); ry += rowH;
+  drawToggleRow(panelX, ry, panelW, 'Auto-orient autopilot', autoOrient); ry += rowH;
+  drawChipRow(panelX, ry, panelW, 'Earth mass',   EARTH_MASS_STEPS, earthMassIdx, function (v) { return v.toFixed(1) + '×'; }); ry += rowH;
+  drawChipRow(panelX, ry, panelW, 'Moon mass',    MOON_MASS_STEPS,  moonMassIdx,  function (v) { return v.toFixed(1) + '×'; }); ry += rowH;
+  drawChipRow(panelX, ry, panelW, 'Thrust',       THRUST_STEPS,     thrustIdx,    function (v) { return v.toFixed(1) + '×'; }); ry += rowH;
+  drawSkinRow(panelX, ry, panelW); ry += rowH;
+  drawZoomRow(panelX, ry, panelW);
+}
+function drawToggleRow(panelX, ry, panelW, label, value) {
+  ctx.fillStyle = '#ddd'; ctx.font = '14px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText(label, panelX + 20, ry + 22);
+  var bx = panelX + panelW - 100;
+  ctx.fillStyle = value ? 'rgba(120,200,140,0.25)' : 'rgba(255,120,120,0.15)';
+  ctx.beginPath(); ctx.roundRect(bx, ry, 80, 44, 8); ctx.fill();
+  ctx.strokeStyle = value ? '#7d7' : '#d77'; ctx.lineWidth = 1; ctx.stroke();
+  ctx.fillStyle = value ? '#bfb' : '#fbb';
+  ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(value ? 'ON' : 'OFF', bx + 40, ry + 22);
+}
+function drawChipRow(panelX, ry, panelW, label, steps, currentIdx, fmt) {
+  ctx.fillStyle = '#ddd'; ctx.font = '14px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText(label, panelX + 20, ry + 22);
+  var n = steps.length;
+  var avail = 220;
+  var chipW = (avail - (n - 1) * 6) / n;
+  var startX = panelX + panelW - avail - 10;
+  for (var i = 0; i < n; i++) {
+    var cx = startX + i * (chipW + 6);
+    var sel = i === currentIdx;
+    ctx.fillStyle = sel ? 'rgba(120,180,255,0.3)' : 'rgba(255,255,255,0.06)';
+    ctx.beginPath(); ctx.roundRect(cx, ry, chipW, 44, 6); ctx.fill();
+    ctx.strokeStyle = sel ? '#7af' : 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = sel ? '#cdf' : '#bbb'; ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(fmt(steps[i]), cx + chipW / 2, ry + 22);
+  }
+}
+function drawSkinRow(panelX, ry, panelW) {
+  ctx.fillStyle = '#ddd'; ctx.font = '14px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText('Spacecraft', panelX + 20, ry + 22);
+  var labels = ['Capsule', 'Saturn V', 'Duck Dieb', 'Samster'];
+  var bx = panelX + panelW - 100;
+  ctx.fillStyle = 'rgba(255,255,255,0.06)';
+  ctx.beginPath(); ctx.roundRect(bx, ry, 80, 44, 8); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1; ctx.stroke();
+  ctx.fillStyle = '#cdf'; ctx.font = '12px sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(labels[skinIdx], bx + 40, ry + 22);
+}
+function drawZoomRow(panelX, ry, panelW) {
+  ctx.fillStyle = '#ddd'; ctx.font = '14px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText('Zoom: ' + ZOOM_LEVELS[zoomIdx] + ' px/DU', panelX + 20, ry + 22);
+  var bxA = panelX + panelW - 220, bxB = panelX + panelW - 100;
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  ctx.beginPath(); ctx.roundRect(bxA, ry, 60, 44, 6); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.stroke();
+  drawChevron(bxA + 30, ry + 22, 9, 'up', '#cdf');
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  ctx.beginPath(); ctx.roundRect(bxB, ry, 60, 44, 6); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.stroke();
+  drawChevron(bxB + 30, ry + 22, 9, 'down', '#cdf');
+}
+
+// ── Master draw + update dispatch ────────────────────────────────────────────
+function drawHUD(showControls) {
+  drawTopBar();
+  drawGoalBanner();
+  drawDvMeter();
+  drawBottomInfo();
+  if (showControls) drawControlButtons(curState.dvBudget > 0);
+  drawBurnAnnounce();
+  drawNarration();
+  drawAchToast();
+  if (showOpts) drawOptsPanel();
+  if (paused) {
+    ctx.fillStyle = 'rgba(255,200,80,0.9)'; ctx.font = 'bold 28px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('PAUSED', W / 2, 130);
+  }
+}
+
+function update(elapsed) {
+  // Decay timers (real-time)
+  if (burnAnnounceT > 0) burnAnnounceT -= elapsed;
+  if (narrationT    > 0) narrationT    -= elapsed;
+  if (achToastT     > 0) achToastT     -= elapsed;
+  updateFlame(elapsed);
+
+  switch (phase) {
+    case 'select':         updateSelect();              break;
+    case 'brief':          updateBrief();               break;
+    case 'demo':           updateDemo(elapsed);         break;
+    case 'fly':            updateFly(elapsed);          break;
+    case 'won':            updateWon(elapsed);          break;
+    case 'failed':         updateFailed(elapsed);       break;
+    case 'sandbox_place':  updateSandboxPlace();        break;
+    case 'sandbox_fly':    updateSandboxFly(elapsed);   break;
+  }
+  // Pointer edges reset
+  pointerJust = false;
+  pointerUpEd = false;
+}
+
+function render() {
+  switch (phase) {
+    case 'select':
+      drawSelect();
+      break;
+    case 'brief':
+      drawWorldForBrief();
+      drawBrief();
+      break;
+    case 'demo':
+      clear(); drawWorld(); drawHUD(false); drawDemoOverlay();
+      break;
+    case 'fly':
+      clear(); drawWorld(); drawHUD(true);
+      break;
+    case 'won':
+      clear(); drawWorld(); drawWon();
+      break;
+    case 'failed':
+      clear(); drawWorld(); drawFailed();
+      break;
+    case 'sandbox_place':
+      clear(); drawWorld(); drawTopBar(); drawSandboxPlaceOverlay();
+      break;
+    case 'sandbox_fly':
+      clear(); drawWorld(); drawHUD(true);
+      break;
+  }
+}
+function drawWorldForBrief() {
+  clear();
+  // Show a hint of the world geometry behind the brief overlay
+  curState.x = curMission.start.x; curState.y = curMission.start.y;
+  curState.vx = curMission.start.vx; curState.vy = curMission.start.vy;
+  curState.t = 0; curState.moonAngle0 = curMission.start.moonAngle0;
+  drawWorld();
+}
+
+// ── Game loop ────────────────────────────────────────────────────────────────
+var lastTs = 0;
 function loop(ts) {
-  if (!lastTs) lastTs = ts;
-  var elapsed = Math.min((ts - lastTs) / 1000, SIM_REAL_STEP * 8);
+  var elapsed = Math.min((ts - lastTs) / 1000, 0.1);
+  if (lastTs === 0) elapsed = 1 / 60;
   lastTs = ts;
 
-  // ── Burn / rotation input ─────────────────────────────────────────────────
-  thrustFwd = 0; rotDir = 0;
-  pointerAimActive = false;
-  if (phase === 'sim') {
-    // Mouse/pointer aim: hold on playfield → orient toward cursor and fire.
-    var mouseAiming = false;
-    if (pointerDown) {
-      var overCtrl =
-        hitRect(BACK_BTN.x, BACK_BTN.y, BACK_BTN.w, BACK_BTN.h) ||
-        hitRect(TIME_BTN.x, TIME_BTN.y, TIME_BTN.w, TIME_BTN.h) ||
-        hitRect(OPT_BTN.x,  OPT_BTN.y,  OPT_BTN.w,  OPT_BTN.h) ||
-        Math.hypot(mx - BURN_BTN.cx,  my - BURN_BTN.cy)  <= BURN_BTN.r  + 8 ||
-        Math.hypot(mx - RETRO_BTN.cx, my - RETRO_BTN.cy) <= RETRO_BTN.r + 8 ||
-        Math.hypot(mx - LEFT_BTN.cx,  my - LEFT_BTN.cy)  <= LEFT_BTN.r  + 8 ||
-        Math.hypot(mx - RIGHT_BTN.cx, my - RIGHT_BTN.cy) <= RIGHT_BTN.r + 8 ||
-        Math.hypot(mx - AUTO_BTN.cx,  my - AUTO_BTN.cy)  <= AUTO_BTN.r  + 8;
-      if (!overCtrl) {
-        var aimSpx = vsx(scX, scY, simT), aimSpy = vsy(scX, scY, simT);
-        var aimDx = mx - aimSpx, aimDy = my - aimSpy;
-        // Dead-zone of 28px around the ship: ignore taps that essentially
-        // land on the spacecraft so a finger covering it doesn't jitter.
-        if (aimDx * aimDx + aimDy * aimDy > 784) {
-          // Aim is in the view frame; un-rotate to get the inertial heading.
-          var aimView = Math.atan2(-aimDy, aimDx); // screen→physics: flip y
-          scAngle = (curOrbit && curOrbit.rotatingView)
-            ? aimView + (moonAngle0 + MOON_W * simT)
-            : aimView;
-          if (dvBudget > 0) thrustFwd = 1;
-          mouseAiming = true;
-          pointerAimActive = true;
-          if (autopilot === 'on') { autopilot = 'off'; autoLockFrames = 0; }
-        }
-      }
-    }
-
-    if (!mouseAiming) {
-      if (autopilot === 'on') {
-        // stepAutopilot applies rotation to scAngle directly and sets rotDir for puffs
-        stepAutopilot(elapsed);
-      } else {
-        var touchBurn  = touchOverCircle(BURN_BTN.cx,  BURN_BTN.cy,  BURN_BTN.r);
-        var touchRetro = touchOverCircle(RETRO_BTN.cx, RETRO_BTN.cy, RETRO_BTN.r);
-        var touchLeft  = touchOverCircle(LEFT_BTN.cx,  LEFT_BTN.cy,  LEFT_BTN.r);
-        var touchRight = touchOverCircle(RIGHT_BTN.cx, RIGHT_BTN.cy, RIGHT_BTN.r);
-        if (dvBudget > 0) {
-          if (K['Space'] || K['ArrowUp'] || touchBurn)  thrustFwd = 1;
-          else if (K['ArrowDown'] || touchRetro)        thrustFwd = -1;
-        }
-        if (K['ArrowLeft']  || touchLeft)  rotDir = 1;   // CCW
-        if (K['ArrowRight'] || touchRight) rotDir = -1;  // CW
-        // Apply manual rotation (free — RCS, no ΔV)
-        if (rotDir !== 0) scAngle += rotDir * ROT_RATE * elapsed;
-        // Auto-orient: rotate toward burn direction before firing (when no manual rotation)
-        if (autoOrient && rotDir === 0 && thrustFwd !== 0) {
-          var vla = Math.sqrt(scVX * scVX + scVY * scVY);
-          if (vla > 0.01) {
-            var aoAng = thrustFwd === 1 ? Math.atan2(scVY, scVX) : Math.atan2(-scVY, -scVX);
-            var aoDiff = aoAng - scAngle;
-            while (aoDiff >  Math.PI) aoDiff -= PI2;
-            while (aoDiff < -Math.PI) aoDiff += PI2;
-            if (Math.abs(aoDiff) > 0.05) {
-              var aoRot = aoDiff > 0 ? 1 : -1;
-              scAngle += aoRot * Math.min(ROT_RATE * elapsed, Math.abs(aoDiff));
-              rotDir = aoRot;
-              thrustFwd = 0;
-            }
-          }
-        }
-      }
-    }
-  }
-
-  // Physics
-  if (phase === 'sim') {
-    simDebt += elapsed;
-    while (simDebt >= SIM_REAL_STEP) {
-      var orbitSpeed = curOrbit ? curOrbit.speed : 1;
-      var tuThisStep = SIM_REAL_STEP * BASE_SPEED * orbitSpeed * TIME_MULTS[timeMultIdx];
-      var nSteps = Math.ceil(tuThisStep / SIM_DT);
-      if (nSteps < 1) nSteps = 1;
-      var dt = tuThisStep / nSteps;
-      for (var i = 0; i < nSteps; i++) { stepPhysics(dt); tickProgram(); }
-      var everyN = curOrbit ? curOrbit.trailEvery : 1;
-      trailSkip++;
-      if (trailSkip >= everyN) {
-        trail.push({ x: vsx(scX, scY, simT), y: vsy(scX, scY, simT) });
-        if (trail.length > TRAIL_MAX) trail.shift();
-        trailSkip = 0;
-      }
-      simDebt -= SIM_REAL_STEP;
-    }
-
-    // Orbit predictor — recompute every frame from current state
-    if (showPred) computePredictor();
-
-    // Narration + achievement event checks — run once per batch
-    for (var ni = 0; ni < NARRATION_EVENTS.length; ni++) {
-      var nev = NARRATION_EVENTS[ni];
-      if (!narrated[nev.id] && nev.check()) {
-        narrated[nev.id] = true;
-        narration  = nev.text;
-        narrationT = 4.2;
-        if (nev.ach) unlockAch(nev.ach.id, nev.ach.label);
-      }
-    }
-    // First-burn achievement
-    if (thrustFwd !== 0 && dvBudget > 0) unlockAch('first_burn', 'First Burn');
-
-    // Spawn flame particles — tied to real time so visual rate is independent of time mult.
-    var fheading = viewAngle(scAngle, simT);
-    var fhx = Math.cos(fheading), fhy = -Math.sin(fheading); // heading in screen coords (y-flip)
-    var spx2 = vsx(scX, scY, simT), spy2 = vsy(scX, scY, simT);
-    // Main engine flames (exhaust opposite to thrust direction)
-    if (dvBudget > 0 && thrustFwd !== 0) {
-      if (thrustFwd === 1) {
-        // Prograde: exhaust from tail
-        var tailX = spx2 - fhx * 4, tailY = spy2 - fhy * 4;
-        spawnFlameBurst(tailX, tailY, -fhx * 60, -fhy * 60, 3, 0.45, 3, 255, 180, 60, 40);
-        spawnFlameBurst(tailX, tailY, -fhx * 40, -fhy * 40, 2, 0.3,  2, 255, 240, 160, 30);
-      } else {
-        // Retro: exhaust from nose
-        var noseX = spx2 + fhx * 9, noseY = spy2 + fhy * 9;
-        spawnFlameBurst(noseX, noseY, fhx * 50, fhy * 50, 2, 0.3, 2, 160, 220, 255, 25);
-      }
-    }
-    // RCS puffs when rotating — light gray gas jets from nose and tail
-    if (rotDir !== 0) {
-      // craft-right in screen: 90° CCW of heading = (-fhy, fhx)
-      var crx = -fhy, cry = fhx;
-      // rotDir +1 = CCW: reaction force on craft-right side of nose, craft-left of tail
-      spawnFlameBurst(
-        spx2 + fhx * 6 + crx * rotDir * 3,
-        spy2 + fhy * 6 + cry * rotDir * 3,
-        crx * rotDir * 28, cry * rotDir * 28,
-        1, 0.22, 1.5, 200, 205, 215, 12);
-      spawnFlameBurst(
-        spx2 - fhx * 5 - crx * rotDir * 3,
-        spy2 - fhy * 5 - cry * rotDir * 3,
-        -crx * rotDir * 28, -cry * rotDir * 28,
-        1, 0.22, 1.5, 200, 205, 215, 12);
-    }
-  }
-
-  updateFlameParts(elapsed);
-  if (programAnnounceT > 0) {
-    programAnnounceT -= elapsed;
-    if (programAnnounceT < 0) programAnnounceT = 0;
-  }
-  if (narrationT > 0) {
-    narrationT -= elapsed;
-    if (narrationT < 0) narrationT = 0;
-  }
-  if (achToastT > 0) {
-    achToastT -= elapsed;
-    if (achToastT < 0) achToastT = 0;
-  }
-
-  // Input
-  if (phase === 'select') {
-    if (mclk) {
-      for (var j = 0; j < ORBITS.length; j++) {
-        if (hitRect(BTN_X, orbitBtnY(j), BTN_W, BTN_H)) {
-          if      (ORBITS[j].custom)  startPlace(j);
-          else if (ORBITS[j].program) startProgram(j);
-          else                        startSim(j);
-          mclk = false;
-          break;
-        }
-      }
-    }
-  } else if (phase === 'place') {
-    // Press edge: check buttons first, then play field
-    if (pointerJust) {
-      if (hitRect(BACK_BTN.x, BACK_BTN.y, BACK_BTN.w, BACK_BTN.h)) {
-        phase = 'select';
-      } else if (hitRect(RESET_BTN.x, RESET_BTN.y, RESET_BTN.w, RESET_BTN.h)) {
-        placeHasPos = false; placeHasVel = false; placeDragging = false;
-      } else if (placeHasPos && placeHasVel &&
-                 hitRect(LAUNCH_BTN.x, LAUNCH_BTN.y, LAUNCH_BTN.w, LAUNCH_BTN.h)) {
-        launchFromPlace();
-      } else if (!placeHasPos) {
-        // Tap on playfield to place spacecraft — require it's outside Earth.
-        var ppx = (mx - CX) / SCALE;
-        var ppy = (CY - my) / SCALE;
-        var dEarth = Math.sqrt(ppx * ppx + ppy * ppy);
-        if (dEarth > 0.10 && dEarth < 1.2) {
-          placeScX = ppx; placeScY = ppy;
-          placeHasPos = true;
-          placeDragging = true;   // allow immediate drag to set velocity
-        }
-      } else {
-        // Already placed — start a (re-)drag to adjust velocity
-        placeDragging = true;
-      }
-    }
-    // Release edge: commit velocity if user actually dragged
-    if (pointerUp && placeDragging) {
-      var shipSX = sx(placeScX), shipSY = sy(placeScY);
-      var ddx = mx - shipSX, ddy = my - shipSY;
-      var dragDist = Math.sqrt(ddx * ddx + ddy * ddy);
-      if (dragDist > PLACE_MIN_DRAG) {
-        placeVX =  ddx * PLACE_VEL_SCALE;
-        placeVY = -ddy * PLACE_VEL_SCALE;  // y-flip
-        placeHasVel = true;
-      }
-      placeDragging = false;
-    }
-    if (JP['KeyR']) phase = 'select';
-  } else if (phase === 'sim') {
-    if (mclk) {
-      if (hitRect(BACK_BTN.x, BACK_BTN.y, BACK_BTN.w, BACK_BTN.h)) {
-        phase = 'select'; showOpts = false;
-        mclk = false;
-      } else if (hitRect(TIME_BTN.x, TIME_BTN.y, TIME_BTN.w, TIME_BTN.h)) {
-        timeMultIdx = (timeMultIdx + 1) % TIME_MULTS.length;
-        mclk = false;
-      } else if (hitRect(OPT_BTN.x, OPT_BTN.y, OPT_BTN.w, OPT_BTN.h)) {
-        showOpts = !showOpts;
-        mclk = false;
-      } else if (showOpts) {
-        handleOptsClick();
-        mclk = false;
-      } else {
-        var dAuto = Math.hypot(mx - AUTO_BTN.cx, my - AUTO_BTN.cy);
-        if (dAuto <= AUTO_BTN.r) {
-          autopilot = (autopilot === 'on') ? 'off' : 'on';
-          autoLockFrames = 0;
-          mclk = false;
-        }
-      }
-    }
-    if (JP['KeyR']) { phase = 'select'; showOpts = false; }
-    if (JP['KeyT']) timeMultIdx = (timeMultIdx + 1) % TIME_MULTS.length;
-    if (JP['KeyA']) { autopilot = (autopilot === 'on') ? 'off' : 'on'; autoLockFrames = 0; }
-    if (JP['KeyO']) showOpts = !showOpts;
-  }
-
-  // Draw
-  ctx.clearRect(0, 0, W, H);
-  if      (phase === 'select') drawSelect();
-  else if (phase === 'place')  drawPlace();
-  else                          drawSim();
-
-  mclk = false;
-  pointerJust = false;
-  pointerUp = false;
-  for (var k in JP) JP[k] = false;
-
+  update(elapsed);
+  render();
   requestAnimationFrame(loop);
 }
-
 requestAnimationFrame(loop);
+
+// Initial pointer reset
+pointerDown = false; pointerJust = false; pointerUpEd = false;
+
+}());
 </script>
-<script src="../mucko-gamepad.js"></script>
 </body>
 </html>
