@@ -287,32 +287,79 @@ have `> * + *` margin fallbacks.
 
 ---
 
-#### Orbital Mechanics (`orbit/index.html`) — Canvas  · real physics
+#### Orbital Mechanics (`orbit/`) — Canvas  · real physics, validated
 
-A three-body gravity sim. Earth fixed at center, Moon on an analytical circular orbit
-(not physics-simulated — `pos = (cos(ωt), sin(ωt))`), and a spacecraft that
-integrates via **symplectic Euler** in true Earth+Moon gravity. Uses dimensionless
-units (`DU` = Earth–Moon distance, `TU` = Moon orbital period) so
-`GM_E = 4π²`, `GM_M = GM_E × 0.01230` — eliminates floating-point scale problems.
+A three-body gravity sim built around a **Demo + Fly + Ghost** missions pattern:
+each mission has a *WATCH DEMO* button that runs the canonical solution on
+autopilot and a *FLY IT* button that hands controls to the player with the same
+start state and ΔV budget. The just-watched demo trajectory becomes a faint
+ghost trail to chase.
 
-**Presets:** Low Earth Orbit, Figure-8 Encounter (retrograde at period = ½ TU, makes
-a 3-petal figure-8 in the inertial frame), Hohmann Ellipse, and a free-placement
-"Custom Orbit" with drag-to-aim.
+**Architecture.** Three files, UMD-style modules so headless tests share the
+exact code path the browser runs:
 
-**Burn engine.** Prograde/retro along velocity, lateral perpendicular; ΔV budget
-drains per sub-step. Keyboard (Space / arrows) and on-canvas touch buttons (BURN /
-RETRO / ◀ / ▶). ΔV meter color-graded green→amber→red.
+- `orbit/physics.js` — pure functions. `stepPhysics(state, dt, opts)`,
+  `simulate(...)`, `orbitalElements(...)`, `hohmannMoonPhase(rPeri, rApo, leadAngleRad)`,
+  `moonPos/Vel`, `applyImpulse`, `makeImpulsiveProgram`. Constants
+  (`GM_E = 4π²`, `GM_M`, `R_EARTH_DU`, `R_MOON_DU`, `SOI_MOON_DU`, unit conversions).
+  Adaptive substepping kicks in inside `rm < 0.02 DU` (Moon close encounter) —
+  4× internal subdivision to keep symplectic Euler stable at high time mults.
+  Proper Earth/Moon surface collision (no more `re < 0.001` clamp).
+- `orbit/scenarios.js` — `MISSIONS` array + `evaluateGoal(goal, ctx)`.
+  Each mission: `{ start, solution, goal, view, achievements, story }`.
+  Phase angles for lunar missions are derived analytically via
+  `hohmannMoonPhase` — no magic `+0.07/+0.12/+0.66` fudge factors. The one
+  knob per mission is `leadAngleRad` (how far past apoapsis the Moon arrives).
+- `orbit/index.html` — UI, rendering, phase machine, HUD. Imports the modules
+  via `<script src>` (browser sees `window.OrbitPhysics` / `window.OrbitMissions`).
 
-**Options panel (O key or OPT button).** Auto-orient autopilot, trajectory
-predictor toggle, Earth/Moon/Thrust mass multipliers, and a spacecraft-skin picker
-(Capsule / Saturn V / Duck Dieb). Achievements stored in `localStorage` key
-`orbit_ach`.
+**Phases:** `select → brief → demo → fly → won|failed`, plus
+`sandbox_place → sandbox_fly`. Each tap of WATCH DEMO/FLY IT resets state
+from the mission's `start`. A successful FLY records 1–3 stars in
+`localStorage.orbit_missions` (1 = pass, 2 = ΔV ≤ 1.3× canonical, 3 = ≤ 1.1×).
 
-**Coordinate-system reminder.** Physics coords have y *up*, screen coords have y
-*down*. Conversions: `sx(x) = CX + x * SCALE`, `sy(y) = CY - y * SCALE`; for a
-velocity direction on screen, `ndy = -vy/|v|` (flip y). Symplectic integration
-requires `v += a*dt` **before** `x += v*dt`; reversing the order makes the system
-anti-symplectic (energy-increasing, unstable).
+**Missions (all unlocked from start):**
+1. **Stable LEO** (≤1 burn) — circular velocity intuition.
+2. **Hohmann Transfer** (2 burns) — raise apoapsis, circularize.
+3. **Match Plane with Moon** (1 burn, after a coast) — *when* to burn matters as much
+   as how hard. Moon mis-phased so a t=0 burn misses by ~1.4 DU; coast one LEO orbit
+   (~0.042 TU) first.
+4. **Free Return** (1 burn) — Apollo-13 safety geometry. `leadAngleRad = +0.55`.
+5. **Lunar Orbit Insertion** (2 burns) — TLI then `circularize_moon`. `lead = −0.13`.
+6. **Gravity Assist** (1 burn) — Moon pumps energy in. `lead = +0.15`, must not refire.
+7. **Figure-8 Free Return** (0 burns) — retrograde free return viewed in rotating frame.
+   `lead = +0.20`.
+8. **Sandbox** — free placement, mass multipliers fully unlocked.
+
+**HUD.** Top bar: mission name, sim time, `1×/2×/5×/15×/30×` time-mult chip,
+pause (P), warp-to-next-event. Goal banner. ΔV meter (DU/TU + km/s).
+Bottom info strip: altitude, apoapsis, periapsis, period, speed, Moon distance
+— all km/days via `orbitalElements()`. Nav-ball chevrons (cyan prograde, red
+retrograde) at the spacecraft (toggle off in OPT). Mass-multiplier warning pill
+when any multiplier is non-default.
+
+**Maneuver predictor.** Two `simulate()` passes per frame: a white coast forecast
+(always 0.20 TU) and an orange "if I hold this burn" branch (only while
+BURN/RETRO is held; horizon capped at `dvBudget / thrust_accel`). Apo/peri
+markers in matching colors. The orange branch is the killer feature for
+replicability — you see exactly where the burn lands you.
+
+**Burn engine.** Prograde/retro along velocity (continuous in fly, impulsive in
+demo via `Phys.makeImpulsiveProgram`). ΔV budget drains per sub-step inside
+`stepPhysics`. RCS rotation is free (real-time, no ΔV cost). Keyboard
+(Space/↑ = burn, ↓ = retro, ←/→ = rotate, P = pause, T = time-mult cycle,
+O = options, R = back). On-canvas held BURN/RETRO + ◀/▶ buttons (chevrons
+drawn via `drawChevron()`, never Unicode arrows).
+
+**Validator.** `node orbit/test/run.js` simulates every mission's
+solution end-to-end and asserts goal success + min-Moon-distance + ΔV
+budget consumed against `orbit/test/expected.json`. Run after physics
+changes. `node orbit/test/sweep.js` is the phase-angle search tool — used
+to pick the `leadAngleRad` values when adding/tuning a lunar mission.
+
+**Coordinate reminder.** Physics y *up*, screen y *down*.
+`sx(x) = CX + x * SCALE`, `sy(y) = CY - y * SCALE`. Symplectic Euler:
+`v += a*dt` **before** `x += v*dt` — reversing makes the system anti-symplectic.
 
 ---
 
