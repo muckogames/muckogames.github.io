@@ -313,30 +313,43 @@ function update(dt) {
     if (upKey) player.y -= P_CLIMB * dt;
     if (dnKey) player.y += P_CLIMB * dt;
 
-    // Step off left/right
-    if (left)  { player.face = -1; player.onLadder = false; }
-    if (right) { player.face =  1; player.onLadder = false; }
-
-    // Snap x to ladder center
+    // Snap x to ladder center while climbing
     player.x += (player.ladderX - player.x) * Math.min(1, 14 * dt);
 
-    // Snap to any deck we're not coming from
+    // Are we at a destination deck (not the one we came from)?
+    var atDeck = -1;
     for (var di = 0; di < DECK.length; di++) {
       if (di === player.ladderEntryDeck) continue;
-      if (Math.abs(player.y + P_H - DECK[di]) < 22) {
-        player.y = DECK[di] - P_H;
-        player.onLadder = false;
-        player.onGround = true;
-        break;
-      }
+      if (Math.abs(player.y + P_H - DECK[di]) < 24) { atDeck = di; break; }
     }
 
-    // Hard clamp to ladder extent (top deck ceiling, bottom deck floor)
-    if (player.y + P_H < DECK[0]) {
-      player.y = DECK[0] - P_H; player.onLadder = false; player.onGround = true;
+    if (atDeck >= 0) {
+      // Hold at this level (Donkey Kong / Mega Man style) until left or right
+      player.y = DECK[atDeck] - P_H;
+      if (left || right) {
+        var sd = left ? -1 : 1;
+        player.face = sd;
+        player.onLadder = false;
+        player.onGround = true;
+        // Move clear of the hole so floor collision works next frame
+        player.x = player.ladderX + sd * (LADDER_W + P_W + 8);
+      }
+    } else {
+      // Not near any floor — left/right bails mid-air (fine for free-fall)
+      if (left)  { player.face = -1; player.onLadder = false; }
+      if (right) { player.face =  1; player.onLadder = false; }
     }
-    if (player.y + P_H > DECK[DECK.length - 1]) {
-      player.y = DECK[DECK.length - 1] - P_H; player.onLadder = false; player.onGround = true;
+
+    // Hard clamp to hull extent — auto-exit at the absolute limits
+    if (player.onLadder) {
+      if (player.y + P_H < DECK[0]) {
+        player.y = DECK[0] - P_H; player.onLadder = false; player.onGround = true;
+        player.x = player.ladderX + player.face * (LADDER_W + P_W + 8);
+      }
+      if (player.y + P_H > DECK[DECK.length - 1]) {
+        player.y = DECK[DECK.length - 1] - P_H; player.onLadder = false; player.onGround = true;
+        player.x = player.ladderX + player.face * (LADDER_W + P_W + 8);
+      }
     }
 
   } else {
@@ -910,6 +923,24 @@ function drawPlayer() {
   ctx.beginPath(); ctx.moveTo(-6, -P_H - 4); ctx.lineTo(-1, -P_H - 4); ctx.stroke();
 
   ctx.restore();
+
+  // "< >" prompt when holding at a ladder floor, so player knows to press left/right
+  if (player.onLadder) {
+    var atDeckHint = false;
+    for (var dh = 0; dh < DECK.length; dh++) {
+      if (dh === player.ladderEntryDeck) continue;
+      if (Math.abs(player.y + P_H - DECK[dh]) < 24) { atDeckHint = true; break; }
+    }
+    if (atDeckHint) {
+      ctx.save();
+      ctx.globalAlpha = 0.7 + 0.3 * Math.abs(Math.sin(gt * 4));
+      ctx.fillStyle = '#ffe066';
+      ctx.font = 'bold 13px monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+      ctx.fillText('< step off >', player.x - camX, player.y - 4);
+      ctx.restore();
+    }
+  }
 }
 
 function drawTouchControls() {
@@ -1007,12 +1038,14 @@ function drawHUD() {
 
   // Controls hint (desktop)
   if (!isTouch()) {
-    ctx.fillStyle = 'rgba(0,0,0,0.45)';
-    rRect(8, 8, 260, 20, 3); ctx.fill();
-    ctx.fillStyle = 'rgba(130,180,200,0.7)';
+    ctx.fillStyle = 'rgba(0,0,0,0.50)';
+    rRect(8, 8, 310, 32, 3); ctx.fill();
     ctx.font = '9px monospace';
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.fillText('ARROWS move/climb  SPACE jump  UP/DN on ladder', 14, 18);
+    ctx.fillStyle = 'rgba(150,200,220,0.85)';
+    ctx.fillText('ARROWS move   SHIFT sprint   SPACE or UP = jump', 14, 18);
+    ctx.fillStyle = 'rgba(120,160,180,0.65)';
+    ctx.fillText('UP at a door enters it   UP/DN on ladder   LEFT/RIGHT to step off', 14, 29);
   }
 
   // Deck indicator
