@@ -118,19 +118,6 @@ var shakeX = 0, shakeY = 0, shakeMag = 0;
 var score = 0, scorePopT = 0;
 var landSqT = 0;
 var footT   = 0;
-var caughtT = 0;
-var CAUGHT_DUR = 1.6;
-
-var GUARDS = [
-  { wx: 300,  deck: 0, face:  1, state: 'patrol', alertT: 0, patrolDir:  1, homeWx:  300 },
-  { wx: -400, deck: 1, face: -1, state: 'patrol', alertT: 0, patrolDir: -1, homeWx: -400 },
-  { wx: 900,  deck: 2, face:  1, state: 'patrol', alertT: 0, patrolDir:  1, homeWx:  900 }
-];
-var GUARD_WALK  = 62;
-var GUARD_CHASE = 118;
-var GUARD_SIGHT = 240;
-var GUARD_CATCH = 22;
-var GUARD_PATROL_RANGE = 290;
 
 var player = {
   x: 0, y: DECK[1] - P_H,
@@ -272,8 +259,6 @@ function inLadderHole(px) {
 // ── update ────────────────────────────────────────────────────────────────────
 function update(dt) {
   gt += dt;
-
-  if (caughtT > 0) { caughtT -= dt; return; }
 
   // Shake decay
   if (shakeMag > 0) {
@@ -457,8 +442,6 @@ function update(dt) {
     }
   }
 
-  updateGuards(dt);
-
   if (snoodMsgT > 0) snoodMsgT -= dt;
 
   // Camera follow
@@ -470,86 +453,6 @@ function update(dt) {
     f.wx += f.vx * dt;
     if (f.vx > 0 && f.wx > camX + W + 500) f.wx = camX - 500;
     if (f.vx < 0 && f.wx < camX - 500)     f.wx = camX + W + 500;
-  }
-}
-
-// ── guards ────────────────────────────────────────────────────────────────────
-function updateGuards(dt) {
-  if (caughtT > 0) return;
-  for (var gi = 0; gi < GUARDS.length; gi++) {
-    var g = GUARDS[gi];
-    var pdx = player.x - g.wx;
-    var sameDeck = (Math.abs(player.y + P_H - DECK[g.deck]) < 44);
-    var inSight  = sameDeck && (Math.abs(pdx) < GUARD_SIGHT);
-
-    if (g.state === 'patrol') {
-      g.wx += g.patrolDir * GUARD_WALK * dt;
-      g.face = g.patrolDir;
-      if (g.wx > g.homeWx + GUARD_PATROL_RANGE) { g.patrolDir = -1; g.face = -1; }
-      if (g.wx < g.homeWx - GUARD_PATROL_RANGE) { g.patrolDir =  1; g.face =  1; }
-      if (inSight) { g.state = 'chase'; g.alertT = 1.4; }
-    } else {
-      // chase
-      if (inSight) {
-        g.alertT = 1.4;
-        var dir = pdx > 0 ? 1 : -1;
-        g.wx += dir * GUARD_CHASE * dt;
-        g.face = dir;
-      } else {
-        g.alertT -= dt;
-        if (g.alertT <= 0) { g.state = 'patrol'; }
-      }
-      // catch
-      if (sameDeck && Math.abs(pdx) < GUARD_CATCH) {
-        caughtT = CAUGHT_DUR;
-        player.x = 0; player.y = DECK[1] - P_H;
-        player.vx = 0; player.vy = 0;
-        player.onGround = true; player.onLadder = false;
-        playNoise(0.5, 0.35); shakeMag = Math.max(shakeMag, 22);
-        score = Math.max(0, score - 20); scorePopT = 0.4;
-        g.state = 'patrol'; g.wx = g.homeWx;
-      }
-    }
-  }
-}
-
-function drawGuards() {
-  var GW = 11, GH = 30;
-  for (var gi = 0; gi < GUARDS.length; gi++) {
-    var g = GUARDS[gi];
-    var sx = g.wx - camX;
-    var sy = DECK[g.deck];
-    if (sx < -60 || sx > W + 60) continue;
-
-    ctx.save();
-    ctx.translate(sx, sy);
-    // Body
-    ctx.fillStyle = g.state === 'chase' ? '#cc2020' : '#8a1515';
-    ctx.fillRect(-GW, -GH, GW * 2, GH);
-    // Uniform stripe
-    ctx.fillStyle = '#c88000';
-    ctx.fillRect(-GW, -GH + 4, GW * 2, 3);
-    // Head
-    ctx.fillStyle = '#f0c888';
-    ctx.beginPath(); ctx.arc(0, -GH - 6, 7, 0, Math.PI * 2); ctx.fill();
-    // Hat
-    ctx.fillStyle = '#1a1a2a';
-    ctx.fillRect(-8, -GH - 14, 16, 7);
-    ctx.fillRect(-5, -GH - 8,  10, 2);
-    // Eye
-    ctx.fillStyle = '#111';
-    ctx.beginPath(); ctx.arc(4 * g.face, -GH - 6, 2, 0, Math.PI * 2); ctx.fill();
-    // Alert bubble
-    if (g.alertT > 0 && g.state === 'chase') {
-      ctx.save();
-      ctx.globalAlpha = Math.min(1, g.alertT);
-      ctx.fillStyle = '#ffe600';
-      ctx.font = 'bold 18px monospace';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-      ctx.fillText('!', 0, -GH - 16);
-      ctx.restore();
-    }
-    ctx.restore();
   }
 }
 
@@ -1108,26 +1011,12 @@ function render() {
   drawDecks();
   drawLadders();
   drawDoors();
-  drawGuards();
   drawPlayer();
   ctx.restore();
   drawTouchControls();
   drawHUD();
   drawWrongDoorMsg();
   drawSnoodOverlay();
-  // Caught banner
-  if (caughtT > 0) {
-    ctx.save();
-    ctx.globalAlpha = Math.min(1, caughtT * 3);
-    ctx.fillStyle = 'rgba(160,15,15,0.78)';
-    ctx.fillRect(0, H / 2 - 46, W, 92);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 52px monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('CAUGHT!', W / 2, H / 2);
-    ctx.restore();
-  }
 }
 
 // ── game loop ─────────────────────────────────────────────────────────────────
