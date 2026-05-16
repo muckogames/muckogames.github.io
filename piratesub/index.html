@@ -125,9 +125,7 @@ var player = {
   face: 1,
   onGround: false,
   onLadder: false,
-  ladderX: 0,
-  ladderEntryY: 0,
-  ladderEntryDeck: -1   // deck index we came from — don't snap back to it
+  ladderX: 0
 };
 
 var camX = player.x - W / 2;
@@ -295,45 +293,43 @@ function update(dt) {
 
   if (player.onLadder) {
     // ── ladder mode ──
+    // Up/Down: climb
     if (upKey) player.y -= P_CLIMB * dt;
     if (dnKey) player.y += P_CLIMB * dt;
 
-    // Snap x to ladder center while climbing
-    player.x += (player.ladderX - player.x) * Math.min(1, 14 * dt);
-
-    // Are we at a destination deck (not the one we came from)?
-    var atDeck = -1;
-    for (var di = 0; di < DECK.length; di++) {
-      if (di === player.ladderEntryDeck) continue;
-      if (Math.abs(player.y + P_H - DECK[di]) < 24) { atDeck = di; break; }
-    }
-
-    if (atDeck >= 0) {
-      // Hold at this level (Donkey Kong / Mega Man style) until left or right
-      player.y = DECK[atDeck] - P_H;
-      if (left || right) {
-        var sd = left ? -1 : 1;
-        player.face = sd;
+    // Left/Right: slide off the ladder — player walks away from center
+    if (left || right) {
+      var lrSpd = (K['ShiftLeft'] || K['ShiftRight']) ? P_SPRINT : P_WALK;
+      if (left)  { player.x -= lrSpd * dt; player.face = -1; }
+      if (right) { player.x += lrSpd * dt; player.face =  1; }
+      // Once clear of the hole, drop back to walk mode
+      if (Math.abs(player.x - player.ladderX) > LADDER_W + P_W + 2) {
         player.onLadder = false;
-        player.onGround = true;
-        // Move clear of the hole so floor collision works next frame
-        player.x = player.ladderX + sd * (LADDER_W + P_W + 8);
+        // No onGround — let gravity land them naturally on the deck below
       }
     } else {
-      // Not near any floor — left/right bails mid-air (fine for free-fall)
-      if (left)  { player.face = -1; player.onLadder = false; }
-      if (right) { player.face =  1; player.onLadder = false; }
+      // Snap x to ladder center while not walking off
+      player.x += (player.ladderX - player.x) * Math.min(1, 12 * dt);
     }
 
-    // Hard clamp to hull extent — auto-exit at the absolute limits
+    // Jump off the ladder (Space only; Up arrow stays as "climb")
+    if (JP['Space']) {
+      player.onLadder = false;
+      player.vy = P_JUMP;
+      playTone(320, 0.18, 0.12, 'square');
+    }
+
+    // Clamp at hull limits — auto-step-off at extremes
     if (player.onLadder) {
       if (player.y + P_H < DECK[0]) {
+        // Reached top — step off
         player.y = DECK[0] - P_H; player.onLadder = false; player.onGround = true;
-        player.x = player.ladderX + player.face * (LADDER_W + P_W + 8);
+        player.x = player.ladderX + player.face * (LADDER_W + P_W + 4);
       }
       if (player.y + P_H > DECK[DECK.length - 1]) {
+        // Reached bottom — step off
         player.y = DECK[DECK.length - 1] - P_H; player.onLadder = false; player.onGround = true;
-        player.x = player.ladderX + player.face * (LADDER_W + P_W + 8);
+        player.x = player.ladderX + player.face * (LADDER_W + P_W + 4);
       }
     }
 
@@ -353,7 +349,7 @@ function update(dt) {
       }
     } else { footT = 0; }
 
-    // Door interact (Up when in front of a door) — takes priority over jump
+    // Priority 1: enter door (Up or Space near a door)
     if (jumpP && player.onGround && nearDoor >= 0) {
       if (nearDoor === SNOOD_IDX) {
         if (!snoodFound) {
@@ -367,35 +363,22 @@ function update(dt) {
         score = Math.max(0, score - 15); scorePopT = 0.35;
         playTone(160, 0.28, 0.22, 'square');
       }
-    } else if (jumpP && player.onGround) {
-      // Jump
+    // Priority 2: grab ladder going UP (Up arrow near ladder, not at top deck)
+    } else if (player.onGround && lx !== null && nearDoor < 0
+               && K['ArrowUp'] && playerDeckIdx > 0) {
+      player.onLadder = true; player.ladderX = lx;
+      player.vx = 0; player.vy = 0; player.onGround = false;
+    // Priority 3: grab ladder going DOWN (Down arrow near ladder, not at bottom deck)
+    } else if (player.onGround && lx !== null
+               && K['ArrowDown'] && playerDeckIdx >= 0 && playerDeckIdx < DECK.length - 1) {
+      player.onLadder = true; player.ladderX = lx;
+      player.vx = 0; player.vy = 0; player.onGround = false;
+      player.y += 10; // nudge into hole so deck collision lets them through
+    // Priority 4: jump (Space or Up, no door or ladder grab)
+    } else if (JP['Space'] && player.onGround) {
       player.vy = P_JUMP;
       player.onGround = false;
       playTone(320, 0.18, 0.12, 'square');
-    }
-
-    // Grab / enter ladder
-    if (lx !== null) {
-      if (dnKey && player.onGround) {
-        var atBot = (Math.abs(player.y + P_H - DECK[DECK.length - 1]) < 8);
-        if (!atBot) {
-          player.onLadder = true; player.ladderX = lx;
-          player.ladderEntryY = player.y; player.ladderEntryDeck = playerDeckIdx;
-          player.onGround = false; player.vx = 0; player.vy = 0;
-          player.y += 12;
-        }
-      } else if (upKey && player.onGround && nearDoor < 0) {
-        var atTop = (Math.abs(player.y + P_H - DECK[0]) < 8);
-        if (!atTop) {
-          player.onLadder = true; player.ladderX = lx;
-          player.ladderEntryY = player.y; player.ladderEntryDeck = playerDeckIdx;
-          player.onGround = false; player.vx = 0; player.vy = 0;
-        }
-      } else if (!player.onGround && (upKey || dnKey)) {
-        player.onLadder = true; player.ladderX = lx;
-        player.ladderEntryY = player.y; player.ladderEntryDeck = -1;
-        player.vx = 0; player.vy = 0;
-      }
     }
 
     // Gravity
@@ -410,10 +393,9 @@ function update(dt) {
     var preVy = player.vy;
     player.onGround = false;
 
-    // Deck floors (solid from both sides unless in ladder hole)
+    // Deck floors — solid everywhere; holes only passable when on ladder (handled above)
     for (var fi = 0; fi < DECK.length; fi++) {
       var dy = DECK[fi];
-      if (inLadderHole(player.x)) continue;
       // Land on top
       if (player.vy >= 0 && player.y + P_H >= dy && player.y + P_H <= dy + 24) {
         player.y = dy - P_H; player.vy = 0; player.onGround = true; break;
@@ -773,8 +755,14 @@ function drawPlayer() {
   }
 
   ctx.save();
-  ctx.translate(sx + P_W * 0.5 * f, sy + P_H);
-  ctx.scale(f * sqX, sqY);
+  // On ladder: face "into the screen" (no horizontal flip); in walk: face left/right
+  if (player.onLadder) {
+    ctx.translate(sx, sy + P_H);
+    ctx.scale(sqX, sqY);
+  } else {
+    ctx.translate(sx + P_W * 0.5 * f, sy + P_H);
+    ctx.scale(f * sqX, sqY);
+  }
 
   // Walk cycle
   var walking = player.onGround && Math.abs(player.vx) > 5;
@@ -799,11 +787,13 @@ function drawPlayer() {
   ctx.fillStyle = '#3a2a10';
   ctx.fillRect(-6, -P_H + 16, 12, 3);
 
-  // Arm (forward)
+  // Arms
   ctx.fillStyle = '#1a4a6a';
   if (player.onLadder) {
-    ctx.fillRect(5, -P_H + 2 + wc * 4, 7, 3);
-    ctx.fillRect(5, -P_H + 8 - wc * 4, 7, 3);
+    // Both arms grip the rungs (alternating for climb animation)
+    var cl = player.onGround ? 0 : Math.sin(gt * 5) * 3;
+    ctx.fillRect(-12, -P_H + 2 + cl,  7, 3);
+    ctx.fillRect(  5, -P_H + 8 - cl,  7, 3);
   } else {
     ctx.fillRect(5, -P_H + 4 + wc * 3, 7, 3);
   }
@@ -826,24 +816,6 @@ function drawPlayer() {
   ctx.beginPath(); ctx.moveTo(-6, -P_H - 4); ctx.lineTo(-1, -P_H - 4); ctx.stroke();
 
   ctx.restore();
-
-  // "< >" prompt when holding at a ladder floor, so player knows to press left/right
-  if (player.onLadder) {
-    var atDeckHint = false;
-    for (var dh = 0; dh < DECK.length; dh++) {
-      if (dh === player.ladderEntryDeck) continue;
-      if (Math.abs(player.y + P_H - DECK[dh]) < 24) { atDeckHint = true; break; }
-    }
-    if (atDeckHint) {
-      ctx.save();
-      ctx.globalAlpha = 0.7 + 0.3 * Math.abs(Math.sin(gt * 4));
-      ctx.fillStyle = '#ffe066';
-      ctx.font = 'bold 13px monospace';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-      ctx.fillText('< step off >', player.x - camX, player.y - 4);
-      ctx.restore();
-    }
-  }
 }
 
 function drawTouchControls() {
@@ -942,13 +914,13 @@ function drawHUD() {
   // Controls hint (desktop)
   if (!isTouch()) {
     ctx.fillStyle = 'rgba(0,0,0,0.50)';
-    rRect(8, 8, 310, 32, 3); ctx.fill();
+    rRect(8, 8, 470, 32, 3); ctx.fill();
     ctx.font = '9px monospace';
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     ctx.fillStyle = 'rgba(150,200,220,0.85)';
-    ctx.fillText('ARROWS move   SHIFT sprint   SPACE or UP = jump', 14, 18);
+    ctx.fillText('ARROWS move   SHIFT sprint   SPACE jumps   UP enters doors', 14, 18);
     ctx.fillStyle = 'rgba(120,160,180,0.65)';
-    ctx.fillText('UP at a door enters it   UP/DN on ladder   LEFT/RIGHT to step off', 14, 29);
+    ctx.fillText('UP or DN near a ladder grabs it   walk sideways to slide off   SPACE to jump off', 14, 29);
   }
 
   // Deck indicator
