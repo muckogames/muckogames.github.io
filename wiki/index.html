@@ -47,8 +47,8 @@
     return buf;
   }
 
-  function unlock() {
-    var pass = document.getElementById('pw').value;
+  function unlock(overridePass) {
+    var pass = overridePass || document.getElementById('pw').value;
     if (!pass) return;
     document.getElementById('err').textContent = '';
     document.getElementById('spinner').style.display = 'block';
@@ -88,6 +88,10 @@
   document.getElementById('pw').addEventListener('keydown', function(e) {
     if (e.key === 'Enter') unlock();
   });
+
+  // Auto-unlock if passphrase is in the URL hash (#passphrase)
+  var hash = location.hash.slice(1);
+  if (hash) unlock(hash);
 })();
 </script>
 </body>
