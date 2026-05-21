@@ -131,9 +131,13 @@ var BOAT_MAX_SPD = 270;
 var BOAT_DRAG    = 1.4;
 var BOAT_TURN    = 1.9;
 var BOAT_RADIUS  = 22;
+var BOAT_BANK_Y  = 190;  // world Y channel half-width; banks beyond this
 var boatWake     = [];
 var boatThrottleBeepT = 0;
 var vsHoverBtn = ''; // vehicle select hover target
+var boatFuel = 1.0;
+var BOAT_FUEL_DRAIN = 1 / 40; // 40 s continuous throttle to empty
+var BOAT_FUEL_FILL  = 1 / 5;  // 5 s to refill at station
 var score = 0, scorePopT = 0;
 var WAKE = [];
 var thrustBeepT = 0, surfBreachWas = false;
@@ -178,7 +182,9 @@ function resetGame() {
   subFace = 1; subPitch = 0; subPitchT = 0; propAng = 0; hitFlash = 0;
   fuel = 1.0; air = 1.0; camX = sub.x - W / 2;
   diverOut = false; diverRecalling = false;
-  gamePhase = 'playing'; sinkT = 0;
+  boatFuel = 1.0; boat.x = 0; boat.y = 0; boat.heading = 0; boat.speed = 0;
+  gamePhase = 'vehicleSelect'; vehicleMode = 'none';
+  sinkT = 0;
 }
 
 // ── kraken ────────────────────────────────────────────────────────────────────
@@ -271,7 +277,7 @@ var ICEBERGS = [];
     var wx = i * 2400 + ((Math.abs(i) * 317 + 91) % 600) - 300;
     if (Math.abs(wx - KRAKEN_WX) < 500) continue; // leave space for the Kraken
     var sz = 0.75 + (Math.abs(i * 53) % 25) / 100; // 0.75–1.0
-    ICEBERGS.push({ wx: wx, sz: sz, wy: (((Math.abs(i) * 173 + 29) % 100) / 100.0 - 0.5) * 820 });
+    ICEBERGS.push({ wx: wx, sz: sz, wy: (((Math.abs(i) * 173 + 29) % 100) / 100.0 - 0.5) * 320 });
   }
 }());
 
@@ -316,7 +322,7 @@ var CREATURES = [];
     var yr = 0.15 + rand() * 0.65;
     CREATURES.push({
       wx:   wx,
-      tdY:  (yr - 0.5) * 900,
+      tdY:  (yr - 0.5) * 340,
       y:    OCEAN_BASE + CELL + yr * (OCEAN_DEPTH - CELL * 2),
       vx:   (22 + rand() * 48) * (rand() > 0.5 ? 1 : -1),
       vy:   0,
@@ -331,7 +337,7 @@ var CREATURES = [];
     var yr2 = 0.1 + rand() * 0.55;
     CREATURES.push({
       wx:   wx2,
-      tdY:  (yr2 - 0.5) * 900,
+      tdY:  (yr2 - 0.5) * 340,
       y:    OCEAN_BASE + CELL + yr2 * (OCEAN_DEPTH - CELL * 2),
       vx:   (6 + rand() * 18) * (rand() > 0.5 ? 1 : -1),
       vy:   (rand() * 2 - 1) * 12,
@@ -534,8 +540,13 @@ function updateBoatSailing(dt) {
 
   var left  = K['ArrowLeft'];
   var right = K['ArrowRight'];
-  var fwd   = K['Space'] || K['ArrowUp'];
+  var fwdKey = K['Space'] || K['ArrowUp'];
   var rev   = K['ShiftLeft'] || K['ShiftRight'] || K['ArrowDown'];
+  var fwd   = fwdKey && boatFuel > 0;
+
+  // Fuel drain / refill at bank stations
+  if (fwd) boatFuel = Math.max(0, boatFuel - BOAT_FUEL_DRAIN * dt);
+  // Bank fuel stations checked after move (below)
 
   if (left)  boat.heading -= BOAT_TURN * dt;
   if (right) boat.heading += BOAT_TURN * dt;
@@ -559,6 +570,30 @@ function updateBoatSailing(dt) {
 
   boat.x += Math.cos(boat.heading) * boat.speed * dt;
   boat.y += Math.sin(boat.heading) * boat.speed * dt;
+
+  // Bank walls — bounce off top/bottom
+  if (boat.y < -BOAT_BANK_Y) {
+    boat.y = -BOAT_BANK_Y;
+    boat.speed *= -0.25;
+    playNoise(0.22, 0.10); shakeMag = Math.max(shakeMag, 6);
+  }
+  if (boat.y > BOAT_BANK_Y) {
+    boat.y = BOAT_BANK_Y;
+    boat.speed *= -0.25;
+    playNoise(0.22, 0.10); shakeMag = Math.max(shakeMag, 6);
+  }
+
+  // Bank fuel stations (every STATION_GAP px along both banks)
+  var bfsMin = Math.floor((boat.x - 180) / STATION_GAP);
+  var bfsMax = Math.ceil( (boat.x + 180) / STATION_GAP);
+  for (var bfsi = bfsMin; bfsi <= bfsMax; bfsi++) {
+    var bfsWx = bfsi * STATION_GAP + STATION_OFF;
+    var dxBfs = boat.x - bfsWx;
+    var dyTop = boat.y - (-BOAT_BANK_Y);
+    var dyBot = boat.y - ( BOAT_BANK_Y);
+    if (dxBfs * dxBfs + dyTop * dyTop < 90 * 90) boatFuel = Math.min(1, boatFuel + BOAT_FUEL_FILL * dt);
+    if (dxBfs * dxBfs + dyBot * dyBot < 90 * 90) boatFuel = Math.min(1, boatFuel + BOAT_FUEL_FILL * dt);
+  }
 
   // Wake trail
   if (Math.abs(boat.speed) > 12) {
@@ -741,6 +776,90 @@ function drawBoatTopDown() {
     ctx.restore();
   }
 
+  // Banks (rocky channel walls top and bottom)
+  var topBY = H / 2 + (-BOAT_BANK_Y - boat.y);
+  var botBY = H / 2 + ( BOAT_BANK_Y - boat.y);
+  // Top bank
+  if (topBY > -100) {
+    ctx.fillStyle = '#28381a';
+    ctx.fillRect(0, 0, W, Math.max(0, topBY));
+    ctx.fillStyle = '#334428';
+    ctx.beginPath(); ctx.moveTo(-2, topBY);
+    for (var bx2 = 0; bx2 <= W + 6; bx2 += 5) {
+      var bh1 = 7 * Math.sin((bx2 + boat.x) * 0.038 + 0.5) + 4 * Math.sin((bx2 + boat.x) * 0.12 + 2.1);
+      ctx.lineTo(bx2, topBY + bh1);
+    }
+    ctx.lineTo(W + 2, 0); ctx.lineTo(-2, 0); ctx.closePath(); ctx.fill();
+    // Rocky lumps along edge
+    var bSeedT = Math.floor((boat.x - W * 0.5) / 48) * 48;
+    for (var rbi = -1; rbi < Math.ceil(W / 48) + 2; rbi++) {
+      var rbwx = bSeedT + rbi * 48;
+      var rbh  = 7 * Math.sin(rbwx * 0.038 + 0.5) + 4 * Math.sin(rbwx * 0.12 + 2.1);
+      var rbsx = W / 2 + (rbwx - boat.x);
+      var rbR  = 5 + ((Math.abs(rbi * 11 + 3) % 9));
+      ctx.fillStyle = rbR > 9 ? '#445530' : '#3a4e24';
+      ctx.beginPath(); ctx.arc(rbsx, topBY + rbh + rbR * 0.5, rbR, 0, Math.PI * 2); ctx.fill();
+    }
+    // Fuel stations on top bank
+    var fsMinT = Math.floor((boat.x - W) / STATION_GAP);
+    var fsMaxT = Math.ceil((boat.x + W) / STATION_GAP);
+    for (var fsti = fsMinT; fsti <= fsMaxT; fsti++) {
+      var fsWxT = fsti * STATION_GAP + STATION_OFF;
+      var fsSxT = W / 2 + (fsWxT - boat.x);
+      if (fsSxT < -50 || fsSxT > W + 50) continue;
+      var fsNearT = Math.abs(boat.x - fsWxT) < 90 && Math.abs(boat.y - (-BOAT_BANK_Y)) < 90;
+      ctx.fillStyle = fsNearT ? '#ffe066' : '#cc9900';
+      ctx.fillRect(fsSxT - 8, topBY - 16, 16, 20);
+      ctx.fillStyle = '#ff4400';
+      ctx.fillRect(fsSxT - 3, topBY - 22, 6, 8);
+      if (fsNearT) {
+        ctx.fillStyle = '#ffe066'; ctx.font = 'bold 9px monospace';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+        ctx.fillText('FUEL', fsSxT, topBY - 24);
+      }
+    }
+  }
+  // Bottom bank
+  if (botBY < H + 100) {
+    ctx.fillStyle = '#28381a';
+    ctx.fillRect(0, Math.min(H, botBY), W, H);
+    ctx.fillStyle = '#334428';
+    ctx.beginPath(); ctx.moveTo(-2, botBY);
+    for (var bx3 = 0; bx3 <= W + 6; bx3 += 5) {
+      var bh2 = -7 * Math.sin((bx3 + boat.x) * 0.034 + 1.7) - 4 * Math.sin((bx3 + boat.x) * 0.093 + 3.3);
+      ctx.lineTo(bx3, botBY + bh2);
+    }
+    ctx.lineTo(W + 2, H); ctx.lineTo(-2, H); ctx.closePath(); ctx.fill();
+    // Rocky lumps
+    var bSeedB = Math.floor((boat.x - W * 0.5) / 52) * 52;
+    for (var rbi2 = -1; rbi2 < Math.ceil(W / 52) + 2; rbi2++) {
+      var rbwx2 = bSeedB + rbi2 * 52;
+      var rbh2  = -7 * Math.sin(rbwx2 * 0.034 + 1.7) - 4 * Math.sin(rbwx2 * 0.093 + 3.3);
+      var rbsx2 = W / 2 + (rbwx2 - boat.x);
+      var rbR2  = 5 + ((Math.abs(rbi2 * 13 + 7) % 9));
+      ctx.fillStyle = rbR2 > 9 ? '#445530' : '#3a4e24';
+      ctx.beginPath(); ctx.arc(rbsx2, botBY + rbh2 - rbR2 * 0.5, rbR2, 0, Math.PI * 2); ctx.fill();
+    }
+    // Fuel stations on bottom bank
+    var fsMinB = Math.floor((boat.x - W) / STATION_GAP);
+    var fsMaxB = Math.ceil((boat.x + W) / STATION_GAP);
+    for (var fsbi = fsMinB; fsbi <= fsMaxB; fsbi++) {
+      var fsWxB = fsbi * STATION_GAP + STATION_OFF;
+      var fsSxB = W / 2 + (fsWxB - boat.x);
+      if (fsSxB < -50 || fsSxB > W + 50) continue;
+      var fsNearB = Math.abs(boat.x - fsWxB) < 90 && Math.abs(boat.y - BOAT_BANK_Y) < 90;
+      ctx.fillStyle = fsNearB ? '#ffe066' : '#cc9900';
+      ctx.fillRect(fsSxB - 8, botBY - 4, 16, 20);
+      ctx.fillStyle = '#ff4400';
+      ctx.fillRect(fsSxB - 3, botBY + 14, 6, 8);
+      if (fsNearB) {
+        ctx.fillStyle = '#ffe066'; ctx.font = 'bold 9px monospace';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+        ctx.fillText('FUEL', fsSxB, botBY + 24);
+      }
+    }
+  }
+
   // Speedboat (always at screen center, rotated to heading)
   ctx.save();
   ctx.translate(W / 2, H / 2);
@@ -818,25 +937,37 @@ function drawBoatTopDown() {
   // Arrow
   ctx.save();
   ctx.translate(140, 87);
-  ctx.rotate(-kAngle); // rotate arrow toward kraken
+  ctx.rotate(kAngle); // rotate arrow toward kraken
   ctx.fillStyle = '#ff6633';
   ctx.beginPath();
   ctx.moveTo(10, 0); ctx.lineTo(-5, -6); ctx.lineTo(-5, 6); ctx.closePath(); ctx.fill();
   ctx.restore();
 
-  // Controls hint / Dive button
+  // Fuel gauge
+  var fuelFlash = boatFuel < 0.15 && Math.floor(wt * 4) % 2 === 0;
   ctx.fillStyle = 'rgba(4,16,28,0.68)';
-  rRect(10, 116, 148, 54, 5); ctx.fill();
-  ctx.fillStyle = '#55eeaa';
+  rRect(10, 116, 148, 34, 5); ctx.fill();
+  ctx.fillStyle = fuelFlash ? '#ff4444' : '#ffcc44';
   ctx.font = 'bold 10px monospace';
-  ctx.fillText('DIVE HERE:', 18, 122);
-  ctx.fillStyle = '#aaffdd';
-  ctx.font = '10px monospace';
-  ctx.fillText(isTouch() ? 'tap DIVER button' : 'press D', 18, 136);
+  ctx.fillText('FUEL', 18, 122);
+  ctx.fillStyle = 'rgba(20,60,90,0.7)';
+  rRect(48, 123, 100, 8, 2); ctx.fill();
+  ctx.fillStyle = boatFuel < 0.25 ? '#ff4444' : '#ffcc22';
+  rRect(48, 123, boatFuel * 100, 8, 2); ctx.fill();
   ctx.fillStyle = 'rgba(120,180,200,0.55)';
   ctx.font = '9px monospace';
-  ctx.fillText('ARROWS steer', 18, 152);
-  ctx.fillText('SPACE throttle', 18, 162);
+  ctx.fillText('refuel at bank docks', 18, 140);
+
+  // Controls / Dive hint
+  ctx.fillStyle = 'rgba(4,16,28,0.68)';
+  rRect(10, 158, 148, 44, 5); ctx.fill();
+  ctx.fillStyle = '#55eeaa';
+  ctx.font = 'bold 10px monospace';
+  ctx.fillText(isTouch() ? 'DIVE button to dive' : 'D = dive here', 18, 164);
+  ctx.fillStyle = 'rgba(120,180,200,0.55)';
+  ctx.font = '9px monospace';
+  ctx.fillText('ARROWS steer', 18, 178);
+  ctx.fillText('SPACE throttle', 18, 190);
 
   ctx.restore();
 
@@ -2427,6 +2558,63 @@ function drawBubbles() {
 }
 
 // ── draw submarine ────────────────────────────────────────────────────────────
+// When in boat mode, the sub.x/y tracks the diver's anchor point;
+// the speedboat itself sits on the wave surface above.
+function drawSurfaceBoat() {
+  var sx = sub.x - camX;
+  var sy = wave(sub.x) - 6; // ride just on the wave
+  ctx.save();
+  ctx.translate(sx, sy);
+  ctx.scale(subFace, 1);
+
+  // Hull shadow on water
+  ctx.globalAlpha = 0.18;
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.moveTo(36, 8); ctx.lineTo(22, -10); ctx.lineTo(-24, -10);
+  ctx.lineTo(-32, 6); ctx.lineTo(-24, 14); ctx.lineTo(22, 14);
+  ctx.closePath(); ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // Hull
+  ctx.fillStyle = '#c05010';
+  ctx.beginPath();
+  ctx.moveTo(34, 0); ctx.lineTo(22, -10); ctx.lineTo(-22, -10);
+  ctx.lineTo(-28, 0); ctx.lineTo(-22, 10); ctx.lineTo(22, 10);
+  ctx.closePath(); ctx.fill();
+
+  // Deck
+  ctx.fillStyle = '#8a3a0a';
+  ctx.fillRect(-20, -7, 38, 14);
+
+  // Windshield / cab
+  ctx.fillStyle = 'rgba(130,215,255,0.75)';
+  ctx.fillRect(-2, -6, 14, 12);
+  ctx.strokeStyle = '#c07820'; ctx.lineWidth = 1;
+  ctx.strokeRect(-2, -6, 14, 12);
+
+  // Wake splash lines at sides
+  ctx.strokeStyle = 'rgba(200,240,255,0.5)'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(-28, 2); ctx.lineTo(-38, -2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-28, -2); ctx.lineTo(-38, 2); ctx.stroke();
+
+  ctx.restore();
+
+  // Tether rope to diver
+  if (diverOut && !diverRecalling) {
+    ctx.save();
+    ctx.globalAlpha = 0.35;
+    ctx.strokeStyle = '#ffcc88'; ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(sub.x - camX, wave(sub.x));
+    ctx.lineTo(diver.x - camX, diver.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+}
+
 function drawSub() {
   var sx = sub.x - camX, sy = sub.y;
   var hw = SUB_HW, hh = SUB_HH;
@@ -2697,8 +2885,11 @@ function render() {
   drawBubbles();
   drawCreatures();
   drawWake();
-  if (gamePhase === 'playing') { drawSub(); drawDiver(); }
-  else drawSinkingPieces();
+  if (gamePhase === 'playing') {
+    if (vehicleMode === 'boat') drawSurfaceBoat();
+    else drawSub();
+    drawDiver();
+  } else drawSinkingPieces();
   drawPirateSub();
   ctx.restore();
   drawTouchControls();
