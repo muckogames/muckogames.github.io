@@ -138,6 +138,9 @@ var vsHoverBtn = ''; // vehicle select hover target
 var boatFuel = 1.0;
 var BOAT_FUEL_DRAIN = 1 / 40; // 40 s continuous throttle to empty
 var BOAT_FUEL_FILL  = 1 / 5;  // 5 s to refill at station
+var boatEngineState = 'up';   // 'up' | 'lowering' | 'ready'
+var boatEngineT     = 0;      // 0→1 lowering progress
+var BOAT_ENGINE_DUR = 1.1;    // seconds to lower motor
 var score = 0, scorePopT = 0;
 var WAKE = [];
 var thrustBeepT = 0, surfBreachWas = false;
@@ -183,6 +186,7 @@ function resetGame() {
   fuel = 1.0; air = 1.0; camX = sub.x - W / 2;
   diverOut = false; diverRecalling = false;
   boatFuel = 1.0; boat.x = 0; boat.y = 0; boat.heading = 0; boat.speed = 0;
+  boatEngineState = 'up'; boatEngineT = 0;
   gamePhase = 'vehicleSelect'; vehicleMode = 'none';
   sinkT = 0;
 }
@@ -538,6 +542,24 @@ function updateBoatSailing(dt) {
   } else { shakeX = 0; shakeY = 0; }
   if (scorePopT > 0) scorePopT = Math.max(0, scorePopT - dt * 2.5);
 
+  // ── outboard motor lowering ──
+  if (boatEngineState === 'up') {
+    if (JP['Space'] || JP['KeyD'] || JP['ArrowUp']) {
+      boatEngineState = 'lowering'; boatEngineT = 0;
+      // Engine startup sputter
+      playTone(90, 0.08, 0.25, 'sawtooth');
+    }
+    return; // can't drive yet
+  }
+  if (boatEngineState === 'lowering') {
+    boatEngineT += dt / BOAT_ENGINE_DUR;
+    if (boatEngineT >= 1) {
+      boatEngineT = 1; boatEngineState = 'ready';
+      playTone(180, 0.1, 0.3, 'sawtooth'); // engine running
+    }
+    return; // still lowering
+  }
+
   var left  = K['ArrowLeft'];
   var right = K['ArrowRight'];
   var fwdKey = K['Space'] || K['ArrowUp'];
@@ -886,6 +908,28 @@ function drawBoatTopDown() {
   ctx.fillRect(-3, -6, 15, 12);
   ctx.strokeStyle = '#c08020'; ctx.lineWidth = 1;
   ctx.strokeRect(-3, -6, 15, 12);
+  // Outboard motor at stern — tilted up (engine up) or down (ready)
+  var motorAngle = 0;
+  if (boatEngineState === 'up') {
+    motorAngle = Math.PI / 2; // pointing straight up (90° from axis)
+  } else if (boatEngineState === 'lowering') {
+    motorAngle = (1 - boatEngineT) * Math.PI / 2; // easing down
+  }
+  ctx.save();
+  ctx.translate(-30, 0); // stern position
+  ctx.rotate(motorAngle);
+  ctx.fillStyle = '#333333';
+  ctx.fillRect(-3, -2, 6, 12); // motor shaft
+  ctx.fillStyle = '#555555';
+  ctx.fillRect(-5, 9, 10, 5);  // motor head
+  if (boatEngineState === 'ready') {
+    // Prop wash bubble
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = '#aaddff';
+    ctx.beginPath(); ctx.arc(0, 16, 5, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+
   // Bow spray when fast
   var sprayFrac = Math.abs(boat.speed) / BOAT_MAX_SPD;
   if (sprayFrac > 0.22) {
@@ -901,6 +945,34 @@ function drawBoatTopDown() {
     ctx.closePath(); ctx.fill();
   }
   ctx.restore();
+
+  // "LOWER MOTOR" prompt overlay
+  if (boatEngineState !== 'ready') {
+    var pulse = 0.6 + 0.4 * Math.abs(Math.sin(wt * 3));
+    ctx.save();
+    ctx.globalAlpha = boatEngineState === 'lowering' ? (1 - boatEngineT) * 0.9 : pulse;
+    ctx.fillStyle = 'rgba(4,18,30,0.78)';
+    rRect(W / 2 - 160, H / 2 - 36, 320, 70, 8); ctx.fill();
+    ctx.fillStyle = boatEngineState === 'lowering' ? '#44ffaa' : '#ffe066';
+    ctx.font = 'bold 22px monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(
+      boatEngineState === 'lowering' ? 'LOWERING MOTOR...' : 'LOWER MOTOR',
+      W / 2, H / 2 - 10
+    );
+    if (boatEngineState === 'up') {
+      ctx.fillStyle = 'rgba(200,230,255,0.65)';
+      ctx.font = '13px monospace';
+      ctx.fillText(isTouch() ? 'tap SPACE button' : 'press SPACE to begin', W / 2, H / 2 + 18);
+    } else {
+      // Progress bar for lowering
+      ctx.fillStyle = 'rgba(30,80,100,0.7)';
+      rRect(W / 2 - 80, H / 2 + 10, 160, 8, 3); ctx.fill();
+      ctx.fillStyle = '#44ffaa';
+      rRect(W / 2 - 80, H / 2 + 10, boatEngineT * 160, 8, 3); ctx.fill();
+    }
+    ctx.restore();
+  }
 
   ctx.restore(); // end shake
 
@@ -1001,6 +1073,7 @@ function update(dt) {
     } else if (JP['Digit2'] || JP['KeyB']) {
       vehicleMode = 'boat'; gamePhase = 'boatSailing';
       boat.x = 0; boat.y = 0; boat.heading = 0; boat.speed = 0;
+      boatEngineState = 'up'; boatEngineT = 0;
     }
     return;
   }
@@ -1166,6 +1239,8 @@ function update(dt) {
   if (diverOut) {
     // ── diver controls (sub frozen) ──
     sub.vx = 0; sub.vy = 0;
+    // In boat mode the "sub" is the surface boat — keep it above the diver
+    if (vehicleMode === 'boat') sub.x = diver.x;
 
     if (diverRecalling) {
       // Auto-pilot back to sub
@@ -2910,7 +2985,8 @@ gc.addEventListener('click', function(e) {
     // Boat button: center-x +40 to +290, y 170–330
     if (ecx > W/2 + 40 && ecx < W/2 + 290 && ecy > 170 && ecy < 330) {
       vehicleMode = 'boat'; gamePhase = 'boatSailing';
-      boat.x = 0; boat.y = 0; boat.heading = 0; boat.speed = 0; unlockAC();
+      boat.x = 0; boat.y = 0; boat.heading = 0; boat.speed = 0;
+      boatEngineState = 'up'; boatEngineT = 0; unlockAC();
     }
     return;
   }
