@@ -122,12 +122,24 @@ var propAng   = 0;
 var hitFlash  = 0;
 
 var shakeX = 0, shakeY = 0, shakeMag = 0;
+
+// ── vehicle select & speedboat ────────────────────────────────────────────────
+var vehicleMode = 'none'; // 'sub' | 'boat'
+var boat = { x: 0, y: 0, heading: 0, speed: 0 };
+var BOAT_ACCEL   = 340;
+var BOAT_MAX_SPD = 270;
+var BOAT_DRAG    = 1.4;
+var BOAT_TURN    = 1.9;
+var BOAT_RADIUS  = 22;
+var boatWake     = [];
+var boatThrottleBeepT = 0;
+var vsHoverBtn = ''; // vehicle select hover target
 var score = 0, scorePopT = 0;
 var WAKE = [];
 var thrustBeepT = 0, surfBreachWas = false;
 
 // ── iceberg sink animation ────────────────────────────────────────────────────
-var gamePhase  = 'playing'; // 'playing' | 'sinking' | 'gameover'
+var gamePhase  = 'vehicleSelect'; // 'vehicleSelect'|'playing'|'sinking'|'gameover'|'boatSailing'
 var sinkT      = 0;
 var sinkFace   = 1;
 var sinkCamX   = 0;
@@ -259,7 +271,7 @@ var ICEBERGS = [];
     var wx = i * 2400 + ((Math.abs(i) * 317 + 91) % 600) - 300;
     if (Math.abs(wx - KRAKEN_WX) < 500) continue; // leave space for the Kraken
     var sz = 0.75 + (Math.abs(i * 53) % 25) / 100; // 0.75–1.0
-    ICEBERGS.push({ wx: wx, sz: sz });
+    ICEBERGS.push({ wx: wx, sz: sz, wy: (((Math.abs(i) * 173 + 29) % 100) / 100.0 - 0.5) * 820 });
   }
 }());
 
@@ -304,6 +316,7 @@ var CREATURES = [];
     var yr = 0.15 + rand() * 0.65;
     CREATURES.push({
       wx:   wx,
+      tdY:  (yr - 0.5) * 900,
       y:    OCEAN_BASE + CELL + yr * (OCEAN_DEPTH - CELL * 2),
       vx:   (22 + rand() * 48) * (rand() > 0.5 ? 1 : -1),
       vy:   0,
@@ -318,6 +331,7 @@ var CREATURES = [];
     var yr2 = 0.1 + rand() * 0.55;
     CREATURES.push({
       wx:   wx2,
+      tdY:  (yr2 - 0.5) * 900,
       y:    OCEAN_BASE + CELL + yr2 * (OCEAN_DEPTH - CELL * 2),
       vx:   (6 + rand() * 18) * (rand() > 0.5 ? 1 : -1),
       vy:   (rand() * 2 - 1) * 12,
@@ -433,9 +447,435 @@ function drawWake() {
   }
 }
 
+// ── vehicle select screen ─────────────────────────────────────────────────────
+function drawVehicleSelect() {
+  ctx.clearRect(0, 0, W, H);
+  var bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#081420'); bg.addColorStop(1, '#030c14');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+
+  // Animated water ripples for atmosphere
+  ctx.strokeStyle = 'rgba(30,100,160,0.18)'; ctx.lineWidth = 1;
+  for (var ri = 0; ri < 10; ri++) {
+    var ry = 60 + ri * 48 + (wt * 18) % 48;
+    ctx.beginPath(); ctx.moveTo(0, ry); ctx.lineTo(W, ry + 12); ctx.stroke();
+  }
+
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#66ccff';
+  ctx.font = 'bold 34px monospace';
+  ctx.fillText('PFLUEGERVILLE OCEAN', W / 2, 76);
+  ctx.fillStyle = 'rgba(140,200,240,0.5)';
+  ctx.font = '15px monospace';
+  ctx.fillText('Choose your vessel', W / 2, 118);
+
+  var subBx = W / 2 - 290, subBy = 160, subBW = 248, subBH = 170;
+  var boatBx = W / 2 + 42,  boatBy = 160, boatBW = 248, boatBH = 170;
+
+  // Sub button
+  ctx.fillStyle = 'rgba(18,58,110,0.88)';
+  rRect(subBx, subBy, subBW, subBH, 12); ctx.fill();
+  ctx.strokeStyle = '#3388cc'; ctx.lineWidth = 2.5;
+  rRect(subBx, subBy, subBW, subBH, 12); ctx.stroke();
+  // Mini sub silhouette
+  var scx = subBx + subBW / 2, scy = subBy + 60;
+  ctx.fillStyle = '#2a7ab8';
+  ctx.beginPath(); ctx.ellipse(scx, scy, 38, 13, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#44aaee';
+  ctx.fillRect(scx - 10, scy - 22, 18, 13);
+  ctx.fillStyle = 'rgba(100,180,255,0.5)';
+  ctx.fillRect(scx - 6, scy - 20, 10, 5);
+  ctx.fillStyle = '#aaddff';
+  ctx.font = 'bold 20px monospace';
+  ctx.fillText('SUBMARINE', scx, subBy + 108);
+  ctx.fillStyle = 'rgba(140,200,240,0.55)';
+  ctx.font = '11px monospace';
+  ctx.fillText('Classic underwater dive', scx, subBy + 130);
+  ctx.fillText('Press S or 1', scx, subBy + 148);
+
+  // Speedboat button
+  ctx.fillStyle = 'rgba(80,42,8,0.88)';
+  rRect(boatBx, boatBy, boatBW, boatBH, 12); ctx.fill();
+  ctx.strokeStyle = '#cc7722'; ctx.lineWidth = 2.5;
+  rRect(boatBx, boatBy, boatBW, boatBH, 12); ctx.stroke();
+  // Mini top-down boat
+  var bcx = boatBx + boatBW / 2, bcy = boatBy + 60;
+  ctx.fillStyle = '#bb5511';
+  ctx.beginPath();
+  ctx.moveTo(bcx + 36, bcy); ctx.lineTo(bcx + 22, bcy - 13);
+  ctx.lineTo(bcx - 24, bcy - 13); ctx.lineTo(bcx - 30, bcy);
+  ctx.lineTo(bcx - 24, bcy + 13); ctx.lineTo(bcx + 22, bcy + 13);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#884400';
+  ctx.fillRect(bcx - 18, bcy - 9, 38, 18);
+  ctx.fillStyle = 'rgba(140,220,255,0.7)';
+  ctx.fillRect(bcx - 4, bcy - 7, 14, 14);
+  // wake lines
+  ctx.strokeStyle = 'rgba(120,200,255,0.5)'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(bcx - 30, bcy - 5); ctx.lineTo(bcx - 52, bcy - 14); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(bcx - 30, bcy + 5); ctx.lineTo(bcx - 52, bcy + 14); ctx.stroke();
+  ctx.fillStyle = '#ffddaa';
+  ctx.font = 'bold 20px monospace';
+  ctx.fillText('SPEEDBOAT', bcx, boatBy + 108);
+  ctx.fillStyle = 'rgba(240,200,140,0.55)';
+  ctx.font = '11px monospace';
+  ctx.fillText('Top-down steering', bcx, boatBy + 130);
+  ctx.fillText('Press B or 2', bcx, boatBy + 148);
+}
+
+// ── boat top-down update ──────────────────────────────────────────────────────
+function updateBoatSailing(dt) {
+  if (shakeMag > 0) {
+    shakeX = (Math.random() - 0.5) * shakeMag * 2;
+    shakeY = (Math.random() - 0.5) * shakeMag * 2;
+    shakeMag = Math.max(0, shakeMag - 90 * dt);
+  } else { shakeX = 0; shakeY = 0; }
+  if (scorePopT > 0) scorePopT = Math.max(0, scorePopT - dt * 2.5);
+
+  var left  = K['ArrowLeft'];
+  var right = K['ArrowRight'];
+  var fwd   = K['Space'] || K['ArrowUp'];
+  var rev   = K['ShiftLeft'] || K['ShiftRight'] || K['ArrowDown'];
+
+  if (left)  boat.heading -= BOAT_TURN * dt;
+  if (right) boat.heading += BOAT_TURN * dt;
+
+  if (fwd) {
+    boat.speed = Math.min(BOAT_MAX_SPD, boat.speed + BOAT_ACCEL * dt);
+    boatThrottleBeepT -= dt;
+    if (boatThrottleBeepT <= 0) {
+      boatThrottleBeepT = 0.22;
+      playTone(220 + boat.speed * 0.5, 0.04, 0.14, 'sawtooth');
+    }
+  } else if (rev) {
+    boat.speed = Math.max(-BOAT_MAX_SPD * 0.35, boat.speed - BOAT_ACCEL * 0.5 * dt);
+  } else {
+    boatThrottleBeepT = 0;
+  }
+  if (!fwd && !rev) {
+    boat.speed *= Math.exp(-BOAT_DRAG * dt);
+    if (Math.abs(boat.speed) < 1.5) boat.speed = 0;
+  }
+
+  boat.x += Math.cos(boat.heading) * boat.speed * dt;
+  boat.y += Math.sin(boat.heading) * boat.speed * dt;
+
+  // Wake trail
+  if (Math.abs(boat.speed) > 12) {
+    boatWake.push({
+      x: boat.x - Math.cos(boat.heading) * 20,
+      y: boat.y - Math.sin(boat.heading) * 20,
+      life: 1.4, r: 5
+    });
+  }
+  for (var wi = boatWake.length - 1; wi >= 0; wi--) {
+    boatWake[wi].life -= dt;
+    boatWake[wi].r += 14 * dt;
+    if (boatWake[wi].life <= 0) boatWake.splice(wi, 1);
+  }
+
+  // Iceberg collision (top-down)
+  for (var ii = 0; ii < ICEBERGS.length; ii++) {
+    var ib = ICEBERGS[ii];
+    var ibR = 42 * ib.sz;
+    var ibdx = boat.x - ib.wx, ibdy = boat.y - ib.wy;
+    var ibD2 = ibdx * ibdx + ibdy * ibdy;
+    if (ibD2 < (ibR + BOAT_RADIUS) * (ibR + BOAT_RADIUS)) {
+      var ibD = Math.sqrt(ibD2) || 1;
+      var nx = ibdx / ibD, ny = ibdy / ibD;
+      var push = (ibR + BOAT_RADIUS) - ibD + 2;
+      boat.x += nx * push; boat.y += ny * push;
+      boat.speed *= -0.28;
+      playNoise(0.38, 0.18); shakeMag = Math.max(shakeMag, 14);
+    }
+  }
+
+  // Creature scatter (boat disturbs them)
+  for (var ci = 0; ci < CREATURES.length; ci++) {
+    var cr = CREATURES[ci];
+    cr.wx += cr.vx * dt;
+    if (cr.hit > 0) cr.hit -= dt;
+    var cdx = boat.x - cr.wx, cdy = boat.y - cr.tdY;
+    var cd2 = cdx * cdx + cdy * cdy;
+    if (cd2 < (BOAT_RADIUS + cr.r) * (BOAT_RADIUS + cr.r) * 4) {
+      cr.hit = 0.6;
+      var clen = Math.sqrt(cd2) || 1;
+      cr.vx = -(cdx / clen) * (60 + cr.r * 2);
+    }
+  }
+
+  // Deploy diver → hand off to sub mode at boat's world position
+  if (JP['KeyD']) {
+    vehicleMode = 'sub';
+    gamePhase   = 'playing';
+    sub.x = boat.x; sub.y = OCEAN_BASE + CELL * 2 + SUB_HH;
+    sub.vx = 0; sub.vy = 0; subFace = 1;
+    fuel = 1.0; air = 1.0;
+    camX = sub.x - W / 2;
+    diverOut = true;
+    diver.x = boat.x; diver.y = sub.y + SUB_HH + 12;
+    diver.vx = 0; diver.vy = 28;
+    diverFace = 1;
+    playTone(440, 0.2, 0.3, 'sine');
+  }
+}
+
+// ── boat top-down render ──────────────────────────────────────────────────────
+function drawBoatTopDown() {
+  ctx.clearRect(0, 0, W, H);
+  ctx.save();
+  ctx.translate(Math.round(shakeX), Math.round(shakeY));
+
+  // Deep water background
+  ctx.fillStyle = '#0c3450';
+  ctx.fillRect(0, 0, W, H);
+
+  // Animated ripple streaks
+  ctx.lineWidth = 1;
+  var ripBase = (wt * 22 + boat.x * 0.2 + boat.y * 0.08) % 70;
+  for (var ri = -2; ri < Math.ceil(W / 70) + 2; ri++) {
+    var rsx = ri * 70 - ripBase % 70;
+    ctx.strokeStyle = 'rgba(80,150,210,0.10)';
+    ctx.beginPath(); ctx.moveTo(rsx, 0); ctx.lineTo(rsx + 35, H); ctx.stroke();
+    ctx.strokeStyle = 'rgba(100,180,240,0.07)';
+    ctx.beginPath(); ctx.moveTo(rsx + 35, 0); ctx.lineTo(rsx + 70, H); ctx.stroke();
+  }
+
+  // Screen-space helper
+  function sw(wx) { return W / 2 + (wx - boat.x); }
+  function sh(wy) { return H / 2 + (wy - boat.y); }
+
+  // Kraken zone marker
+  var kzx = sw(KRAKEN_WX), kzy = sh(0);
+  if (kzx > -250 && kzx < W + 250 && kzy > -250 && kzy < H + 250) {
+    var kpulse = 0.5 + 0.5 * Math.sin(wt * 2.5);
+    ctx.save();
+    ctx.globalAlpha = 0.18 + 0.10 * kpulse;
+    ctx.fillStyle = '#dd2200';
+    ctx.beginPath(); ctx.arc(kzx, kzy, 80 + kpulse * 14, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 0.55 + 0.25 * kpulse;
+    ctx.strokeStyle = '#ff4422'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(kzx, kzy, 76 + kpulse * 12, 0, Math.PI * 2); ctx.stroke();
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = '#ff6644';
+    ctx.font = 'bold 10px monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('DIVE ZONE', kzx, kzy - 88);
+    ctx.restore();
+  }
+
+  // Creatures — top-down silhouettes through translucent water
+  for (var ci = 0; ci < CREATURES.length; ci++) {
+    var cr = CREATURES[ci];
+    var csx = sw(cr.wx), csy = sh(cr.tdY);
+    if (csx < -100 || csx > W + 100 || csy < -100 || csy > H + 100) continue;
+    ctx.save();
+    ctx.globalAlpha = cr.hit > 0 ? 0.50 : 0.18;
+    if (cr.type === 'fish') {
+      ctx.fillStyle = '#002255';
+      ctx.translate(csx, csy);
+      ctx.scale(cr.vx > 0 ? 1 : -1, 1);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, cr.r * 1.7, cr.r * 0.55, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(cr.r * 1.2, 0); ctx.lineTo(cr.r * 2.0, -cr.r * 0.6);
+      ctx.lineTo(cr.r * 2.0, cr.r * 0.6); ctx.closePath(); ctx.fill();
+    } else {
+      ctx.fillStyle = '#440066';
+      ctx.translate(csx, csy);
+      ctx.beginPath(); ctx.arc(0, 0, cr.r * 0.65, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha *= 0.6;
+      ctx.strokeStyle = '#440066'; ctx.lineWidth = 1.5;
+      for (var ti = 0; ti < 7; ti++) {
+        var ta = (ti / 7) * Math.PI * 2 + cr.tentTimer * 0.5;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(ta) * cr.r * 0.4, Math.sin(ta) * cr.r * 0.4);
+        ctx.lineTo(Math.cos(ta) * cr.r * 1.4, Math.sin(ta) * cr.r * 1.4);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  // Icebergs — top-down white blobs
+  for (var ii = 0; ii < ICEBERGS.length; ii++) {
+    var ib = ICEBERGS[ii];
+    var ibsx = sw(ib.wx), ibsy = sh(ib.wy);
+    if (ibsx < -180 || ibsx > W + 180 || ibsy < -180 || ibsy > H + 180) continue;
+    var ibR = 40 * ib.sz;
+    ctx.save();
+    // Cast shadow
+    ctx.globalAlpha = 0.30;
+    ctx.fillStyle = '#0a2030';
+    ctx.beginPath(); ctx.arc(ibsx + 10, ibsy + 10, ibR * 1.05, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+    // Iceberg body — lumpy polygon using seed from wx
+    var ibG = ctx.createRadialGradient(ibsx - ibR * 0.25, ibsy - ibR * 0.25, 2, ibsx, ibsy, ibR);
+    ibG.addColorStop(0, '#ffffff');
+    ibG.addColorStop(0.55, '#ddeeff');
+    ibG.addColorStop(1, '#7ab0cc');
+    ctx.fillStyle = ibG;
+    ctx.beginPath();
+    var ibSeed = ib.wx * 0.0137;
+    for (var ip = 0; ip < 9; ip++) {
+      var ia = (ip / 9) * Math.PI * 2;
+      var iR = ibR * (0.68 + 0.32 * Math.sin(ia * 2.1 + ibSeed));
+      if (ip === 0) ctx.moveTo(ibsx + Math.cos(ia) * iR, ibsy + Math.sin(ia) * iR);
+      else          ctx.lineTo(ibsx + Math.cos(ia) * iR, ibsy + Math.sin(ia) * iR);
+    }
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(180,225,255,0.6)'; ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Wake trail
+  for (var wi = 0; wi < boatWake.length; wi++) {
+    var wk = boatWake[wi];
+    var wsx = sw(wk.x), wsy = sh(wk.y);
+    if (wsx < -80 || wsx > W + 80 || wsy < -80 || wsy > H + 80) continue;
+    ctx.save();
+    ctx.globalAlpha = wk.life * 0.38;
+    ctx.strokeStyle = '#b0dcff'; ctx.lineWidth = 1.8;
+    ctx.beginPath(); ctx.arc(wsx, wsy, wk.r, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
+
+  // Speedboat (always at screen center, rotated to heading)
+  ctx.save();
+  ctx.translate(W / 2, H / 2);
+  ctx.rotate(boat.heading);
+  // Shadow
+  ctx.globalAlpha = 0.35;
+  ctx.fillStyle = '#000a14';
+  ctx.beginPath();
+  ctx.moveTo(34, 5); ctx.lineTo(21, -13); ctx.lineTo(-23, -13);
+  ctx.lineTo(-30, 5); ctx.lineTo(-23, 15); ctx.lineTo(21, 15);
+  ctx.closePath(); ctx.fill();
+  ctx.globalAlpha = 1;
+  // Hull
+  ctx.fillStyle = '#c05010';
+  ctx.beginPath();
+  ctx.moveTo(32, 0); ctx.lineTo(20, -12); ctx.lineTo(-22, -12);
+  ctx.lineTo(-28, 0); ctx.lineTo(-22, 12); ctx.lineTo(20, 12);
+  ctx.closePath(); ctx.fill();
+  // Deck
+  ctx.fillStyle = '#8a3a0a';
+  ctx.fillRect(-20, -8, 40, 16);
+  // Windshield
+  ctx.fillStyle = 'rgba(130,215,255,0.72)';
+  ctx.fillRect(-3, -6, 15, 12);
+  ctx.strokeStyle = '#c08020'; ctx.lineWidth = 1;
+  ctx.strokeRect(-3, -6, 15, 12);
+  // Bow spray when fast
+  var sprayFrac = Math.abs(boat.speed) / BOAT_MAX_SPD;
+  if (sprayFrac > 0.22) {
+    ctx.globalAlpha = sprayFrac * 0.7;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.moveTo(32, 0);
+    ctx.lineTo(26, -sprayFrac * 14); ctx.lineTo(18, -4);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(32, 0);
+    ctx.lineTo(26, sprayFrac * 14); ctx.lineTo(18, 4);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+
+  ctx.restore(); // end shake
+
+  // HUD
+  ctx.save();
+  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+
+  // Speed
+  ctx.fillStyle = 'rgba(4,16,28,0.68)';
+  rRect(10, 10, 148, 48, 5); ctx.fill();
+  ctx.fillStyle = '#70c8f0';
+  ctx.font = 'bold 10px monospace';
+  ctx.fillText('SPEED', 18, 16);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 18px monospace';
+  ctx.fillText(Math.round(Math.abs(boat.speed)) + ' kn', 18, 28);
+  var sbar = Math.abs(boat.speed) / BOAT_MAX_SPD;
+  ctx.fillStyle = 'rgba(20,60,90,0.7)';
+  rRect(18, 46, 126, 6, 2); ctx.fill();
+  ctx.fillStyle = sbar > 0.72 ? '#ff9944' : '#44ddaa';
+  rRect(18, 46, sbar * 126, 6, 2); ctx.fill();
+
+  // Kraken compass
+  var kDistPx = Math.sqrt((KRAKEN_WX - boat.x) * (KRAKEN_WX - boat.x) + boat.y * boat.y);
+  var kAngle  = Math.atan2(-boat.y, KRAKEN_WX - boat.x); // angle to kraken
+  ctx.fillStyle = 'rgba(4,16,28,0.68)';
+  rRect(10, 66, 148, 42, 5); ctx.fill();
+  ctx.fillStyle = '#ffaa44';
+  ctx.font = '10px monospace';
+  ctx.fillText('KRAKEN', 18, 72);
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 14px monospace';
+  ctx.fillText(Math.round(kDistPx) + ' m', 18, 84);
+  // Arrow
+  ctx.save();
+  ctx.translate(140, 87);
+  ctx.rotate(-kAngle); // rotate arrow toward kraken
+  ctx.fillStyle = '#ff6633';
+  ctx.beginPath();
+  ctx.moveTo(10, 0); ctx.lineTo(-5, -6); ctx.lineTo(-5, 6); ctx.closePath(); ctx.fill();
+  ctx.restore();
+
+  // Controls hint / Dive button
+  ctx.fillStyle = 'rgba(4,16,28,0.68)';
+  rRect(10, 116, 148, 54, 5); ctx.fill();
+  ctx.fillStyle = '#55eeaa';
+  ctx.font = 'bold 10px monospace';
+  ctx.fillText('DIVE HERE:', 18, 122);
+  ctx.fillStyle = '#aaffdd';
+  ctx.font = '10px monospace';
+  ctx.fillText(isTouch() ? 'tap DIVER button' : 'press D', 18, 136);
+  ctx.fillStyle = 'rgba(120,180,200,0.55)';
+  ctx.font = '9px monospace';
+  ctx.fillText('ARROWS steer', 18, 152);
+  ctx.fillText('SPACE throttle', 18, 162);
+
+  ctx.restore();
+
+  // Touch diver button (reuse from BTNS)
+  if (isTouch()) {
+    var db = null;
+    for (var bi = 0; bi < BTNS.length; bi++) { if (BTNS[bi].id === 'diver') { db = BTNS[bi]; break; } }
+    if (db) {
+      ctx.save();
+      ctx.globalAlpha = 0.72;
+      ctx.fillStyle = 'rgba(20,120,80,0.85)';
+      ctx.strokeStyle = '#44ffaa'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(db.cx, db.cy, db.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#aaffdd';
+      ctx.font = 'bold 11px monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('DIVE', db.cx, db.cy);
+      ctx.restore();
+    }
+  }
+}
+
 // ── update ────────────────────────────────────────────────────────────────────
 function update(dt) {
   wt += dt;
+
+  // ── vehicle select ──
+  if (gamePhase === 'vehicleSelect') {
+    if (JP['Digit1'] || JP['KeyS']) {
+      vehicleMode = 'sub'; gamePhase = 'playing';
+    } else if (JP['Digit2'] || JP['KeyB']) {
+      vehicleMode = 'boat'; gamePhase = 'boatSailing';
+      boat.x = 0; boat.y = 0; boat.heading = 0; boat.speed = 0;
+    }
+    return;
+  }
+
+  // ── boat top-down mode ──
+  if (gamePhase === 'boatSailing') { updateBoatSailing(dt); return; }
 
   // ── sinking animation ──
   if (gamePhase === 'sinking') {
@@ -2241,6 +2681,8 @@ function drawHUD() {
 
 // ── render ────────────────────────────────────────────────────────────────────
 function render() {
+  if (gamePhase === 'vehicleSelect') { drawVehicleSelect(); return; }
+  if (gamePhase === 'boatSailing')   { drawBoatTopDown();   return; }
   ctx.clearRect(0, 0, W, H);
   ctx.save();
   ctx.translate(Math.round(shakeX), Math.round(shakeY));
@@ -2266,6 +2708,21 @@ function render() {
 }
 
 gc.addEventListener('click', function(e) {
+  var r2 = gc.getBoundingClientRect();
+  var ecx = (e.clientX - r2.left) * (W / r2.width);
+  var ecy = (e.clientY - r2.top)  * (H / r2.height);
+  if (gamePhase === 'vehicleSelect') {
+    // Sub button: center-x -290 to -40, y 170–330
+    if (ecx > W/2 - 290 && ecx < W/2 - 40 && ecy > 170 && ecy < 330) {
+      vehicleMode = 'sub'; gamePhase = 'playing'; unlockAC();
+    }
+    // Boat button: center-x +40 to +290, y 170–330
+    if (ecx > W/2 + 40 && ecx < W/2 + 290 && ecy > 170 && ecy < 330) {
+      vehicleMode = 'boat'; gamePhase = 'boatSailing';
+      boat.x = 0; boat.y = 0; boat.heading = 0; boat.speed = 0; unlockAC();
+    }
+    return;
+  }
   if (piratePhase === 'docked') { window.location.href = '../piratesub/'; return; }
   if (gamePhase === 'gameover') { resetGame(); return; }
   if (krakPhase === 'victory') { krakPhase = 'debris'; return; }
