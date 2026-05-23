@@ -678,6 +678,71 @@ function updateBoatSailing(dt) {
 }
 
 // ── boat top-down render ──────────────────────────────────────────────────────
+// dir: +1 = dock extends downward from top bank, -1 = extends upward from bottom bank
+function drawDock(sx, bankEdgeY, dir, isNear) {
+  var dockLen = 44; // how far dock juts into the water
+  var dockW   = 22;
+  var deckY0  = bankEdgeY;              // bank edge
+  var deckY1  = bankEdgeY + dir * dockLen; // dock tip into water
+  var halfW   = dockW / 2;
+
+  ctx.save();
+
+  // Dock deck planks (drawn as filled rect + plank lines)
+  ctx.fillStyle = isNear ? '#c8943a' : '#8b6228';
+  if (dir > 0) {
+    ctx.fillRect(sx - halfW, deckY0, dockW, dockLen);
+  } else {
+    ctx.fillRect(sx - halfW, deckY1, dockW, dockLen);
+  }
+  // Plank lines across the width
+  ctx.strokeStyle = isNear ? '#a07020' : '#6a4a18';
+  ctx.lineWidth = 1;
+  for (var pi = 1; pi < 5; pi++) {
+    var py = bankEdgeY + dir * (pi * dockLen / 5);
+    ctx.beginPath(); ctx.moveTo(sx - halfW, py); ctx.lineTo(sx + halfW, py); ctx.stroke();
+  }
+  // Lengthwise gap down the middle
+  ctx.beginPath(); ctx.moveTo(sx, deckY0); ctx.lineTo(sx, deckY1); ctx.stroke();
+
+  // Pilings (3 posts along the sides, 1 at tip)
+  var pilR = 3.5;
+  ctx.fillStyle = '#4a2e0a';
+  var pilingYs = [0.15, 0.55, 0.9];
+  for (var ppi = 0; ppi < pilingYs.length; ppi++) {
+    var py2 = bankEdgeY + dir * dockLen * pilingYs[ppi];
+    ctx.beginPath(); ctx.arc(sx - halfW, py2, pilR, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(sx + halfW, py2, pilR, 0, Math.PI * 2); ctx.fill();
+  }
+  // Tip piling
+  ctx.beginPath(); ctx.arc(sx, deckY1, pilR + 1, 0, Math.PI * 2); ctx.fill();
+
+  // Fuel pump at dock tip
+  var pumpY = deckY1 - dir * 8;
+  ctx.fillStyle = isNear ? '#ffe066' : '#ddaa00';
+  ctx.fillRect(sx - 5, Math.min(pumpY, pumpY - dir * 10), 10, 10);
+  ctx.fillStyle = '#cc2200';
+  ctx.fillRect(sx - 2, Math.min(pumpY, pumpY - dir * 10) - dir * 6, 4, 6);
+
+  // Rope tying around tip piling
+  ctx.strokeStyle = isNear ? '#ffe0a0' : '#998855';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(sx, deckY1, pilR + 4, 0.4, Math.PI * 1.6); ctx.stroke();
+
+  // "FUEL" label and glow when near
+  if (isNear) {
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = '#ffe066';
+    ctx.font = 'bold 10px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = dir > 0 ? 'top' : 'bottom';
+    ctx.fillText('FUEL', sx, deckY1 + dir * 8);
+  }
+
+  ctx.restore();
+}
+
 function drawBoatTopDown() {
   ctx.clearRect(0, 0, W, H);
   ctx.save();
@@ -822,23 +887,15 @@ function drawBoatTopDown() {
       ctx.fillStyle = rbR > 9 ? '#445530' : '#3a4e24';
       ctx.beginPath(); ctx.arc(rbsx, topBY + rbh + rbR * 0.5, rbR, 0, Math.PI * 2); ctx.fill();
     }
-    // Fuel stations on top bank
+    // Docks on top bank (extend downward into water)
     var fsMinT = Math.floor((boat.x - W) / STATION_GAP);
     var fsMaxT = Math.ceil((boat.x + W) / STATION_GAP);
     for (var fsti = fsMinT; fsti <= fsMaxT; fsti++) {
       var fsWxT = fsti * STATION_GAP + STATION_OFF;
       var fsSxT = W / 2 + (fsWxT - boat.x);
-      if (fsSxT < -50 || fsSxT > W + 50) continue;
+      if (fsSxT < -60 || fsSxT > W + 60) continue;
       var fsNearT = Math.abs(boat.x - fsWxT) < 90 && Math.abs(boat.y - (-BOAT_BANK_Y)) < 90;
-      ctx.fillStyle = fsNearT ? '#ffe066' : '#cc9900';
-      ctx.fillRect(fsSxT - 8, topBY - 16, 16, 20);
-      ctx.fillStyle = '#ff4400';
-      ctx.fillRect(fsSxT - 3, topBY - 22, 6, 8);
-      if (fsNearT) {
-        ctx.fillStyle = '#ffe066'; ctx.font = 'bold 9px monospace';
-        ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-        ctx.fillText('FUEL', fsSxT, topBY - 24);
-      }
+      drawDock(fsSxT, topBY, 1, fsNearT);
     }
   }
   // Bottom bank
@@ -862,23 +919,15 @@ function drawBoatTopDown() {
       ctx.fillStyle = rbR2 > 9 ? '#445530' : '#3a4e24';
       ctx.beginPath(); ctx.arc(rbsx2, botBY + rbh2 - rbR2 * 0.5, rbR2, 0, Math.PI * 2); ctx.fill();
     }
-    // Fuel stations on bottom bank
+    // Docks on bottom bank (extend upward into water)
     var fsMinB = Math.floor((boat.x - W) / STATION_GAP);
     var fsMaxB = Math.ceil((boat.x + W) / STATION_GAP);
     for (var fsbi = fsMinB; fsbi <= fsMaxB; fsbi++) {
       var fsWxB = fsbi * STATION_GAP + STATION_OFF;
       var fsSxB = W / 2 + (fsWxB - boat.x);
-      if (fsSxB < -50 || fsSxB > W + 50) continue;
+      if (fsSxB < -60 || fsSxB > W + 60) continue;
       var fsNearB = Math.abs(boat.x - fsWxB) < 90 && Math.abs(boat.y - BOAT_BANK_Y) < 90;
-      ctx.fillStyle = fsNearB ? '#ffe066' : '#cc9900';
-      ctx.fillRect(fsSxB - 8, botBY - 4, 16, 20);
-      ctx.fillStyle = '#ff4400';
-      ctx.fillRect(fsSxB - 3, botBY + 14, 6, 8);
-      if (fsNearB) {
-        ctx.fillStyle = '#ffe066'; ctx.font = 'bold 9px monospace';
-        ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-        ctx.fillText('FUEL', fsSxB, botBY + 24);
-      }
+      drawDock(fsSxB, botBY, -1, fsNearB);
     }
   }
 
