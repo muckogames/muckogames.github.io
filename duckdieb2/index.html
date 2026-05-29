@@ -2550,11 +2550,14 @@ function finishRun() {
   var stars = chase.won ? (score > 700 ? 3 : score > 400 ? 2 : 1) : 0;
 
   // Gold: only on successful escape. ~half the score plus a no-alert bonus.
+  // Easy mode: police don't take what you grabbed — busted runs still pay out.
   var goldEarned = 0;
   var noAlert = chase.won && !alertedEver;
   if (chase.won) {
     goldEarned = Math.round(score * 0.5);
     if (noAlert) goldEarned += 80;
+  } else if (easyMode) {
+    goldEarned = Math.round(score * 0.5);
   }
 
   // Count gadgets used this run
@@ -2578,6 +2581,9 @@ function finishRun() {
   if (chase.won) {
     wallet.gold += goldEarned;
     wallet.lifetimeHeists += 1;
+    wallet.lifetimeGold += goldEarned;
+  } else if (goldEarned > 0) {
+    wallet.gold += goldEarned;
     wallet.lifetimeGold += goldEarned;
   }
 
@@ -2640,7 +2646,8 @@ function renderVictory() {
     ['Times jailed', String(runResult.jailed)],
     ['Time',         runResult.timeSec.toFixed(1) + 's'],
     ['Gadgets used', String(runResult.gadgetsUsed || 0)],
-    ['Gold earned',  runResult.won ? ('\u272A ' + runResult.goldEarned) : '—'],
+    ['Gold earned',  (runResult.won || runResult.goldEarned > 0)
+                       ? ('\u272A ' + runResult.goldEarned) : '—'],
   ];
   if (runResult.noAlertBonus) rows.push(['No-alert bonus', '+80']);
   if (runResult.daily && runResult.dailyRank)
