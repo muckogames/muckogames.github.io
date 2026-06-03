@@ -376,6 +376,8 @@ var BTNS = [], btnTouch = {};
     { id: 'rev',   cx: W - 148, cy: by,      r: 40, key: 'ShiftLeft'  },
     { id: 'up',    cx: 65,      cy: by - 40, r: 32, key: 'ArrowUp'    },
     { id: 'dn',    cx: 65,      cy: by + 10, r: 32, key: 'ArrowDown'  },
+    { id: 'left',  cx: 30,      cy: by,      r: 32, key: 'ArrowLeft'  },
+    { id: 'right', cx: 100,     cy: by,      r: 32, key: 'ArrowRight' },
     { id: 'diver', cx: W / 2,   cy: H - 38,  r: 30, key: 'KeyD'       }
   ];
 }());
@@ -2862,9 +2864,14 @@ function drawSub() {
 // ── draw touch controls ───────────────────────────────────────────────────────
 function drawTouchControls() {
   if (!isTouch()) return;
+  var isBoat = gamePhase === 'boatSailing';
   for (var i = 0; i < BTNS.length; i++) {
     var b = BTNS[i];
+    // Show sub-only buttons only in sub mode, boat-only buttons only in boat mode
+    if ((b.id === 'up' || b.id === 'dn') && isBoat) continue;
+    if ((b.id === 'left' || b.id === 'right') && !isBoat) continue;
     if (b.id === 'diver') {
+      if (isBoat) continue;
       // Special diver toggle button
       var active = diverOut;
       ctx.save();
@@ -2904,10 +2911,12 @@ function drawTouchControls() {
     ctx.fill(); ctx.stroke();
     ctx.fillStyle = on ? '#0a2030' : '#90d0f0';
     var ts = b.r * 0.42;
-    if (b.id === 'fwd') tri(b.cx, b.cy, ts, 0);
-    if (b.id === 'rev') tri(b.cx, b.cy, ts, 1);
-    if (b.id === 'up')  tri(b.cx, b.cy, ts, 2);
-    if (b.id === 'dn')  tri(b.cx, b.cy, ts, 3);
+    if (b.id === 'fwd')   tri(b.cx, b.cy, ts, 0);
+    if (b.id === 'rev')   tri(b.cx, b.cy, ts, 1);
+    if (b.id === 'up')    tri(b.cx, b.cy, ts, 2);
+    if (b.id === 'dn')    tri(b.cx, b.cy, ts, 3);
+    if (b.id === 'left')  tri(b.cx, b.cy, ts, 1);
+    if (b.id === 'right') tri(b.cx, b.cy, ts, 0);
     ctx.restore();
   }
 }
