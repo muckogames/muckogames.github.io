@@ -3035,7 +3035,7 @@ function drawHUD() {
 // ── render ────────────────────────────────────────────────────────────────────
 function render() {
   if (gamePhase === 'vehicleSelect') { drawVehicleSelect(); return; }
-  if (gamePhase === 'boatSailing')   { drawBoatTopDown();   return; }
+  if (gamePhase === 'boatSailing')   { drawBoatTopDown(); drawTouchControls(); return; }
   ctx.clearRect(0, 0, W, H);
   ctx.save();
   ctx.translate(Math.round(shakeX), Math.round(shakeY));
