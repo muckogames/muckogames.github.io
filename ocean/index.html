@@ -423,7 +423,12 @@ gc.addEventListener('touchstart', function(e) {
     // In-game buttons
     for (var j = 0; j < BTNS.length; j++) {
       var b = BTNS[j];
-      if (Math.hypot(c.x - b.cx, c.y - b.cy) < b.r + 10) { btnTouch[b.id] = t.identifier; K[b.key] = true; }
+      if (Math.hypot(c.x - b.cx, c.y - b.cy) < b.r + 10) {
+        btnTouch[b.id] = t.identifier; K[b.key] = true;
+        // Diver is a tap-toggle: fire JP immediately on press (not on lift) to avoid
+        // the race where touchend fires after the frame's update() has already run
+        if (b.id === 'diver') JP['KeyD'] = true;
+      }
     }
   }
 }, { passive: false });
@@ -436,8 +441,6 @@ gc.addEventListener('touchend', function(e) {
       if (btnTouch[b.id] === tid) {
         delete btnTouch[b.id];
         K[b.key] = false;
-        // Diver button is a tap-toggle: fire just-press on lift
-        if (b.id === 'diver') JP['KeyD'] = true;
       }
     }
   }
