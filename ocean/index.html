@@ -390,6 +390,35 @@ gc.addEventListener('touchstart', function(e) {
   unlockAC();
   for (var i = 0; i < e.changedTouches.length; i++) {
     var t = e.changedTouches[i], c = touchCoord(t);
+    // Vehicle select screen — handle taps directly here (click event unreliable on iOS 12)
+    if (gamePhase === 'vehicleSelect') {
+      if (c.x > W/2 - 290 && c.x < W/2 - 40 && c.y > 170 && c.y < 330) {
+        vehicleMode = 'sub'; gamePhase = 'playing';
+      }
+      if (c.x > W/2 + 40 && c.x < W/2 + 290 && c.y > 170 && c.y < 330) {
+        vehicleMode = 'boat'; gamePhase = 'boatSailing';
+        boat.x = 0; boat.y = 0; boat.heading = 0; boat.speed = 0;
+        boatEngineState = 'up'; boatEngineT = 0;
+      }
+      return;
+    }
+    // Other tap-only interactions
+    if (piratePhase === 'docked') { window.location.href = '../piratesub/'; return; }
+    if (gamePhase === 'gameover') { resetGame(); return; }
+    if (krakPhase === 'victory') { krakPhase = 'debris'; return; }
+    if (krakPhase === 'panel') {
+      if (c.x > W/2 - 92 && c.x < W/2 + 92 && c.y > H/2 - 18 && c.y < H/2 + 30) {
+        triggerKrakenExplosion(); return;
+      }
+      if (c.x > W/2 - 62 && c.x < W/2 + 62 && c.y > H/2 + 42 && c.y < H/2 + 78) {
+        krakPhase = 'intact';
+        diverOut = true;
+        diver.x = KRAKEN_WX + KRAKEN_HOX; diver.y = krakenHatchY();
+        diver.vx = 0; diver.vy = 0; diverRecalling = true;
+        return;
+      }
+    }
+    // In-game buttons
     for (var j = 0; j < BTNS.length; j++) {
       var b = BTNS[j];
       if (Math.hypot(c.x - b.cx, c.y - b.cy) < b.r + 10) { btnTouch[b.id] = t.identifier; K[b.key] = true; }
