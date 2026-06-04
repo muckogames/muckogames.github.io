@@ -191,7 +191,7 @@ function handleTouchFire(tx,ty) {
   if (phase==='mining' && mine && !mine.done) {
     fireMiningLaser(tx, ty); mclk=false;
   }
-  if (phase==='moonbuggy') {
+  if (phase==='moonbuggy' || phase==='roverdrive') {
     // Center-bottom tap = hop (one-shot). RETURN button handled via mclk in update.
     if (ty > H-150 && tx > W*0.30 && tx < W*0.70) JP.Space=true;
   }
@@ -211,7 +211,7 @@ function syncTouchKeys() {
       } else {
         K.ArrowUp=true; // upper half of screen = thrust too
       }
-    } else if (phase==='moonbuggy') {
+    } else if (phase==='moonbuggy' || phase==='roverdrive') {
       // Left third = reverse, right third = drive (hop is a one-shot tap, see handleTouchFire).
       // Skip the top strip so the RETURN button doesn't also engage drive.
       if (p.y > 80) {
@@ -2056,7 +2056,7 @@ function initStationFly(idx) {
     mcx:W/2, mcy:SF_MCY, R:SF_R, stx:W/2, sty:SF_STY,
     x:W/2, y:SF_STY+46, vx:22, vy:8, angle:0.4,
     thrusting:false, landed:false, everLanded:false,
-    leftDock:false, recall:false,
+    leftDock:false, recall:false, armed:false,
     msg:'', msgT:0, parts:[]
   };
   showRadio('Cleared in the '+r.name+'! Fly around the Moon — land if you like — then dock back at the station.');
@@ -2143,14 +2143,22 @@ function updateStationFly(dt) {
     fly.x=fly.mcx-G.ux*contact; fly.y=fly.mcy-G.uy*contact;
     var speed=Math.hypot(fly.vx,fly.vy);
     if (speed<62) {
+      var freshLand = !fly.landed;
       fly.vx=0; fly.vy=0; fly.landed=true;
       if (!fly.everLanded) { fly.everLanded=true; fly.msg='Touchdown on the Moon! Thrust to lift off.'; fly.msgT=2.8; chime(); }
+      // Landed next to a parked rover? Hop out and drive it. (Only when "armed" —
+      // i.e. the ship has clearly left the surface since the last drive — so
+      // returning from a drive doesn't instantly re-trigger.)
+      if (freshLand && fly.armed) {
+        var ri = roverAtLanding();
+        if (ri>=0) { fly.armed=false; initRoverDrive(ri); return; }
+      }
     } else {
       var vn=fly.vx*G.ux+fly.vy*G.uy;
       fly.vx-=G.ux*vn*1.5; fly.vy-=G.uy*vn*1.5; fly.vx*=0.5; fly.vy*=0.5;
       fly.msg='Easy does it!'; fly.msgT=1.2; beep(200,0.08,0.15,'square');
     }
-  } else { fly.landed=false; }
+  } else { fly.landed=false; if (G.d > contact+10) fly.armed=true; }
 
   // Station docking
   var dx=fly.stx-fly.x, dy=fly.sty-fly.y, dd=Math.hypot(dx,dy);
@@ -2163,6 +2171,16 @@ function drawStationFly() {
   ctx.save(); ctx.globalAlpha=0.6; drawEarth(86,70,36); ctx.restore();
 
   drawMoonGlobe(fly.mcx, fly.mcy, fly.R);
+
+  // Parked rovers sitting on the surface, with a pulsing beacon so they're easy to spot
+  for (var mi=0;mi<MOON_ROVERS.length;mi++) {
+    var rv=MOON_ROVERS[mi], th=rv.a;
+    var rx=fly.mcx+Math.cos(th)*fly.R, ry=fly.mcy+Math.sin(th)*fly.R;
+    drawRover(rx, ry, th+Math.PI/2, rv.col, 0.46, 0);
+    var bx=fly.mcx+Math.cos(th)*(fly.R+12), by=fly.mcy+Math.sin(th)*(fly.R+12);
+    ctx.save(); ctx.globalAlpha=0.45+Math.sin(gT*0.2+mi)*0.4;
+    circ(bx,by,3.4,'#ffe27a'); ctx.globalAlpha*=0.4; circ(bx,by,7,'#ffe27a'); ctx.restore();
+  }
 
   // station (glows green when the ship is lined up to dock)
   var dd=Math.hypot(fly.stx-fly.x, fly.sty-fly.y);
@@ -2211,13 +2229,243 @@ function drawStationFly() {
   rnd(rb.x,rb.y,rb.w,rb.h,8,'rgba(20,60,30,0.85)','rgba(120,220,140,0.7)',2); ctx.restore();
   txt('↩ AUTO-DOCK', rb.x+rb.w/2, rb.y+22, '#bff0c8', 12, 'center', 'bold monospace');
 
-  // controls hint (above mobile buttons)
+  // hints
+  if (fly.t<8 && !fly.everLanded) {
+    ctx.save(); ctx.globalAlpha=0.65+Math.sin(gT*0.12)*0.25;
+    txt('🚙 Land by a glowing beacon to drive a Moon rover!', W/2, 116, '#ffe27a', 13, 'center', 'bold monospace');
+    ctx.restore();
+  }
   if (fly.t<6) {
     rnd(W/2-180,H-150,360,30,6,'rgba(0,0,0,0.6)',null,0);
     txt('◄/► turn   ↑/SPACE thrust   R = auto-dock', W/2, H-130, '#99aacc', 12, 'center', 'monospace');
   }
 
   drawMobileLandingControls(); // LEFT / RIGHT (= turn) + THRUST
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PHASE: ROVER DRIVE  (land a borrowed rocket by a rover → drive it on the ground)
+   Reuses the moon-buggy terrain/physics. Drive back to the parked rocket (or tap
+   RETURN) to climb in; from there you fly back up to the space station.
+   ══════════════════════════════════════════════════════════════════════════ */
+var rover = null;
+// Rovers parked around the Moon globe (angle from Moon centre, + colour).
+var MOON_ROVERS = [
+  { a:-2.5, col:'#ff7ea8' },
+  { a: 0.5, col:'#7fe0ff' },
+  { a: 2.3, col:'#ffd86b' }
+];
+function angNorm(a){ while(a>Math.PI)a-=TAU; while(a<-Math.PI)a+=TAU; return a; }
+function roverAtLanding() {
+  if (!fly) return -1;
+  var th=Math.atan2(fly.y-fly.mcy, fly.x-fly.mcx);
+  for (var i=0;i<MOON_ROVERS.length;i++) {
+    if (Math.abs(angNorm(th-MOON_ROVERS[i].a)) < 0.45) return i;
+  }
+  return -1;
+}
+
+// A little rover (themed colour), nose-up at angle 0, centred at (cx,cy).
+function drawRover(cx,cy,angle,col,scale,spin) {
+  ctx.save(); ctx.translate(cx,cy); ctx.rotate(angle); ctx.scale(scale,scale);
+  drawWheel(-15,0,8,spin); drawWheel(15,0,8,spin);
+  rnd(-20,-10,40,7,2,col,'#5a5a52',1.5);
+  drect(-16,-5,32,3,'#caa83a');
+  rnd(-8,-22,12,12,2,'#cfcfc6','#888',1.5);
+  ln(14,-9,19,-23,'#bbb',1.5);
+  ctx.save(); ctx.translate(19,-24); ctx.rotate(-0.5); strokeEll(0,0,4,2.5,'#ddd',1.5); ctx.restore();
+  ctx.save(); ctx.translate(-2,-19);
+  rnd(-4,-2,8,8,2,'#e0e0d8','#aaa',1);
+  circ(0,-5,3.5,'#d8d8d0');
+  ctx.fillStyle='rgba(50,80,150,0.7)'; ctx.beginPath(); ctx.arc(0,-5,2.6,Math.PI*1.1,Math.PI*1.9); ctx.closePath(); ctx.fill();
+  ctx.restore();
+  ctx.restore();
+}
+
+function initRoverDrive(idx) {
+  var rv=MOON_ROVERS[idx];
+  rover = {
+    t:0, worldX:0, startX:0, vx:0, vy:0, y:buggyGroundY(0), angle:0, onGround:true,
+    airT:0, airMsgT:0, bestAir:0,
+    idx:idx, col:rv.col, rocketDef:fly.def, rocketWX:-90,
+    leftRocket:false, goalShown:false, collected:0,
+    rocks:[], pebbles:[], parts:[]
+  };
+  for (var i=1;i<=30;i++) {
+    var jx=(Math.sin(i*12.9898)*0.5+0.5)*150;
+    rover.rocks.push({ wx:300+i*340+jx, got:false, crystal:(i%4===0) });
+  }
+  for (var p=0;p<120;p++) {
+    var pw=(p-10)*70+(Math.sin(p*7.13)*0.5+0.5)*60;
+    rover.pebbles.push({ wx:pw, r:1+(Math.sin(p*3.3)*0.5+0.5)*2.5 });
+  }
+  showRadio('You hopped onto a Moon rover! Drive around — head back to your rocket when you’re done.');
+  phase='roverdrive';
+}
+function endRoverDrive() {
+  showRadio('Back at the '+rover.rocketDef.name+'. Climb in and fly up to the station!');
+  if (fly) fly.armed=false; // must clearly lift off before another rover can be boarded
+  phase='stationfly';
+}
+function roverSpawnDust(n) {
+  for (var i=0;i<n;i++) rover.parts.push({
+    wx: rover.worldX-14+Math.random()*28, py: rover.y-1,
+    vx: (Math.random()-0.5)*30 - rover.vx*0.15, vy: -Math.random()*40-8,
+    life: 0.35+Math.random()*0.3, c:'200,198,188'
+  });
+}
+function roverSpawnSparkle(wx) {
+  for (var i=0;i<8;i++) rover.parts.push({
+    wx: wx+(Math.random()-0.5)*16, py: buggyGroundY(wx)-8-Math.random()*10,
+    vx: (Math.random()-0.5)*60, vy: -Math.random()*80,
+    life: 0.5+Math.random()*0.4, c:'255,235,130'
+  });
+}
+
+function updateRoverDrive(dt) {
+  rover.t += dt;
+
+  if (mclk) {
+    var rb=buggyReturnBtn();
+    if (mx>=rb.x && mx<=rb.x+rb.w && my>=rb.y && my<=rb.y+rb.h) { mclk=false; endRoverDrive(); return; }
+  }
+  if (eat('Enter') || eat('Escape')) { endRoverDrive(); return; }
+
+  var right=held('ArrowRight')||held('KeyD');
+  var left =held('ArrowLeft') ||held('KeyA');
+  var hop  =eat('Space')||eat('ArrowUp')||eat('KeyW');
+
+  if (right)     rover.vx += BUGGY_ACCEL*dt;
+  else if (left) rover.vx -= BUGGY_ACCEL*1.3*dt;
+  else {
+    if (rover.vx>0) rover.vx=Math.max(0,rover.vx-70*dt);
+    else if (rover.vx<0) rover.vx=Math.min(0,rover.vx+70*dt);
+  }
+  if (rover.vx> BUGGY_MAXFWD) rover.vx= BUGGY_MAXFWD;
+  if (rover.vx<-BUGGY_MAXREV) rover.vx=-BUGGY_MAXREV;
+
+  rover.worldX += rover.vx*dt;
+  if (rover.worldX > rover.startX+150) rover.leftRocket=true;
+  // Drove back to the parked rocket → climb in
+  if (rover.leftRocket && rover.worldX <= rover.rocketWX+34) { endRoverDrive(); return; }
+  if (rover.worldX < rover.rocketWX+34) { rover.worldX=rover.rocketWX+34; if (rover.vx<0) rover.vx=0; }
+
+  rover.vy += BUGGY_G*dt;
+  rover.y  += rover.vy*dt;
+  var gy=buggyGroundY(rover.worldX);
+  if (rover.y >= gy) {
+    var rideVy=((buggyGroundY(rover.worldX+5)-gy)/5)*rover.vx;
+    if (!rover.onGround) {
+      if (rover.airT>0.45) { rover.airMsgT=1.2; beep(523,0.05,0.15); beep(784,0.12,0.18); }
+      roverSpawnDust(6); rover.onGround=true;
+    }
+    rover.y=gy;
+    if (rover.vy>rideVy) rover.vy=rideVy;
+    rover.airT=0;
+  } else { rover.onGround=false; rover.airT+=dt; }
+  if (hop && rover.onGround) { rover.vy=-BUGGY_HOP; rover.onGround=false; beep(330,0.05,0.12,'square'); roverSpawnDust(5); }
+
+  var sl=(buggyGroundY(rover.worldX+14)-buggyGroundY(rover.worldX-14))/28;
+  var desired=rover.onGround?Math.atan(sl):rover.angle*0.95;
+  rover.angle += (desired-rover.angle)*Math.min(1,dt*10);
+
+  if (rover.onGround && Math.abs(rover.vx)>40 && Math.random()<0.5) roverSpawnDust(1);
+
+  for (var i=0;i<rover.rocks.length;i++) {
+    var rk=rover.rocks[i];
+    if (!rk.got && Math.abs(rover.worldX-rk.wx)<26) {
+      rk.got=true; rover.collected++;
+      if (rk.crystal) { beep(659,0.06,0.18); beep(988,0.18,0.2); } else { beep(880,0.07,0.16); }
+      roverSpawnSparkle(rk.wx);
+    }
+  }
+
+  for (var j=rover.parts.length-1;j>=0;j--) {
+    var pt=rover.parts[j]; pt.life-=dt; pt.wx+=pt.vx*dt; pt.py+=pt.vy*dt; pt.vy+=60*dt;
+    if (pt.life<=0) rover.parts.splice(j,1);
+  }
+  if (rover.airMsgT>0) rover.airMsgT-=dt;
+
+  var meters=Math.round((rover.worldX-rover.startX)/8);
+  if (!rover.goalShown && meters>=240) {
+    rover.goalShown=true;
+    showRadio('Nice driving! Head back to your rocket (or tap RETURN) whenever you’re ready.');
+  }
+}
+
+function drawRoverDrive() {
+  var sx,wx;
+  drect(0,0,W,H,'#080818'); drawStars(1);
+  ctx.save(); ctx.globalAlpha=0.7; drawEarth(700,80,55); ctx.restore();
+
+  var step=8;
+  ctx.beginPath(); ctx.moveTo(0,H);
+  for (sx=0; sx<=W; sx+=step) { wx=rover.worldX+(sx-BUGGY_SX); ctx.lineTo(sx,buggyGroundY(wx)); }
+  ctx.lineTo(W,H); ctx.closePath();
+  var g=ctx.createLinearGradient(0,GROUND_Y-70,0,H);
+  g.addColorStop(0,'#b8b8b0'); g.addColorStop(0.18,'#989890');
+  g.addColorStop(0.55,'#787870'); g.addColorStop(1,'#4e4e48');
+  ctx.fillStyle=g; ctx.fill();
+
+  ctx.beginPath();
+  for (sx=0; sx<=W; sx+=step) { wx=rover.worldX+(sx-BUGGY_SX); if (sx===0) ctx.moveTo(sx,buggyGroundY(wx)); else ctx.lineTo(sx,buggyGroundY(wx)); }
+  ctx.strokeStyle='rgba(225,225,215,0.55)'; ctx.lineWidth=2; ctx.stroke();
+
+  ctx.save(); ctx.globalAlpha=0.6;
+  for (var pi=0;pi<rover.pebbles.length;pi++) {
+    var pb=rover.pebbles[pi]; var psx=BUGGY_SX+(pb.wx-rover.worldX);
+    if (psx<-10||psx>W+10) continue;
+    circ(psx, buggyGroundY(pb.wx)+pb.r*0.6, pb.r, '#6e6e66');
+  }
+  ctx.restore();
+
+  // Parked rocket (the one you flew in) — drive back here to climb in
+  var rkSx=BUGGY_SX+(rover.rocketWX-rover.worldX);
+  if (rkSx>-60 && rkSx<W+60) {
+    drawFlyer(rkSx, buggyGroundY(rover.rocketWX)-16, 0, rover.rocketDef, false);
+    txt(rover.rocketDef.name, rkSx, buggyGroundY(rover.rocketWX)-44, 'rgba(190,220,255,0.8)', 10, 'center', 'monospace');
+  }
+
+  // Moon-rock samples
+  for (var ri=0;ri<rover.rocks.length;ri++) {
+    var rk=rover.rocks[ri]; if (rk.got) continue;
+    var rsx=BUGGY_SX+(rk.wx-rover.worldX); if (rsx<-20||rsx>W+20) continue;
+    var rgy=buggyGroundY(rk.wx);
+    if (rk.crystal) {
+      var bob=Math.sin(gT*0.1+rk.wx)*2;
+      ctx.save(); ctx.globalAlpha=0.35; circ(rsx,rgy-12+bob,10,'rgba(120,220,255,0.5)'); ctx.restore();
+      poly([[rsx,rgy-22+bob],[rsx+6,rgy-12+bob],[rsx,rgy-4+bob],[rsx-6,rgy-12+bob]],'#7fe0ff','#cfefff',1.5);
+    } else { circ(rsx,rgy-5,5,'#8a8a80'); circ(rsx-2,rgy-6,2,'#b0b0a6'); }
+  }
+
+  for (var qi=0;qi<rover.parts.length;qi++) {
+    var pt=rover.parts[qi]; var px=BUGGY_SX+(pt.wx-rover.worldX);
+    ctx.save(); ctx.globalAlpha=Math.max(0,Math.min(1,pt.life*2)); circ(px,pt.py,2.2,'rgba('+pt.c+',1)'); ctx.restore();
+  }
+
+  drawRover(BUGGY_SX, rover.y-BUGGY_WR, rover.angle, rover.col, 1, rover.worldX*0.13);
+
+  if (rover.airMsgT>0 || (!rover.onGround && rover.airT>0.5)) {
+    ctx.save(); ctx.globalAlpha=Math.min(1, rover.airMsgT>0?rover.airMsgT:1);
+    txt('AIR TIME!', BUGGY_SX, rover.y-BUGGY_WR-44, '#ffe27a', 16, 'center','bold monospace'); ctx.restore();
+  }
+
+  var meters=Math.round((rover.worldX-rover.startX)/8);
+  rnd(8,12,196,52,8,'rgba(0,10,30,0.55)','rgba(120,160,210,0.4)',1);
+  txt('DISTANCE: '+meters+' m', 18, 32, '#bfe0ff', 13, 'left','monospace');
+  txt('★ SAMPLES: '+rover.collected, 18, 52, '#ffe27a', 13, 'left','monospace');
+
+  var rb=buggyReturnBtn();
+  ctx.save(); ctx.globalAlpha=0.55+Math.sin(gT*0.12)*0.12;
+  rnd(rb.x,rb.y,rb.w,rb.h,8,'rgba(20,60,30,0.85)','rgba(120,220,140,0.7)',2); ctx.restore();
+  txt('RETURN TO ROCKET', rb.x+rb.w/2, rb.y+22, '#bff0c8', 11, 'center', 'bold monospace');
+
+  if (rover.t<5.5) {
+    rnd(W/2-180,H-150,360,30,6,'rgba(0,0,0,0.6)',null,0);
+    txt('►/D drive   ◄/A reverse   SPACE/↑ hop',W/2,H-130,'#99aacc',12,'center','monospace');
+  }
+
+  drawMobileBuggyControls();
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -3682,6 +3930,7 @@ function loop(ts) {
     case 'apollo13':   updateApollo13(dt);   drawApollo13();   break;
     case 'station':   updateStation(dt);    drawStation();    break;
     case 'stationfly':updateStationFly(dt); drawStationFly(); break;
+    case 'roverdrive':updateRoverDrive(dt); drawRoverDrive(); break;
     case 'moonland': updateMoonLand(dt); drawMoonLand(); break;
     case 'moonbuggy':updateMoonBuggy(dt);drawMoonBuggy();break;
     case 'moonasc':  updateMoonAsc(dt);  drawMoonAsc();  break;
