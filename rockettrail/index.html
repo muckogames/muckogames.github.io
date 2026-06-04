@@ -218,6 +218,14 @@ function syncTouchKeys() {
         if (p.x < W*0.30)      K.ArrowLeft=true;
         else if (p.x > W*0.70) K.ArrowRight=true;
       }
+    } else if (phase==='stationfly') {
+      // Sides = turn, centre/lower = thrust. Skip the top strip so the
+      // AUTO-DOCK button doesn't engage thrust.
+      if (p.y > 80) {
+        if (p.x < W*0.28)       K.ArrowLeft=true;
+        else if (p.x > W*0.72)  K.ArrowRight=true;
+        else                     K.ArrowUp=true;
+      }
     } else if (phase==='reentry' || phase==='solarflare') {
       if (p.y > H-160) {
         if (p.x < W/2) K.ArrowLeft=true;
@@ -755,7 +763,7 @@ function nextTravelSub() {
   if (trav.sub === 'solarflare') { initSolarFlare(); return; }
   if (trav.sub === 'deepspace')  { initDeepSpace();  return; }
   if (trav.sub === 'done') {
-    if (trav.dest === 'moonland') initMoonLand(); else initReentry();
+    if (trav.dest === 'moonland') initStation(); else initReentry();
     return;
   }
   phase = 'travel'; // restore travel rendering for sleep/wake/stirtanks sub-phases
@@ -1858,6 +1866,358 @@ function drawLaunch() {
     rnd(W-120,H-42,112,34,6,'rgba(0,0,0,0.5)','rgba(100,150,200,0.4)',1);
     txt('SPACE=skip',W-64,H-20,'rgba(150,180,220,0.7)',11,'center','monospace');
   }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PHASE: LUNAR STATION  (hub — check out & test-fly other rockets, then proceed)
+   Two phases: 'station' (the docked hub UI) and 'stationfly' (flying a borrowed
+   rocket around the Moon). A test rocket can only be returned by docking it back,
+   and the player can only PROCEED from the hub, so rockets are always returned
+   before the mission continues.
+   ══════════════════════════════════════════════════════════════════════════ */
+var st = null;   // hub state
+var fly = null;  // borrowed-rocket flight state
+
+// The fleet parked at the station. Each flies differently.
+var ROCKETS = [
+  { name:'PEBBLE HOPPER', tag:'Nimble & easy', col:'#7fd0ff', accent:'#e6f6ff', acc:118, turn:3.4, scale:0.85 },
+  { name:'STAR STREAK',   tag:'Fast & zippy',  col:'#ff9a5c', accent:'#ffe6d4', acc:172, turn:2.7, scale:0.92 },
+  { name:'MUCKO HAULER',  tag:'Big & steady',  col:'#9be08a', accent:'#e7ffe0', acc:140, turn:2.0, scale:1.18 }
+];
+
+// Flight-scene geometry
+var SF_MCY   = 326, SF_R = 112;          // Moon centre-y / radius (centre-x is W/2)
+var SF_STY   = SF_MCY - SF_R - 98;       // station sits above the Moon
+var SF_GACC  = 86;                        // surface gravity (fades with distance)
+var SF_MAXSP = 250;                       // speed cap
+
+// Craters scattered on the Moon globe (deterministic)
+var GLOBE_CRATERS = [];
+(function(){
+  for (var i=0;i<16;i++) {
+    GLOBE_CRATERS.push({
+      a: (i*2.39996),                       // golden-angle spread
+      rr: (Math.sin(i*7.13)*0.5+0.5)*0.78,
+      sz: 0.05+(Math.sin(i*3.7)*0.5+0.5)*0.11
+    });
+  }
+})();
+
+function drawMoonGlobe(cx,cy,R) {
+  var g=ctx.createRadialGradient(cx-R*0.32,cy-R*0.32,R*0.1,cx,cy,R);
+  g.addColorStop(0,'#d8d8cf'); g.addColorStop(0.6,'#a6a69d'); g.addColorStop(1,'#6c6c64');
+  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(cx,cy,R,0,TAU); ctx.fill();
+  ctx.save(); ctx.beginPath(); ctx.arc(cx,cy,R,0,TAU); ctx.clip();
+  for (var i=0;i<GLOBE_CRATERS.length;i++) {
+    var c=GLOBE_CRATERS[i];
+    var px=cx+Math.cos(c.a)*c.rr*R, py=cy+Math.sin(c.a)*c.rr*R;
+    ell(px,py,R*c.sz,R*c.sz*0.78,'rgba(118,118,110,0.55)');
+    strokeEll(px,py,R*c.sz,R*c.sz*0.78,'rgba(150,150,142,0.45)',1);
+  }
+  // terminator shading
+  ctx.globalAlpha=0.38; ell(cx+R*0.55,cy+R*0.22,R*1.02,R*1.02,'rgba(8,8,18,0.9)');
+  ctx.restore();
+  ctx.save(); ctx.globalAlpha=0.3; strokeEll(cx,cy,R,R,'#e8e8e0',2); ctx.restore();
+}
+
+// A stylised little rocket, nose pointing "up" at angle 0, centred at (cx,cy).
+function drawFlyer(cx,cy,angle,def,thrust) {
+  var s=def.scale||1;
+  ctx.save(); ctx.translate(cx,cy); ctx.rotate(angle); ctx.scale(s,s);
+  if (thrust) {
+    var fg=ctx.createLinearGradient(0,12,0,34);
+    fg.addColorStop(0,'rgba(255,235,150,1)');
+    fg.addColorStop(0.4,'rgba(255,150,40,0.8)');
+    fg.addColorStop(1,'rgba(255,80,0,0)');
+    ctx.fillStyle=fg; ctx.beginPath();
+    ctx.ellipse(0,20,5,11*(0.8+Math.random()*0.4),0,0,TAU); ctx.fill();
+  }
+  // fins
+  poly([[-6,7],[-12,16],[-5,12]], def.col, null,0);
+  poly([[6,7],[12,16],[5,12]],    def.col, null,0);
+  // body
+  rnd(-6,-10,12,22,4, def.accent, def.col, 2);
+  // nose cone
+  poly([[-6,-9],[0,-23],[6,-9]], def.col, null,0);
+  // window
+  circ(0,-3,3,'#22364f'); circ(-0.9,-3.8,1.1,'rgba(190,225,255,0.85)');
+  ctx.restore();
+}
+
+function drawStationStruct(cx,cy,dockGlow) {
+  // solar wings
+  for (var sgn=-1;sgn<=1;sgn+=2) {
+    var px = cx + sgn*16;
+    rnd(Math.min(px,px+sgn*42), cy-7, 42, 14, 2, '#2a3a6a', '#5577bb', 1);
+    for (var k=1;k<4;k++){ var lx=px+sgn*(k*10); ln(lx,cy-7,lx,cy+7,'rgba(120,150,220,0.5)',1); }
+  }
+  ln(cx-16,cy,cx+16,cy,'#999',3);
+  rnd(cx-12,cy-12,24,24,6,'#cfcfc7','#888',2);
+  circ(cx,cy,6,'#6a90c0'); circ(cx-1.5,cy-1.5,2,'rgba(190,225,255,0.8)');
+  rnd(cx-4,cy-19,8,8,2,'#bbb','#888',1);   // top dock
+  rnd(cx-4,cy+11,8,8,2,'#bbb','#888',1);   // bottom dock
+  ctx.save(); ctx.translate(cx,cy-21); strokeEll(0,0,5,3,'#ddd',1.5); ln(0,3,0,7,'#aaa',1.5); ctx.restore();
+  if (dockGlow>0) { ctx.save(); ctx.globalAlpha=dockGlow*0.6; circ(cx,cy+16,11,'rgba(120,255,160,0.5)'); ctx.restore(); }
+}
+
+/* ── HUB ──────────────────────────────────────────────────────────────────── */
+function initStation() {
+  st = { t:0, rockets:[] };
+  for (var i=0;i<ROCKETS.length;i++) {
+    var r=ROCKETS[i];
+    st.rockets.push({ name:r.name, tag:r.tag, col:r.col, accent:r.accent,
+                      acc:r.acc, turn:r.turn, scale:r.scale, flown:false });
+  }
+  showRadio('Welcome to Mucko Orbital Station! Take a rocket for a spin, then continue your mission.');
+  phase='station';
+}
+
+function stationCard(i) {
+  var w=232, h=116, gap=18, total=3*w+2*gap, sx=(W-total)/2;
+  return { x:sx+i*(w+gap), y:386, w:w, h:h };
+}
+function stationContinueBtn() { return { x:W-210, y:14, w:196, h:42 }; }
+
+function stationProceed() {
+  // Test-pilot bonus for flying the whole fleet (one-time, bounded)
+  var allFlown=true;
+  for (var i=0;i<st.rockets.length;i++) if (!st.rockets[i].flown) allFlown=false;
+  if (allFlown) { runScore.landing += 30; showRadio('Test-pilot bonus! All rockets checked out. Good luck on your landing!'); }
+  initMoonLand();
+}
+
+function updateStation(dt) {
+  st.t += dt;
+  if (st.t < 0.5) return; // brief settle before input
+  // Rocket cards
+  for (var i=0;i<st.rockets.length;i++) {
+    var c=stationCard(i);
+    if (mclk && mx>=c.x && mx<=c.x+c.w && my>=c.y && my<=c.y+c.h) {
+      mclk=false; initStationFly(i); return;
+    }
+  }
+  if (eat('Digit1') && st.rockets[0]) { initStationFly(0); return; }
+  if (eat('Digit2') && st.rockets[1]) { initStationFly(1); return; }
+  if (eat('Digit3') && st.rockets[2]) { initStationFly(2); return; }
+  // Continue
+  var cb=stationContinueBtn();
+  if (mclk && mx>=cb.x && mx<=cb.x+cb.w && my>=cb.y && my<=cb.y+cb.h) { mclk=false; stationProceed(); return; }
+  if (eat('Enter')) { stationProceed(); return; }
+}
+
+function drawStation() {
+  drect(0,0,W,H,'#070714'); drawStars(1);
+  ctx.save(); ctx.globalAlpha=0.65; drawEarth(86,72,40); ctx.restore();
+
+  // Moon + station scene (upper area)
+  drawMoonGlobe(W/2, 196, 86);
+  var bob=Math.sin(gT*0.04)*4;
+  drawStationStruct(W/2, 132+bob, 0);
+  // your CSM docked below the station
+  drawCapsule(W/2, 132+bob+30, 0);
+
+  // Titles
+  txt('🛰  MUCKO ORBITAL STATION', W/2, 40, '#bfe3ff', 22, 'center', 'bold Georgia');
+  txt('Docked in lunar orbit — check out a rocket to test-fly', W/2, 64, '#88aacc', 13, 'center', 'monospace');
+  txt('Each test rocket must be docked back here before you continue.', W/2, 372, 'rgba(150,180,210,0.8)', 11, 'center', 'monospace');
+
+  // Rocket cards
+  for (var i=0;i<st.rockets.length;i++) {
+    var r=st.rockets[i], c=stationCard(i);
+    var hov = mx>=c.x && mx<=c.x+c.w && my>=c.y && my<=c.y+c.h;
+    rnd(c.x,c.y,c.w,c.h,12, hov?'rgba(24,40,70,0.95)':'rgba(14,24,46,0.9)', r.col, hov?2.5:1.5);
+    // mini rocket
+    drawFlyer(c.x+44, c.y+58, 0, { col:r.col, accent:r.accent, scale:1.55 }, false);
+    txt(r.name, c.x+86, c.y+40, '#ffffff', 16, 'left', 'bold monospace');
+    txt(r.tag,  c.x+86, c.y+60, r.col, 12, 'left', 'monospace');
+    // status / action
+    if (r.flown) {
+      txt('✓ FLOWN — tap to fly again', c.x+86, c.y+92, '#9be08a', 11, 'left', 'bold monospace');
+    } else {
+      ctx.save(); ctx.globalAlpha=0.7+Math.sin(gT*0.18+i)*0.3;
+      txt('▶ TAP TO FLY', c.x+86, c.y+92, '#ffe27a', 13, 'left', 'bold monospace');
+      ctx.restore();
+    }
+    txt('['+(i+1)+']', c.x+c.w-22, c.y+22, 'rgba(150,180,210,0.6)', 12, 'center', 'monospace');
+  }
+
+  // Continue button
+  var cb=stationContinueBtn();
+  var chov = mx>=cb.x && mx<=cb.x+cb.w && my>=cb.y && my<=cb.y+cb.h;
+  rnd(cb.x,cb.y,cb.w,cb.h,10, chov?'rgba(30,90,50,0.95)':'rgba(18,60,34,0.9)','rgba(120,220,140,0.8)',2);
+  txt('CONTINUE MISSION ▶', cb.x+cb.w/2, cb.y+27, '#dfffe8', 15, 'center', 'bold monospace');
+}
+
+/* ── FLY A BORROWED ROCKET ──────────────────────────────────────────────── */
+function initStationFly(idx) {
+  var r=st.rockets[idx];
+  fly = {
+    idx:idx, def:r, t:0,
+    mcx:W/2, mcy:SF_MCY, R:SF_R, stx:W/2, sty:SF_STY,
+    x:W/2, y:SF_STY+46, vx:22, vy:8, angle:0.4,
+    thrusting:false, landed:false, everLanded:false,
+    leftDock:false, recall:false,
+    msg:'', msgT:0, parts:[]
+  };
+  showRadio('Cleared in the '+r.name+'! Fly around the Moon — land if you like — then dock back at the station.');
+  phase='stationfly';
+}
+
+function flyReturnBtn() { return { x:W-150, y:14, w:136, h:34 }; }
+
+function flyGravity() {
+  var dx=fly.mcx-fly.x, dy=fly.mcy-fly.y, d=Math.hypot(dx,dy)||1;
+  var falloff=Math.min(1,(fly.R*2.4)/d);
+  var g=SF_GACC*falloff;
+  return { ax:dx/d*g, ay:dy/d*g, d:d, ux:dx/d, uy:dy/d };
+}
+function flySpawnFlame(nx,ny) {
+  if (Math.random()<0.65) {
+    fly.parts.push({ x:fly.x-nx*12, y:fly.y-ny*12,
+      vx:-nx*55+(Math.random()-0.5)*30, vy:-ny*55+(Math.random()-0.5)*30,
+      life:0.28+Math.random()*0.2, c:'255,180,80' });
+  }
+}
+function flyDock() {
+  st.rockets[fly.idx].flown=true;
+  chime();
+  showRadio('Nice docking! The '+fly.def.name+' is secured. Continue when ready.');
+  phase='station';
+}
+
+function updateStationFly(dt) {
+  fly.t += dt;
+  if (fly.msgT>0) fly.msgT-=dt;
+
+  // particles
+  for (var i=fly.parts.length-1;i>=0;i--) {
+    var p=fly.parts[i]; p.life-=dt; p.x+=p.vx*dt; p.y+=p.vy*dt;
+    if (p.life<=0) fly.parts.splice(i,1);
+  }
+
+  // Auto-dock helper (tap RETURN / press R) — guarantees the rocket can always be returned
+  var rb=flyReturnBtn();
+  if (mclk && mx>=rb.x && mx<=rb.x+rb.w && my>=rb.y && my<=rb.y+rb.h) {
+    mclk=false; fly.recall=true; fly.landed=false;
+    showRadio('Auto-dock engaged — bringing the '+fly.def.name+' home.');
+  }
+  if (eat('KeyR')) { fly.recall=true; fly.landed=false; }
+
+  if (fly.recall) {
+    var sdx=fly.stx-fly.x, sdy=fly.sty-fly.y, sd=Math.hypot(sdx,sdy)||1;
+    var want=Math.min(140, sd*2.2);
+    fly.vx += ((sdx/sd*want) - fly.vx) * Math.min(1, dt*2.4);
+    fly.vy += ((sdy/sd*want) - fly.vy) * Math.min(1, dt*2.4);
+    fly.x += fly.vx*dt; fly.y += fly.vy*dt;
+    fly.angle = Math.atan2(fly.vx, -fly.vy);
+    fly.thrusting = true; flySpawnFlame(Math.sin(fly.angle),-Math.cos(fly.angle));
+    if (sd < 24) { flyDock(); return; }
+    return;
+  }
+
+  var rotL=held('ArrowLeft')||held('KeyA');
+  var rotR=held('ArrowRight')||held('KeyD');
+  var thr =held('ArrowUp')||held('Space')||held('KeyW');
+  if (rotL) fly.angle -= fly.def.turn*dt;
+  if (rotR) fly.angle += fly.def.turn*dt;
+
+  var nx=Math.sin(fly.angle), ny=-Math.cos(fly.angle);  // nose direction
+  fly.thrusting=thr;
+  if (thr) { fly.vx+=nx*fly.def.acc*dt; fly.vy+=ny*fly.def.acc*dt; flySpawnFlame(nx,ny); }
+
+  var G=flyGravity();
+  fly.vx+=G.ax*dt; fly.vy+=G.ay*dt;
+  var sp=Math.hypot(fly.vx,fly.vy);
+  if (sp>SF_MAXSP) { fly.vx*=SF_MAXSP/sp; fly.vy*=SF_MAXSP/sp; }
+  fly.x+=fly.vx*dt; fly.y+=fly.vy*dt;
+
+  // soft screen walls (keep the Moon & station always in view — can't get lost)
+  if (fly.x<12){ fly.x=12; if(fly.vx<0) fly.vx*=-0.3; }
+  if (fly.x>W-12){ fly.x=W-12; if(fly.vx>0) fly.vx*=-0.3; }
+  if (fly.y<12){ fly.y=12; if(fly.vy<0) fly.vy*=-0.3; }
+  if (fly.y>H-12){ fly.y=H-12; if(fly.vy>0) fly.vy*=-0.3; }
+
+  // Moon surface contact
+  var contact=fly.R+9;
+  if (G.d<contact) {
+    fly.x=fly.mcx-G.ux*contact; fly.y=fly.mcy-G.uy*contact;
+    var speed=Math.hypot(fly.vx,fly.vy);
+    if (speed<62) {
+      fly.vx=0; fly.vy=0; fly.landed=true;
+      if (!fly.everLanded) { fly.everLanded=true; fly.msg='Touchdown on the Moon! Thrust to lift off.'; fly.msgT=2.8; chime(); }
+    } else {
+      var vn=fly.vx*G.ux+fly.vy*G.uy;
+      fly.vx-=G.ux*vn*1.5; fly.vy-=G.uy*vn*1.5; fly.vx*=0.5; fly.vy*=0.5;
+      fly.msg='Easy does it!'; fly.msgT=1.2; beep(200,0.08,0.15,'square');
+    }
+  } else { fly.landed=false; }
+
+  // Station docking
+  var dx=fly.stx-fly.x, dy=fly.sty-fly.y, dd=Math.hypot(dx,dy);
+  if (dd>74) fly.leftDock=true;
+  if (fly.leftDock && dd<30 && Math.hypot(fly.vx,fly.vy)<90) { flyDock(); return; }
+}
+
+function drawStationFly() {
+  drect(0,0,W,H,'#070714'); drawStars(1);
+  ctx.save(); ctx.globalAlpha=0.6; drawEarth(86,70,36); ctx.restore();
+
+  drawMoonGlobe(fly.mcx, fly.mcy, fly.R);
+
+  // station (glows green when the ship is lined up to dock)
+  var dd=Math.hypot(fly.stx-fly.x, fly.sty-fly.y);
+  drawStationStruct(fly.stx, fly.sty, fly.leftDock && dd<60 ? 1 : 0);
+
+  // exhaust particles
+  for (var i=0;i<fly.parts.length;i++) {
+    var p=fly.parts[i];
+    ctx.save(); ctx.globalAlpha=Math.max(0,Math.min(1,p.life*3));
+    circ(p.x,p.y,2.4,'rgba('+p.c+',1)'); ctx.restore();
+  }
+
+  // guidance arrow toward the station when far away
+  if (dd>120 && !fly.landed) {
+    var ang=Math.atan2(fly.sty-fly.y, fly.stx-fly.x);
+    var gx=fly.x+Math.cos(ang)*30, gy=fly.y+Math.sin(ang)*30;
+    ctx.save(); ctx.globalAlpha=0.6+Math.sin(gT*0.2)*0.2; ctx.translate(gx,gy); ctx.rotate(ang);
+    poly([[0,-5],[12,0],[0,5]], '#8fd8ff', null, 0); ctx.restore();
+  }
+
+  drawFlyer(fly.x, fly.y, fly.angle, fly.def, fly.thrusting);
+
+  // flash message near the ship
+  if (fly.msgT>0 && fly.msg) {
+    ctx.save(); ctx.globalAlpha=Math.min(1,fly.msgT);
+    txt(fly.msg, fly.x, fly.y-26, '#ffe27a', 13, 'center', 'bold monospace');
+    ctx.restore();
+  }
+
+  // HUD
+  rnd(8,12,196,46,8,'rgba(0,10,30,0.55)','rgba(120,160,210,0.4)',1);
+  txt(fly.def.name, 18, 30, fly.def.col, 13, 'left', 'bold monospace');
+  var spd=Math.round(Math.hypot(fly.vx,fly.vy));
+  txt('SPEED: '+spd+'   DOCK: '+Math.round(dd), 18, 50, '#bfe0ff', 12, 'left', 'monospace');
+
+  // DOCK-READY prompt
+  if (fly.leftDock && dd<46) {
+    ctx.save(); ctx.globalAlpha=0.6+Math.sin(gT*0.3)*0.3;
+    txt('🛰 LINE UP & SLOW DOWN TO DOCK', W/2, 92, '#9be08a', 14, 'center', 'bold monospace');
+    ctx.restore();
+  }
+
+  // Auto-dock / RETURN button
+  var rb=flyReturnBtn();
+  ctx.save(); ctx.globalAlpha=0.55+Math.sin(gT*0.12)*0.12;
+  rnd(rb.x,rb.y,rb.w,rb.h,8,'rgba(20,60,30,0.85)','rgba(120,220,140,0.7)',2); ctx.restore();
+  txt('↩ AUTO-DOCK', rb.x+rb.w/2, rb.y+22, '#bff0c8', 12, 'center', 'bold monospace');
+
+  // controls hint (above mobile buttons)
+  if (fly.t<6) {
+    rnd(W/2-180,H-150,360,30,6,'rgba(0,0,0,0.6)',null,0);
+    txt('◄/► turn   ↑/SPACE thrust   R = auto-dock', W/2, H-130, '#99aacc', 12, 'center', 'monospace');
+  }
+
+  drawMobileLandingControls(); // LEFT / RIGHT (= turn) + THRUST
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -3320,6 +3680,8 @@ function loop(ts) {
     case 'solarflare': updateSolarFlare(dt); drawSolarFlare(); break;
     case 'deepspace':  updateDeepSpace(dt);  drawDeepSpace();  break;
     case 'apollo13':   updateApollo13(dt);   drawApollo13();   break;
+    case 'station':   updateStation(dt);    drawStation();    break;
+    case 'stationfly':updateStationFly(dt); drawStationFly(); break;
     case 'moonland': updateMoonLand(dt); drawMoonLand(); break;
     case 'moonbuggy':updateMoonBuggy(dt);drawMoonBuggy();break;
     case 'moonasc':  updateMoonAsc(dt);  drawMoonAsc();  break;
