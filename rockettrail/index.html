@@ -1894,6 +1894,15 @@ var STATION_SY   = 116;   // station altitude (screen y)
 var FLY_GRAV     = 74;    // downward gravity
 var SF_MAXSP     = 250;   // speed cap
 
+// Rolling surface height (screen-y) at world-x wx — gives the side-scroller hills
+// and obvious parallax, in the same spirit as the rover-drive terrain.
+function flyGroundY(wx) {
+  return FLY_GROUND_Y
+    - Math.sin(wx*0.011)*26
+    - Math.sin(wx*0.027+1.3)*12
+    - Math.sin(wx*0.006+0.5)*20;
+}
+
 // Craters scattered on the Moon globe (deterministic)
 var GLOBE_CRATERS = [];
 (function(){
@@ -2060,12 +2069,16 @@ function initStationFly(idx) {
     vx:0, vy:14, tilt:0,
     thrusting:false, landed:false, everLanded:false,
     leftDock:false, recall:false, armed:false,
-    msg:'', msgT:0, parts:[], pebbles:[]
+    msg:'', msgT:0, parts:[], pebbles:[], craters:[]
   };
   // Cosmetic surface detail so the ground visibly scrolls
-  for (var i=0;i<170;i++) {
-    fly.pebbles.push({ wx:(i-85)*44 + (Math.sin(i*5.1)*0.5+0.5)*28,
-                       r:1+(Math.sin(i*2.7)*0.5+0.5)*2.2, crater:(i%9===0) });
+  for (var i=0;i<200;i++) {
+    fly.pebbles.push({ wx:(i-100)*38 + (Math.sin(i*5.1)*0.5+0.5)*24,
+                       r:1+(Math.sin(i*2.7)*0.5+0.5)*2.4 });
+  }
+  for (var c=0;c<60;c++) {
+    fly.craters.push({ wx:(c-30)*150 + (Math.sin(c*3.91)*0.5+0.5)*120,
+                       r:10+(Math.sin(c*1.7)*0.5+0.5)*16 });
   }
   showRadio('Cleared in the '+r.name+'! Fly along the surface — land if you like — then fly back to the station.');
   phase='stationfly';
@@ -2142,10 +2155,11 @@ function updateStationFly(dt) {
   // lean into horizontal motion (cosmetic)
   fly.tilt += (Math.max(-0.45,Math.min(0.45,fly.vx*0.004)) - fly.tilt) * Math.min(1,dt*6);
 
-  // Flat ground contact
+  // Rolling ground contact
+  var gy=flyGroundY(fly.worldX);
   var foot=fly.y+16;
-  if (foot>=FLY_GROUND_Y) {
-    fly.y=FLY_GROUND_Y-16;
+  if (foot>=gy) {
+    fly.y=gy-16;
     var speed=Math.abs(fly.vy)+Math.abs(fly.vx)*0.35;
     if (speed<70) {
       var freshLand=!fly.landed;
@@ -2161,7 +2175,7 @@ function updateStationFly(dt) {
       fly.vy=-Math.abs(fly.vy)*0.4; fly.vx*=0.6;
       fly.msg='Easy does it!'; fly.msgT=1.0; beep(200,0.08,0.15,'square');
     }
-  } else { fly.landed=false; if (fly.y < FLY_GROUND_Y-34) fly.armed=true; }
+  } else { fly.landed=false; if (fly.y < gy-34) fly.armed=true; }
 
   // Station docking (home base in the sky at world-x 0)
   var sdx=STATION_WX-fly.worldX, sdy=STATION_SY-fly.y, sd=Math.hypot(sdx,sdy);
@@ -2173,28 +2187,49 @@ function drawStationFly() {
   drect(0,0,W,H,'#070714'); drawStars(1);
   ctx.save(); ctx.globalAlpha=0.6; drawEarth(118,72,40); ctx.restore();
 
-  // Flat lunar ground
-  var g=ctx.createLinearGradient(0,FLY_GROUND_Y,0,H);
-  g.addColorStop(0,'#bcbcb4'); g.addColorStop(0.2,'#989890'); g.addColorStop(1,'#4a4a44');
-  ctx.fillStyle=g; ctx.fillRect(0,FLY_GROUND_Y,W,H-FLY_GROUND_Y);
-  ln(0,FLY_GROUND_Y,W,FLY_GROUND_Y,'rgba(225,225,215,0.55)',2);
-  // scrolling surface detail
-  ctx.save();
+  // Rolling lunar ground (filled silhouette)
+  var fstep=8, fsx, fwx;
+  ctx.beginPath(); ctx.moveTo(0,H);
+  for (fsx=0; fsx<=W; fsx+=fstep) { fwx=fly.worldX+(fsx-W/2); ctx.lineTo(fsx, flyGroundY(fwx)); }
+  ctx.lineTo(W,H); ctx.closePath();
+  var g=ctx.createLinearGradient(0,FLY_GROUND_Y-50,0,H);
+  g.addColorStop(0,'#bcbcb4'); g.addColorStop(0.2,'#989890'); g.addColorStop(0.55,'#787870'); g.addColorStop(1,'#46463f');
+  ctx.fillStyle=g; ctx.fill();
+
+  // scrolling bowl craters (drawn just inside the surface so they read as dents)
+  for (var ci=0;ci<fly.craters.length;ci++) {
+    var cr=fly.craters[ci], cxs=W/2+(cr.wx-fly.worldX);
+    if (cxs<-cr.r-10||cxs>W+cr.r+10) continue;
+    var cgy=flyGroundY(cr.wx);
+    ctx.save();
+    ctx.globalAlpha=0.55; ell(cxs, cgy+cr.r*0.34, cr.r, cr.r*0.42, '#5f5f58');
+    ctx.globalAlpha=0.5;  strokeEll(cxs, cgy+cr.r*0.14, cr.r*0.96, cr.r*0.4, 'rgba(225,225,215,0.7)', 1.5);
+    ctx.restore();
+  }
+
+  // surface rim highlight (follows the hills)
+  ctx.beginPath();
+  for (fsx=0; fsx<=W; fsx+=fstep) { fwx=fly.worldX+(fsx-W/2); if (fsx===0) ctx.moveTo(fsx,flyGroundY(fwx)); else ctx.lineTo(fsx,flyGroundY(fwx)); }
+  ctx.strokeStyle='rgba(230,230,220,0.6)'; ctx.lineWidth=2; ctx.stroke();
+
+  // scrolling surface pebbles
+  ctx.save(); ctx.globalAlpha=0.6;
   for (var pi=0;pi<fly.pebbles.length;pi++) {
     var pb=fly.pebbles[pi], psx=W/2+(pb.wx-fly.worldX);
     if (psx<-14||psx>W+14) continue;
-    if (pb.crater) { ctx.globalAlpha=0.5; ell(psx,FLY_GROUND_Y+6,pb.r*3,pb.r*1.1,'#777770'); }
-    else { ctx.globalAlpha=0.6; circ(psx,FLY_GROUND_Y+pb.r*0.7,pb.r,'#6e6e66'); }
+    circ(psx, flyGroundY(pb.wx)+pb.r*0.6, pb.r, '#6e6e66');
   }
   ctx.restore();
 
-  // Parked rovers on the ground, each with a pulsing beacon
+  // Parked rovers on the ground (tilted to the local slope), each with a pulsing beacon
   for (var mi=0;mi<MOON_ROVERS.length;mi++) {
     var rv=MOON_ROVERS[mi], rsx=W/2+(rv.wx-fly.worldX);
     if (rsx<-40||rsx>W+40) continue;
-    drawRover(rsx, FLY_GROUND_Y-6, 0, rv.col, 0.62, 0);
+    var rgy=flyGroundY(rv.wx);
+    var rsl=Math.atan((flyGroundY(rv.wx+12)-flyGroundY(rv.wx-12))/24);
+    drawRover(rsx, rgy-6, rsl, rv.col, 0.62, 0);
     ctx.save(); ctx.globalAlpha=0.5+Math.sin(gT*0.2+mi)*0.4;
-    circ(rsx,FLY_GROUND_Y-30,3.4,'#ffe27a'); ctx.globalAlpha*=0.4; circ(rsx,FLY_GROUND_Y-30,7,'#ffe27a'); ctx.restore();
+    circ(rsx,rgy-32,3.4,'#ffe27a'); ctx.globalAlpha*=0.4; circ(rsx,rgy-32,7,'#ffe27a'); ctx.restore();
   }
 
   // Station (home base in the sky); glows green when lined up to dock
