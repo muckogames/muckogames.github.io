@@ -191,6 +191,10 @@ function handleTouchFire(tx,ty) {
   if (phase==='mining' && mine && !mine.done) {
     fireMiningLaser(tx, ty); mclk=false;
   }
+  if (phase==='moonbuggy') {
+    // Center-bottom tap = hop (one-shot). RETURN button handled via mclk in update.
+    if (ty > H-150 && tx > W*0.30 && tx < W*0.70) JP.Space=true;
+  }
 }
 function syncTouchKeys() {
   K.ArrowLeft=false; K.ArrowRight=false; K.ArrowUp=false;
@@ -206,6 +210,13 @@ function syncTouchKeys() {
         else                     K.ArrowUp=true;
       } else {
         K.ArrowUp=true; // upper half of screen = thrust too
+      }
+    } else if (phase==='moonbuggy') {
+      // Left third = reverse, right third = drive (hop is a one-shot tap, see handleTouchFire).
+      // Skip the top strip so the RETURN button doesn't also engage drive.
+      if (p.y > 80) {
+        if (p.x < W*0.30)      K.ArrowLeft=true;
+        else if (p.x > W*0.70) K.ArrowRight=true;
       }
     } else if (phase==='reentry' || phase==='solarflare') {
       if (p.y > H-160) {
@@ -1929,7 +1940,14 @@ function updateMoonLand(dt) {
         }
         if (ml.walkT>=1.6) { ml.walkPhase='pose'; ml.walkT=0; }
       } else if (ml.walkPhase==='pose') {
-        if (ml.walkT>=0.8) { ml.walkPhase='walkin'; ml.walkT=0; }
+        if (ml.walkT>=0.8) { ml.walkPhase='buggyprompt'; ml.walkT=0; }
+      } else if (ml.walkPhase==='buggyprompt') {
+        // Offer a Moon-buggy joyride. Tap / SPACE to drive; board the LEM if ignored.
+        if (mclk || eat('Space') || eat('Enter') || eat('KeyB')) {
+          if (mclk) mclk=false;
+          initMoonBuggy(); return;
+        }
+        if (ml.walkT >= 6.0) { ml.walkPhase='walkin'; ml.walkT=0; }
       } else if (ml.walkPhase==='walkin') {
         var flagX2=ml.x+50;
         ml.astroX = flagX2 - (flagX2-ml.x-16)*Math.min(1,ml.walkT/1.0);
@@ -2140,8 +2158,8 @@ function drawMoonLand() {
     txt('\u2191/SPACE=thrust  \u2190\u2192=steer',W/2,H-25,'#99aacc',12,'center','monospace');
   }
 
-  // Result overlay — fades out as moonwalk starts
-  if (ml.landed || ml.crashed) {
+  // Result overlay — fades out as moonwalk starts (hidden once the flag is planted)
+  if ((ml.landed || ml.crashed) && !ml.flagPlanted) {
     var fa = Math.min(1, ml.resultTimer*2);
     if (ml.walkPhase) fa = Math.max(0, 1 - ml.walkT*2); // fade during moonwalk
     if (fa > 0.01) {
@@ -2173,8 +2191,337 @@ function drawMoonLand() {
     ctx.restore();
   }
 
+  // Moon-buggy offer — shown after the flag is planted, before boarding the LEM
+  if (ml.walkPhase==='buggyprompt') {
+    var ba = 0.75+Math.sin(gT*0.18)*0.25;
+    ctx.save(); ctx.globalAlpha=ba;
+    rnd(W/2-152,H/2+40,304,52,12,'rgba(10,30,52,0.92)','rgba(120,200,255,0.7)',2);
+    txt('🚙 TAP TO DRIVE THE MOON BUGGY!',W/2,H/2+62,'#bfe3ff',14,'center','bold monospace');
+    txt('(or wait to climb back aboard the LEM)',W/2,H/2+80,'rgba(165,195,225,0.85)',10,'center','monospace');
+    ctx.restore();
+  }
+
   // Mobile controls hint
-  drawMobileLandingControls();
+  if (!ml.walkPhase) drawMobileLandingControls();
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PHASE: MOON BUGGY  (free-roam lunar rover joyride after a safe landing)
+   ══════════════════════════════════════════════════════════════════════════ */
+var buggy = null;
+var BUGGY_SX     = W*0.42; // buggy's fixed screen-x; the world scrolls past it
+var BUGGY_WR     = 9;      // wheel radius
+var BUGGY_G      = 200;    // gravity (floaty, lunar)
+var BUGGY_ACCEL  = 130;    // drive acceleration
+var BUGGY_MAXFWD = 220;    // top forward speed
+var BUGGY_MAXREV = 90;     // top reverse speed
+var BUGGY_HOP    = 165;    // hop impulse
+var BUGGY_LEM_WX = -90;    // world-x where the parked LEM sits
+
+// Pure terrain height (screen-y of the surface) at world-x wx. Lower y = higher hill.
+function buggyGroundY(wx) {
+  return GROUND_Y
+    - Math.sin(wx*0.013)*20
+    - Math.sin(wx*0.034+1.3)*9
+    - Math.sin(wx*0.0052+0.5)*30;
+}
+
+function initMoonBuggy() {
+  buggy = {
+    t:0, worldX:0, startX:0, vx:0, vy:0,
+    y: buggyGroundY(0), angle:0, onGround:true,
+    airT:0, airMsgT:0, bestAir:0,
+    collected:0, bonus:0, leftBase:false, goalShown:false,
+    rocks:[], pebbles:[], parts:[]
+  };
+  // Moon-rock samples to collect, spread out ahead (deterministic placement)
+  for (var i=1;i<=44;i++) {
+    var jx = (Math.sin(i*12.9898)*0.5+0.5)*150;
+    buggy.rocks.push({ wx: 300 + i*330 + jx, got:false, crystal:(i%4===0) });
+  }
+  // Cosmetic surface pebbles
+  for (var p=0;p<120;p++) {
+    var pw = (p-10)*70 + (Math.sin(p*7.13)*0.5+0.5)*60;
+    buggy.pebbles.push({ wx: pw, r: 1+(Math.sin(p*3.3)*0.5+0.5)*2.5 });
+  }
+  showRadio('Rover deployed! Take it for a spin — grab some Moon rocks. Head back when you’re done.');
+  phase = 'moonbuggy';
+}
+
+function buggyReturnBtn() { return { x:W-150, y:14, w:136, h:34 }; }
+
+function endMoonBuggy() {
+  if (buggy) runScore.landing += buggy.bonus;
+  showRadio('Rover parked. Climbing back aboard the LEM.');
+  initMoonAsc();
+}
+
+function buggySpawnDust(n) {
+  for (var i=0;i<n;i++) {
+    buggy.parts.push({
+      wx: buggy.worldX - 14 + Math.random()*28,
+      py: buggy.y - 1,
+      vx: (Math.random()-0.5)*30 - buggy.vx*0.15,
+      vy: -Math.random()*40 - 8,
+      life: 0.35+Math.random()*0.3,
+      c: '200,198,188'
+    });
+  }
+}
+function buggySpawnSparkle(wx) {
+  for (var i=0;i<8;i++) {
+    buggy.parts.push({
+      wx: wx + (Math.random()-0.5)*16,
+      py: buggyGroundY(wx) - 8 - Math.random()*10,
+      vx: (Math.random()-0.5)*60,
+      vy: -Math.random()*80,
+      life: 0.5+Math.random()*0.4,
+      c: '255,235,130'
+    });
+  }
+}
+
+function updateMoonBuggy(dt) {
+  buggy.t += dt;
+
+  // RETURN-to-LEM button (tap)
+  if (mclk) {
+    var rb = buggyReturnBtn();
+    if (mx>=rb.x && mx<=rb.x+rb.w && my>=rb.y && my<=rb.y+rb.h) {
+      mclk=false; endMoonBuggy(); return;
+    }
+  }
+  if (eat('Enter') || eat('Escape')) { endMoonBuggy(); return; }
+
+  var right = held('ArrowRight')||held('KeyD');
+  var left  = held('ArrowLeft') ||held('KeyA');
+  var hop   = eat('Space')||eat('ArrowUp')||eat('KeyW');
+
+  if (right)      buggy.vx += BUGGY_ACCEL*dt;
+  else if (left)  buggy.vx -= BUGGY_ACCEL*1.3*dt;
+  else { // coast to a stop
+    if (buggy.vx>0) buggy.vx = Math.max(0, buggy.vx-70*dt);
+    else if (buggy.vx<0) buggy.vx = Math.min(0, buggy.vx+70*dt);
+  }
+  if (buggy.vx> BUGGY_MAXFWD) buggy.vx= BUGGY_MAXFWD;
+  if (buggy.vx<-BUGGY_MAXREV) buggy.vx=-BUGGY_MAXREV;
+
+  buggy.worldX += buggy.vx*dt;
+  if (buggy.worldX > buggy.startX+150) buggy.leftBase = true;
+
+  // Drove all the way back to the parked LEM → climb aboard
+  if (buggy.leftBase && buggy.worldX <= BUGGY_LEM_WX+34) { endMoonBuggy(); return; }
+  // Can't reverse past the LEM
+  if (buggy.worldX < BUGGY_LEM_WX+34) { buggy.worldX = BUGGY_LEM_WX+34; if (buggy.vx<0) buggy.vx=0; }
+
+  // Vertical physics — gravity + terrain following (crest hills to catch air!)
+  buggy.vy += BUGGY_G*dt;
+  buggy.y  += buggy.vy*dt;
+  var gy = buggyGroundY(buggy.worldX);
+  if (buggy.y >= gy) {
+    // Velocity needed to hug the surface at the current speed/slope.
+    var rideVy = ((buggyGroundY(buggy.worldX+5) - gy)/5) * buggy.vx;
+    if (!buggy.onGround) {
+      if (buggy.airT > 0.45) { // clean jump — celebrate (no points, so it can't be farmed)
+        buggy.airMsgT = 1.2;
+        if (buggy.airT>buggy.bestAir) buggy.bestAir=buggy.airT;
+        beep(523,0.05,0.15); beep(784,0.12,0.18);
+      }
+      buggySpawnDust(6);
+      buggy.onGround = true;
+    }
+    buggy.y = gy;
+    // Ride the surface, but keep any extra upward momentum so cresting a hill
+    // fast launches the buggy into the air.
+    if (buggy.vy > rideVy) buggy.vy = rideVy;
+    buggy.airT = 0;
+  } else {
+    buggy.onGround = false;
+    buggy.airT += dt;
+  }
+  if (hop && buggy.onGround) {
+    buggy.vy = -BUGGY_HOP; buggy.onGround=false;
+    beep(330,0.05,0.12,'square');
+    buggySpawnDust(5);
+  }
+
+  // Tilt to the terrain slope (eases back to level while airborne)
+  var sl = (buggyGroundY(buggy.worldX+14) - buggyGroundY(buggy.worldX-14))/28;
+  var desired = buggy.onGround ? Math.atan(sl) : buggy.angle*0.95;
+  buggy.angle += (desired - buggy.angle) * Math.min(1, dt*10);
+
+  // Driving dust trail
+  if (buggy.onGround && Math.abs(buggy.vx)>40 && Math.random()<0.5) buggySpawnDust(1);
+
+  // Collect Moon-rock samples
+  for (var i=0;i<buggy.rocks.length;i++) {
+    var rk=buggy.rocks[i];
+    if (!rk.got && Math.abs(buggy.worldX-rk.wx) < 26) {
+      rk.got=true; buggy.collected++;
+      buggy.bonus += rk.crystal?15:6;
+      if (rk.crystal) { beep(659,0.06,0.18); beep(988,0.18,0.2); }
+      else            { beep(880,0.07,0.16); }
+      buggySpawnSparkle(rk.wx);
+    }
+  }
+
+  // Particles
+  for (var j=buggy.parts.length-1;j>=0;j--) {
+    var pt=buggy.parts[j];
+    pt.life-=dt;
+    pt.wx += pt.vx*dt; pt.py += pt.vy*dt; pt.vy += 60*dt;
+    if (pt.life<=0) buggy.parts.splice(j,1);
+  }
+  if (buggy.airMsgT>0) buggy.airMsgT-=dt;
+
+  // One-time "you've explored a good way" nudge
+  var meters = Math.round((buggy.worldX-buggy.startX)/8);
+  if (!buggy.goalShown && meters>=240) {
+    buggy.goalShown=true;
+    showRadio('Nice driving! Reverse back to the LEM (or tap RETURN) whenever you’re ready.');
+  }
+}
+
+function drawWheel(x,y,r,spin) {
+  circ(x,y,r,'#2b2b2b');
+  strokeEll(x,y,r,r,'#cccccc',2);
+  for (var a=0;a<6;a++) {
+    var an=a/6*TAU + spin;
+    ln(x,y,x+Math.cos(an)*r,y+Math.sin(an)*r,'#777',1);
+  }
+  circ(x,y,2.2,'#ddd');
+}
+function drawBuggy(cx,cy,angle) {
+  var spin = buggy.worldX*0.13;
+  ctx.save(); ctx.translate(cx,cy); ctx.rotate(angle);
+  drawWheel(-16,0,BUGGY_WR,spin);
+  drawWheel( 16,0,BUGGY_WR,spin);
+  // chassis platform + gold foil underside
+  rnd(-22,-11,44,7,2,'#d8d4c0','#7a7a70',1.5);
+  drect(-18,-6,36,3,'#caa83a');
+  // mesh seat back
+  rnd(-9,-24,13,13,2,'#cfcfc6','#888',1.5);
+  // high-gain dish antenna
+  ln(15,-10,21,-25,'#bbb',1.5);
+  ctx.save(); ctx.translate(21,-26); ctx.rotate(-0.5);
+  strokeEll(0,0,5,3,'#ddd',1.5); ln(0,0,3,1.5,'#ddd',1); ctx.restore();
+  // astronaut rider
+  ctx.save(); ctx.translate(-2,-21);
+  rnd(-4,-2,9,9,2,'#e0e0d8','#aaa',1);
+  circ(0,-6,4,'#d8d8d0');
+  ctx.fillStyle='rgba(50,80,150,0.7)';
+  ctx.beginPath(); ctx.arc(0,-6,3,Math.PI*1.1,Math.PI*1.9); ctx.closePath(); ctx.fill();
+  ctx.restore();
+  ctx.restore();
+}
+
+function drawMoonBuggy() {
+  var sx, wx;
+  // Space backdrop
+  drect(0,0,W,H,'#080818');
+  drawStars(1);
+  ctx.save(); ctx.globalAlpha=0.7; drawEarth(700,80,55); ctx.restore();
+
+  var step=8;
+  // Terrain fill
+  ctx.beginPath();
+  ctx.moveTo(0,H);
+  for (sx=0; sx<=W; sx+=step) {
+    wx = buggy.worldX + (sx-BUGGY_SX);
+    ctx.lineTo(sx, buggyGroundY(wx));
+  }
+  ctx.lineTo(W,H); ctx.closePath();
+  var g=ctx.createLinearGradient(0,GROUND_Y-70,0,H);
+  g.addColorStop(0,'#b8b8b0'); g.addColorStop(0.18,'#989890');
+  g.addColorStop(0.55,'#787870'); g.addColorStop(1,'#4e4e48');
+  ctx.fillStyle=g; ctx.fill();
+
+  // Surface rim highlight
+  ctx.beginPath();
+  for (sx=0; sx<=W; sx+=step) {
+    wx=buggy.worldX+(sx-BUGGY_SX);
+    if (sx===0) ctx.moveTo(sx,buggyGroundY(wx)); else ctx.lineTo(sx,buggyGroundY(wx));
+  }
+  ctx.strokeStyle='rgba(225,225,215,0.55)'; ctx.lineWidth=2; ctx.stroke();
+
+  // Pebbles
+  ctx.save(); ctx.globalAlpha=0.6;
+  for (var pi=0;pi<buggy.pebbles.length;pi++) {
+    var pb=buggy.pebbles[pi];
+    var psx = BUGGY_SX + (pb.wx - buggy.worldX);
+    if (psx<-10||psx>W+10) continue;
+    circ(psx, buggyGroundY(pb.wx)+pb.r*0.6, pb.r, '#6e6e66');
+  }
+  ctx.restore();
+
+  // Parked LEM + flag (so the player can find the way back)
+  var lemSx = BUGGY_SX + (BUGGY_LEM_WX - buggy.worldX);
+  if (lemSx > -60 && lemSx < W+60) {
+    drawLEM(lemSx, buggyGroundY(BUGGY_LEM_WX)-30, false);
+    var flagSx = BUGGY_SX + ((BUGGY_LEM_WX+46) - buggy.worldX);
+    var fgy = buggyGroundY(BUGGY_LEM_WX+46);
+    ln(flagSx,fgy,flagSx,fgy-26,'#ddd',2);
+    var wave=Math.sin(gT*0.12)*3;
+    poly([[flagSx,fgy-26],[flagSx+15+wave,fgy-22],[flagSx+14,fgy-16],[flagSx,fgy-18]],'#cc2222',null,0);
+  }
+
+  // Moon-rock samples
+  for (var ri=0;ri<buggy.rocks.length;ri++) {
+    var rk=buggy.rocks[ri];
+    if (rk.got) continue;
+    var rsx = BUGGY_SX + (rk.wx - buggy.worldX);
+    if (rsx<-20||rsx>W+20) continue;
+    var rgy = buggyGroundY(rk.wx);
+    if (rk.crystal) {
+      var bob=Math.sin(gT*0.1+rk.wx)*2;
+      ctx.save(); ctx.globalAlpha=0.35;
+      circ(rsx,rgy-12+bob,10,'rgba(120,220,255,0.5)'); ctx.restore();
+      poly([[rsx,rgy-22+bob],[rsx+6,rgy-12+bob],[rsx,rgy-4+bob],[rsx-6,rgy-12+bob]],'#7fe0ff','#cfefff',1.5);
+    } else {
+      circ(rsx,rgy-5,5,'#8a8a80');
+      circ(rsx-2,rgy-6,2,'#b0b0a6');
+    }
+  }
+
+  // Particles (dust / sparkles)
+  for (var qi=0;qi<buggy.parts.length;qi++) {
+    var pt=buggy.parts[qi];
+    var px = BUGGY_SX + (pt.wx - buggy.worldX);
+    ctx.save(); ctx.globalAlpha=Math.max(0,Math.min(1,pt.life*2));
+    circ(px, pt.py, 2.2, 'rgba('+pt.c+',1)');
+    ctx.restore();
+  }
+
+  // The buggy
+  drawBuggy(BUGGY_SX, buggy.y - BUGGY_WR, buggy.angle);
+
+  // AIR TIME! callout
+  if (buggy.airMsgT>0 || (!buggy.onGround && buggy.airT>0.5)) {
+    ctx.save(); ctx.globalAlpha=Math.min(1, buggy.airMsgT>0?buggy.airMsgT:1);
+    txt('AIR TIME!', BUGGY_SX, buggy.y-BUGGY_WR-44, '#ffe27a', 16, 'center','bold monospace');
+    ctx.restore();
+  }
+
+  // HUD
+  var meters = Math.round((buggy.worldX-buggy.startX)/8);
+  rnd(8,12,196,52,8,'rgba(0,10,30,0.55)','rgba(120,160,210,0.4)',1);
+  txt('DISTANCE: '+meters+' m', 18, 32, '#bfe0ff', 13, 'left','monospace');
+  txt('★ SAMPLES: '+buggy.collected+'  (+'+buggy.bonus+' pts)', 18, 52, '#ffe27a', 13, 'left','monospace');
+
+  // RETURN button
+  var rb=buggyReturnBtn();
+  ctx.save(); ctx.globalAlpha=0.55+Math.sin(gT*0.12)*0.12;
+  rnd(rb.x,rb.y,rb.w,rb.h,8,'rgba(20,60,30,0.85)','rgba(120,220,140,0.7)',2);
+  ctx.restore();
+  txt('RETURN TO LEM',rb.x+rb.w/2,rb.y+22,'#bff0c8',12,'center','bold monospace');
+
+  // Controls hint (keyboard) — above the mobile buttons
+  if (buggy.t<5.5) {
+    rnd(W/2-180,H-150,360,30,6,'rgba(0,0,0,0.6)',null,0);
+    txt('►/D drive   ◄/A reverse   SPACE/↑ hop',W/2,H-130,'#99aacc',12,'center','monospace');
+  }
+
+  drawMobileBuggyControls();
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -2931,6 +3278,19 @@ function drawMobileReentryControls() {
   drawMobileBtn(70,  H-65, 52, '\u25C4', 'LEFT',  hL);
   drawMobileBtn(W-70,H-65, 52, '\u25BA', 'RIGHT', hR);
 }
+function drawMobileBuggyControls() {
+  var hL=K.ArrowLeft, hR=K.ArrowRight;
+  drawMobileBtn(52,  H-70, 52, '◄', 'REVERSE', hL);
+  drawMobileBtn(W-52,H-70, 52, '►', 'DRIVE',   hR);
+  // HOP button — center bottom
+  ctx.save();
+  ctx.globalAlpha = 0.5;
+  rnd(W/2-70, H-104, 140, 80, 14, 'rgba(40,90,60,0.75)', 'rgba(120,220,150,0.6)', 1.5);
+  ctx.globalAlpha = 0.78;
+  txt('▲', W/2, H-62, '#dfffe8', 26, 'center', 'bold monospace');
+  txt('HOP',    W/2, H-34, '#aee8c0', 12, 'center', 'monospace');
+  ctx.restore();
+}
 function drawMobileChuteControls() {
   if (ch && ch.deployed) return;
   var a=0.4+Math.sin(gT*0.15)*0.15;
@@ -2961,6 +3321,7 @@ function loop(ts) {
     case 'deepspace':  updateDeepSpace(dt);  drawDeepSpace();  break;
     case 'apollo13':   updateApollo13(dt);   drawApollo13();   break;
     case 'moonland': updateMoonLand(dt); drawMoonLand(); break;
+    case 'moonbuggy':updateMoonBuggy(dt);drawMoonBuggy();break;
     case 'moonasc':  updateMoonAsc(dt);  drawMoonAsc();  break;
     case 'reentry':  updateReentry(dt);  drawReentry();  break;
     case 'chute':    updateChute(dt);    drawChute();    drawMobileChuteControls(); break;
