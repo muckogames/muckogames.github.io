@@ -1885,11 +1885,14 @@ var ROCKETS = [
   { name:'MUCKO HAULER',  tag:'Big & steady',  col:'#9be08a', accent:'#e7ffe0', acc:140, turn:2.0, scale:1.18 }
 ];
 
-// Flight-scene geometry
-var SF_MCY   = 326, SF_R = 112;          // Moon centre-y / radius (centre-x is W/2)
-var SF_STY   = SF_MCY - SF_R - 98;       // station sits above the Moon
-var SF_GACC  = 86;                        // surface gravity (fades with distance)
-var SF_MAXSP = 250;                       // speed cap
+// Flight-scene geometry — a flat-ground side-scroller. The station is the home
+// base, floating in the sky at world-x 0; the rocket flies left/right over flat
+// lunar ground (the world scrolls) and can land anywhere, including by a rover.
+var FLY_GROUND_Y = 402;   // flat surface (screen y)
+var STATION_WX   = 0;     // station world-x (home base)
+var STATION_SY   = 116;   // station altitude (screen y)
+var FLY_GRAV     = 74;    // downward gravity
+var SF_MAXSP     = 250;   // speed cap
 
 // Craters scattered on the Moon globe (deterministic)
 var GLOBE_CRATERS = [];
@@ -2053,29 +2056,28 @@ function initStationFly(idx) {
   var r=st.rockets[idx];
   fly = {
     idx:idx, def:r, t:0,
-    mcx:W/2, mcy:SF_MCY, R:SF_R, stx:W/2, sty:SF_STY,
-    x:W/2, y:SF_STY+46, vx:22, vy:8, angle:0.4,
+    worldX: STATION_WX, y: STATION_SY+48,   // start docked at the station, drop away
+    vx:0, vy:14, tilt:0,
     thrusting:false, landed:false, everLanded:false,
     leftDock:false, recall:false, armed:false,
-    msg:'', msgT:0, parts:[]
+    msg:'', msgT:0, parts:[], pebbles:[]
   };
-  showRadio('Cleared in the '+r.name+'! Fly around the Moon — land if you like — then dock back at the station.');
+  // Cosmetic surface detail so the ground visibly scrolls
+  for (var i=0;i<170;i++) {
+    fly.pebbles.push({ wx:(i-85)*44 + (Math.sin(i*5.1)*0.5+0.5)*28,
+                       r:1+(Math.sin(i*2.7)*0.5+0.5)*2.2, crater:(i%9===0) });
+  }
+  showRadio('Cleared in the '+r.name+'! Fly along the surface — land if you like — then fly back to the station.');
   phase='stationfly';
 }
 
 function flyReturnBtn() { return { x:W-150, y:14, w:136, h:34 }; }
 
-function flyGravity() {
-  var dx=fly.mcx-fly.x, dy=fly.mcy-fly.y, d=Math.hypot(dx,dy)||1;
-  var falloff=Math.min(1,(fly.R*2.4)/d);
-  var g=SF_GACC*falloff;
-  return { ax:dx/d*g, ay:dy/d*g, d:d, ux:dx/d, uy:dy/d };
-}
-function flySpawnFlame(nx,ny) {
-  if (Math.random()<0.65) {
-    fly.parts.push({ x:fly.x-nx*12, y:fly.y-ny*12,
-      vx:-nx*55+(Math.random()-0.5)*30, vy:-ny*55+(Math.random()-0.5)*30,
-      life:0.28+Math.random()*0.2, c:'255,180,80' });
+function flySpawnFlame() {
+  if (Math.random()<0.7) {
+    fly.parts.push({ x:W/2+(Math.random()-0.5)*5, y:fly.y+15,
+      vx:(Math.random()-0.5)*22 - fly.vx*0.08, vy:60+Math.random()*45,
+      life:0.26+Math.random()*0.18, c:'255,180,80' });
   }
 }
 function flyDock() {
@@ -2104,87 +2106,101 @@ function updateStationFly(dt) {
   if (eat('KeyR')) { fly.recall=true; fly.landed=false; }
 
   if (fly.recall) {
-    var sdx=fly.stx-fly.x, sdy=fly.sty-fly.y, sd=Math.hypot(sdx,sdy)||1;
-    var want=Math.min(140, sd*2.2);
-    fly.vx += ((sdx/sd*want) - fly.vx) * Math.min(1, dt*2.4);
-    fly.vy += ((sdy/sd*want) - fly.vy) * Math.min(1, dt*2.4);
-    fly.x += fly.vx*dt; fly.y += fly.vy*dt;
-    fly.angle = Math.atan2(fly.vx, -fly.vy);
-    fly.thrusting = true; flySpawnFlame(Math.sin(fly.angle),-Math.cos(fly.angle));
-    if (sd < 24) { flyDock(); return; }
+    var rdx=STATION_WX-fly.worldX, rdy=STATION_SY-fly.y, rd=Math.hypot(rdx,rdy)||1;
+    var want=Math.min(150, rd*2.2);
+    fly.vx += ((rdx/rd*want) - fly.vx) * Math.min(1, dt*2.4);
+    fly.vy += ((rdy/rd*want) - fly.vy) * Math.min(1, dt*2.4);
+    fly.worldX += fly.vx*dt; fly.y += fly.vy*dt;
+    fly.tilt += (Math.max(-0.45,Math.min(0.45,fly.vx*0.005)) - fly.tilt) * Math.min(1,dt*6);
+    fly.thrusting = true; flySpawnFlame();
+    if (rd < 24) { flyDock(); return; }
     return;
   }
 
-  var rotL=held('ArrowLeft')||held('KeyA');
-  var rotR=held('ArrowRight')||held('KeyD');
-  var thr =held('ArrowUp')||held('Space')||held('KeyW');
-  if (rotL) fly.angle -= fly.def.turn*dt;
-  if (rotR) fly.angle += fly.def.turn*dt;
+  var left =held('ArrowLeft') ||held('KeyA');
+  var right=held('ArrowRight')||held('KeyD');
+  var up   =held('ArrowUp')||held('Space')||held('KeyW');
 
-  var nx=Math.sin(fly.angle), ny=-Math.cos(fly.angle);  // nose direction
-  fly.thrusting=thr;
-  if (thr) { fly.vx+=nx*fly.def.acc*dt; fly.vy+=ny*fly.def.acc*dt; flySpawnFlame(nx,ny); }
+  // Horizontal jetpack-style thrust (sidescroll), with a gentle coast to a stop
+  if (left)       fly.vx -= fly.def.acc*dt;
+  else if (right) fly.vx += fly.def.acc*dt;
+  else { if (fly.vx>0) fly.vx=Math.max(0,fly.vx-80*dt); else if (fly.vx<0) fly.vx=Math.min(0,fly.vx+80*dt); }
 
-  var G=flyGravity();
-  fly.vx+=G.ax*dt; fly.vy+=G.ay*dt;
-  var sp=Math.hypot(fly.vx,fly.vy);
-  if (sp>SF_MAXSP) { fly.vx*=SF_MAXSP/sp; fly.vy*=SF_MAXSP/sp; }
-  fly.x+=fly.vx*dt; fly.y+=fly.vy*dt;
+  fly.thrusting=up;
+  if (up) { fly.vy -= fly.def.acc*dt; flySpawnFlame(); }
+  fly.vy += FLY_GRAV*dt;
 
-  // soft screen walls (keep the Moon & station always in view — can't get lost)
-  if (fly.x<12){ fly.x=12; if(fly.vx<0) fly.vx*=-0.3; }
-  if (fly.x>W-12){ fly.x=W-12; if(fly.vx>0) fly.vx*=-0.3; }
-  if (fly.y<12){ fly.y=12; if(fly.vy<0) fly.vy*=-0.3; }
-  if (fly.y>H-12){ fly.y=H-12; if(fly.vy>0) fly.vy*=-0.3; }
+  if (fly.vx> SF_MAXSP) fly.vx= SF_MAXSP; if (fly.vx<-SF_MAXSP) fly.vx=-SF_MAXSP;
+  if (fly.vy> SF_MAXSP) fly.vy= SF_MAXSP; if (fly.vy<-SF_MAXSP) fly.vy=-SF_MAXSP;
 
-  // Moon surface contact
-  var contact=fly.R+9;
-  if (G.d<contact) {
-    fly.x=fly.mcx-G.ux*contact; fly.y=fly.mcy-G.uy*contact;
-    var speed=Math.hypot(fly.vx,fly.vy);
-    if (speed<62) {
-      var freshLand = !fly.landed;
-      fly.vx=0; fly.vy=0; fly.landed=true;
-      if (!fly.everLanded) { fly.everLanded=true; fly.msg='Touchdown on the Moon! Thrust to lift off.'; fly.msgT=2.8; chime(); }
-      // Landed next to a parked rover? Hop out and drive it. (Only when "armed" —
-      // i.e. the ship has clearly left the surface since the last drive — so
-      // returning from a drive doesn't instantly re-trigger.)
+  fly.worldX += fly.vx*dt;
+  fly.y      += fly.vy*dt;
+
+  // Top of the sky is a soft ceiling
+  if (fly.y<14) { fly.y=14; if (fly.vy<0) fly.vy=0; }
+
+  // lean into horizontal motion (cosmetic)
+  fly.tilt += (Math.max(-0.45,Math.min(0.45,fly.vx*0.004)) - fly.tilt) * Math.min(1,dt*6);
+
+  // Flat ground contact
+  var foot=fly.y+16;
+  if (foot>=FLY_GROUND_Y) {
+    fly.y=FLY_GROUND_Y-16;
+    var speed=Math.abs(fly.vy)+Math.abs(fly.vx)*0.35;
+    if (speed<70) {
+      var freshLand=!fly.landed;
+      fly.vy=0; fly.vx*=0.3; fly.landed=true;
+      if (!fly.everLanded) { fly.everLanded=true; fly.msg='Touchdown! Thrust to lift off.'; fly.msgT=2.6; chime(); }
+      // Landed next to a parked rover? Hop out and drive it. (Only when "armed",
+      // i.e. the ship has clearly lifted off since the last drive.)
       if (freshLand && fly.armed) {
-        var ri = roverAtLanding();
+        var ri=roverAtLanding();
         if (ri>=0) { fly.armed=false; initRoverDrive(ri); return; }
       }
     } else {
-      var vn=fly.vx*G.ux+fly.vy*G.uy;
-      fly.vx-=G.ux*vn*1.5; fly.vy-=G.uy*vn*1.5; fly.vx*=0.5; fly.vy*=0.5;
-      fly.msg='Easy does it!'; fly.msgT=1.2; beep(200,0.08,0.15,'square');
+      fly.vy=-Math.abs(fly.vy)*0.4; fly.vx*=0.6;
+      fly.msg='Easy does it!'; fly.msgT=1.0; beep(200,0.08,0.15,'square');
     }
-  } else { fly.landed=false; if (G.d > contact+10) fly.armed=true; }
+  } else { fly.landed=false; if (fly.y < FLY_GROUND_Y-34) fly.armed=true; }
 
-  // Station docking
-  var dx=fly.stx-fly.x, dy=fly.sty-fly.y, dd=Math.hypot(dx,dy);
-  if (dd>74) fly.leftDock=true;
-  if (fly.leftDock && dd<30 && Math.hypot(fly.vx,fly.vy)<90) { flyDock(); return; }
+  // Station docking (home base in the sky at world-x 0)
+  var sdx=STATION_WX-fly.worldX, sdy=STATION_SY-fly.y, sd=Math.hypot(sdx,sdy);
+  if (sd>90) fly.leftDock=true;
+  if (fly.leftDock && sd<32 && Math.hypot(fly.vx,fly.vy)<95) { flyDock(); return; }
 }
 
 function drawStationFly() {
   drect(0,0,W,H,'#070714'); drawStars(1);
-  ctx.save(); ctx.globalAlpha=0.6; drawEarth(86,70,36); ctx.restore();
+  ctx.save(); ctx.globalAlpha=0.6; drawEarth(118,72,40); ctx.restore();
 
-  drawMoonGlobe(fly.mcx, fly.mcy, fly.R);
+  // Flat lunar ground
+  var g=ctx.createLinearGradient(0,FLY_GROUND_Y,0,H);
+  g.addColorStop(0,'#bcbcb4'); g.addColorStop(0.2,'#989890'); g.addColorStop(1,'#4a4a44');
+  ctx.fillStyle=g; ctx.fillRect(0,FLY_GROUND_Y,W,H-FLY_GROUND_Y);
+  ln(0,FLY_GROUND_Y,W,FLY_GROUND_Y,'rgba(225,225,215,0.55)',2);
+  // scrolling surface detail
+  ctx.save();
+  for (var pi=0;pi<fly.pebbles.length;pi++) {
+    var pb=fly.pebbles[pi], psx=W/2+(pb.wx-fly.worldX);
+    if (psx<-14||psx>W+14) continue;
+    if (pb.crater) { ctx.globalAlpha=0.5; ell(psx,FLY_GROUND_Y+6,pb.r*3,pb.r*1.1,'#777770'); }
+    else { ctx.globalAlpha=0.6; circ(psx,FLY_GROUND_Y+pb.r*0.7,pb.r,'#6e6e66'); }
+  }
+  ctx.restore();
 
-  // Parked rovers sitting on the surface, with a pulsing beacon so they're easy to spot
+  // Parked rovers on the ground, each with a pulsing beacon
   for (var mi=0;mi<MOON_ROVERS.length;mi++) {
-    var rv=MOON_ROVERS[mi], th=rv.a;
-    var rx=fly.mcx+Math.cos(th)*fly.R, ry=fly.mcy+Math.sin(th)*fly.R;
-    drawRover(rx, ry, th+Math.PI/2, rv.col, 0.46, 0);
-    var bx=fly.mcx+Math.cos(th)*(fly.R+12), by=fly.mcy+Math.sin(th)*(fly.R+12);
-    ctx.save(); ctx.globalAlpha=0.45+Math.sin(gT*0.2+mi)*0.4;
-    circ(bx,by,3.4,'#ffe27a'); ctx.globalAlpha*=0.4; circ(bx,by,7,'#ffe27a'); ctx.restore();
+    var rv=MOON_ROVERS[mi], rsx=W/2+(rv.wx-fly.worldX);
+    if (rsx<-40||rsx>W+40) continue;
+    drawRover(rsx, FLY_GROUND_Y-6, 0, rv.col, 0.62, 0);
+    ctx.save(); ctx.globalAlpha=0.5+Math.sin(gT*0.2+mi)*0.4;
+    circ(rsx,FLY_GROUND_Y-30,3.4,'#ffe27a'); ctx.globalAlpha*=0.4; circ(rsx,FLY_GROUND_Y-30,7,'#ffe27a'); ctx.restore();
   }
 
-  // station (glows green when the ship is lined up to dock)
-  var dd=Math.hypot(fly.stx-fly.x, fly.sty-fly.y);
-  drawStationStruct(fly.stx, fly.sty, fly.leftDock && dd<60 ? 1 : 0);
+  // Station (home base in the sky); glows green when lined up to dock
+  var stSx=W/2+(STATION_WX-fly.worldX);
+  var sd=Math.hypot(STATION_WX-fly.worldX, STATION_SY-fly.y);
+  drawStationStruct(stSx, STATION_SY, fly.leftDock && sd<60 ? 1 : 0);
 
   // exhaust particles
   for (var i=0;i<fly.parts.length;i++) {
@@ -2193,33 +2209,32 @@ function drawStationFly() {
     circ(p.x,p.y,2.4,'rgba('+p.c+',1)'); ctx.restore();
   }
 
-  // guidance arrow toward the station when far away
-  if (dd>120 && !fly.landed) {
-    var ang=Math.atan2(fly.sty-fly.y, fly.stx-fly.x);
-    var gx=fly.x+Math.cos(ang)*30, gy=fly.y+Math.sin(ang)*30;
-    ctx.save(); ctx.globalAlpha=0.6+Math.sin(gT*0.2)*0.2; ctx.translate(gx,gy); ctx.rotate(ang);
+  // guidance arrow toward the station when it's off to the side/far
+  if (sd>150) {
+    var ang=Math.atan2(STATION_SY-fly.y, stSx-W/2);
+    ctx.save(); ctx.globalAlpha=0.6+Math.sin(gT*0.2)*0.2; ctx.translate(W/2+Math.cos(ang)*34, fly.y+Math.sin(ang)*34); ctx.rotate(ang);
     poly([[0,-5],[12,0],[0,5]], '#8fd8ff', null, 0); ctx.restore();
   }
 
-  drawFlyer(fly.x, fly.y, fly.angle, fly.def, fly.thrusting);
+  drawFlyer(W/2, fly.y, fly.tilt, fly.def, fly.thrusting);
 
   // flash message near the ship
   if (fly.msgT>0 && fly.msg) {
     ctx.save(); ctx.globalAlpha=Math.min(1,fly.msgT);
-    txt(fly.msg, fly.x, fly.y-26, '#ffe27a', 13, 'center', 'bold monospace');
+    txt(fly.msg, W/2, fly.y-26, '#ffe27a', 13, 'center', 'bold monospace');
     ctx.restore();
   }
 
   // HUD
-  rnd(8,12,196,46,8,'rgba(0,10,30,0.55)','rgba(120,160,210,0.4)',1);
+  rnd(8,12,210,46,8,'rgba(0,10,30,0.55)','rgba(120,160,210,0.4)',1);
   txt(fly.def.name, 18, 30, fly.def.col, 13, 'left', 'bold monospace');
   var spd=Math.round(Math.hypot(fly.vx,fly.vy));
-  txt('SPEED: '+spd+'   DOCK: '+Math.round(dd), 18, 50, '#bfe0ff', 12, 'left', 'monospace');
+  txt('SPEED: '+spd+'   TO STATION: '+Math.round(sd), 18, 50, '#bfe0ff', 12, 'left', 'monospace');
 
   // DOCK-READY prompt
-  if (fly.leftDock && dd<46) {
+  if (fly.leftDock && sd<48) {
     ctx.save(); ctx.globalAlpha=0.6+Math.sin(gT*0.3)*0.3;
-    txt('🛰 LINE UP & SLOW DOWN TO DOCK', W/2, 92, '#9be08a', 14, 'center', 'bold monospace');
+    txt('🛰 SLOW DOWN TO DOCK AT THE STATION', W/2, 92, '#9be08a', 14, 'center', 'bold monospace');
     ctx.restore();
   }
 
@@ -2236,11 +2251,11 @@ function drawStationFly() {
     ctx.restore();
   }
   if (fly.t<6) {
-    rnd(W/2-180,H-150,360,30,6,'rgba(0,0,0,0.6)',null,0);
-    txt('◄/► turn   ↑/SPACE thrust   R = auto-dock', W/2, H-130, '#99aacc', 12, 'center', 'monospace');
+    rnd(W/2-186,H-150,372,30,6,'rgba(0,0,0,0.6)',null,0);
+    txt('◄/► fly left & right   ↑/SPACE thrust up   R = auto-dock', W/2, H-130, '#99aacc', 11.5, 'center', 'monospace');
   }
 
-  drawMobileLandingControls(); // LEFT / RIGHT (= turn) + THRUST
+  drawMobileLandingControls(); // LEFT / RIGHT (= fly sideways) + THRUST (= up)
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -2249,18 +2264,17 @@ function drawStationFly() {
    RETURN) to climb in; from there you fly back up to the space station.
    ══════════════════════════════════════════════════════════════════════════ */
 var rover = null;
-// Rovers parked around the Moon globe (angle from Moon centre, + colour).
+// Rovers parked along the flat surface (world-x position + colour). Spread either
+// side of the station (world-x 0) so you side-scroll back and forth to reach them.
 var MOON_ROVERS = [
-  { a:-2.5, col:'#ff7ea8' },
-  { a: 0.5, col:'#7fe0ff' },
-  { a: 2.3, col:'#ffd86b' }
+  { wx:-640, col:'#ff7ea8' },
+  { wx: 560, col:'#7fe0ff' },
+  { wx:1180, col:'#ffd86b' }
 ];
-function angNorm(a){ while(a>Math.PI)a-=TAU; while(a<-Math.PI)a+=TAU; return a; }
 function roverAtLanding() {
   if (!fly) return -1;
-  var th=Math.atan2(fly.y-fly.mcy, fly.x-fly.mcx);
   for (var i=0;i<MOON_ROVERS.length;i++) {
-    if (Math.abs(angNorm(th-MOON_ROVERS[i].a)) < 0.45) return i;
+    if (Math.abs(fly.worldX-MOON_ROVERS[i].wx) < 44) return i;
   }
   return -1;
 }
