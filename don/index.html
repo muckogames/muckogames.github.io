@@ -1642,7 +1642,7 @@ const LEVEL_TILE_CHARS={
 };
 const LEVEL_TILE_INV=(function(){var m={};for(var k in LEVEL_TILE_CHARS)m[LEVEL_TILE_CHARS[k]]=k;return m;})();
 const LEVEL_KNOWN_NPC_CHARS={
-  digory:1, samster:1, duckdieb:1, pflueger:1,
+  digory:1, samster:1, duckdieb:1, dad:1,
   don:1, firelightGuy:1, mom:1, guard:1
 };
 
@@ -2226,7 +2226,7 @@ function updateHeist(dt){
 
 // ── Player & NPC sprite dispatch ─────────────────────────────────────────────
 // drawHeistPlayer / drawHeistNpcs route by char id to a draw function.
-// MUCKO_NPCS is populated lazily — Phase 2 will fill in samster/pflueger/etc
+// MUCKO_NPCS is populated lazily — Phase 2 will fill in samster/dad/etc
 // from don/mucko-npcs.js. For now only the natively-defined chars are wired.
 var MUCKO_NPCS=window.MUCKO_NPCS||(window.MUCKO_NPCS={});
 function drawHeistPlayer(charId,x,y,dir){
@@ -3243,7 +3243,7 @@ function drawFirelightGuy(x,y,dir,bobT){
 
 // Register the natively-defined characters in the NPC dispatch table so the
 // heist player & NPC arrays can use any of them. Phase 2 will add the ported
-// sprites for samster/pflueger/mom/duckdieb via mucko-npcs.js.
+// sprites for samster/dad/mom/duckdieb via mucko-npcs.js.
 MUCKO_NPCS.digory={
   draw:function(x,y,dir){drawDigory(x,y,dir);},
   label:'Digory'

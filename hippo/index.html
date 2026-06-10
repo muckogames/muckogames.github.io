@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pflueger and the Hippo</title>
+<title>Mucko and the Hippo</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext x='50%25' y='50%25' dy='.35em' text-anchor='middle' font-size='82'%3E%F0%9F%A6%9B%3C/text%3E%3C/svg%3E">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -43,7 +43,7 @@ body::before{
 <script>
 'use strict';
 /* ===================================================================
-   PFLUEGER AND THE HIPPO  —  a web game
+   MUCKO AND THE HIPPO  —  a web game
    =================================================================== */
 const W=800,H=560;
 const MAX_RENDER_DPR=1;
@@ -285,7 +285,7 @@ const CHEAT_LORE={
   MARGARITAVILLE:'Unlocked by someone who knows what\u2019s up.',
   SKREEEEM:     'The sound Nik makes. Phonetically accurate. Scientifically terrifying.',
   CLOSETLIFE:   'The closet sees all. The closet knows all. The closet judges no one.',
-  PBANDJ:       'Pflueger\u2019s post-school ritual. Creamy, not crunchy. This is not negotiable.',
+  PBANDJ:       'Mucko\u2019s post-school ritual. Creamy, not crunchy. This is not negotiable.',
   SAMSTER:      'Samster the hamster. Master of cage locks and sneaky shortcuts. He says hi.',
   DUCKDIEB:     'Duck Dieb, the masked mallard thief. He is watching. He is always watching.',
   SATURNV:      'Saturn V, honorary crew of the R.M.A.S. Mucko. Somewhere, Houston is smiling.',
@@ -1050,7 +1050,7 @@ function drawHippoFriendly(cx,cy,sc,anim){
   ctx.restore();
 }
 
-function drawPflueger(cx,cy,sc,flip,anim,mood){
+function drawMucko(cx,cy,sc,flip,anim,mood){
   sc=sc||1; anim=anim||0;
   const bob=Math.sin(anim*0.08)*2;
   const ls=Math.sin(anim*0.14)*8;
@@ -1736,7 +1736,7 @@ function drawDialogBox(opts){
     ctx.beginPath(); ctx.roundRect(px+4,py+4,ps-8,ps-8,3); ctx.clip();
     ctx.translate(px+ps/2, py+ps-8);
     if(opts.portrait==='hippo')drawHippoSide(0,0,0.6,false,t);
-    else if(opts.portrait==='pflueger')drawPflueger(0,0,0.6,false,t);
+    else if(opts.portrait==='mucko')drawMucko(0,0,0.6,false,t);
     else if(opts.portrait==='lisa')drawLisa(0,0,0.6,false,t);
     else if(opts.portrait==='mom')drawMom(0,0,0.6,t);
     ctx.restore();
@@ -1802,44 +1802,44 @@ function drawDialog(){
 const SCENES=[
   // ── SHORT INTRO ──────────────────────────────────────────────────
   {id:'ch1_1',bg:bgBedroom,
-   chars:[{type:'pflueger',x:250,y:370,sc:0.95},{type:'hippo',x:530,y:395,sc:1.15}],
-   moods:{pflueger:'surprised'},
+   chars:[{type:'mucko',x:250,y:370,sc:0.95},{type:'hippo',x:530,y:395,sc:1.15}],
+   moods:{mucko:'surprised'},
    text:DIALOG_DATA.scenes.ch1_1},
   {id:'stealth_intro',bg:bgBedroom,
-   chars:[{type:'pflueger',x:320,y:370,sc:1},{type:'hippo',x:565,y:400,sc:1.1,flip:true}],
-   speaker:'pflueger', moods:{pflueger:'worried'},
+   chars:[{type:'mucko',x:320,y:370,sc:1},{type:'hippo',x:565,y:400,sc:1.1,flip:true}],
+   speaker:'mucko', moods:{mucko:'worried'},
    text:DIALOG_DATA.scenes.stealth_intro,
    action:'stealth'},
   {id:'ch2_4',bg:bgLibrary,
-   chars:[{type:'pflueger',x:310,y:370,sc:0.95},{type:'lisa',x:490,y:360,sc:0.95}],
-   moods:{pflueger:'worried',lisa:'happy'},
+   chars:[{type:'mucko',x:310,y:370,sc:0.95},{type:'lisa',x:490,y:360,sc:0.95}],
+   moods:{mucko:'worried',lisa:'happy'},
    text:DIALOG_DATA.scenes.ch2_4},
   {id:'escape_intro',bg:bgLibrary,
-   chars:[{type:'pflueger',x:310,y:370,sc:0.95},{type:'lisa',x:490,y:360,sc:0.95}],
+   chars:[{type:'mucko',x:310,y:370,sc:0.95},{type:'lisa',x:490,y:360,sc:0.95}],
    moods:{lisa:'happy'},
    text:DIALOG_DATA.scenes.escape_intro,
    action:'escape'},
   {id:'decision_1',bg:bgBackyard,
-   chars:[{type:'hippo',x:450,y:400,sc:1.3},{type:'pflueger',x:200,y:360,sc:0.95},{type:'lisa',x:620,y:360,sc:0.95}],
-   moods:{pflueger:'worried',lisa:'worried'},
+   chars:[{type:'hippo',x:450,y:400,sc:1.3},{type:'mucko',x:200,y:360,sc:0.95},{type:'lisa',x:620,y:360,sc:0.95}],
+   moods:{mucko:'worried',lisa:'worried'},
    text:DIALOG_DATA.scenes.decision_1},
   {id:'cleanup_intro',bg:bgBedroom,
-   chars:[{type:'pflueger',x:270,y:360,sc:0.95},{type:'lisa',x:430,y:356,sc:0.95},{type:'hippo',x:590,y:400,sc:1.05,flip:true}],
-   speaker:'pflueger', moods:{pflueger:'surprised',lisa:'worried'},
+   chars:[{type:'mucko',x:270,y:360,sc:0.95},{type:'lisa',x:430,y:356,sc:0.95},{type:'hippo',x:590,y:400,sc:1.05,flip:true}],
+   speaker:'mucko', moods:{mucko:'surprised',lisa:'worried'},
    text:DIALOG_DATA.scenes.cleanup_intro,
    action:'cleanup'},
   {id:'closet_intro',bg:bgBedroom,
-   chars:[{type:'pflueger',x:320,y:360,sc:1},{type:'hippo',x:560,y:400,sc:1.1,flip:true}],
-   speaker:'pflueger', moods:{pflueger:'worried'},
+   chars:[{type:'mucko',x:320,y:360,sc:1},{type:'hippo',x:560,y:400,sc:1.1,flip:true}],
+   speaker:'mucko', moods:{mucko:'worried'},
    text:DIALOG_DATA.scenes.closet_intro,
    action:'closet_game'},
   {id:'epilogue_start',bg:bgNeighborhood,
-   chars:[{type:'pflueger',x:350,y:340,sc:1},{type:'hippo',x:560,y:350,sc:1.1}],
-   moods:{pflueger:'happy'},
+   chars:[{type:'mucko',x:350,y:340,sc:1},{type:'hippo',x:560,y:350,sc:1.1}],
+   moods:{mucko:'happy'},
    text:DIALOG_DATA.scenes.epilogue_start},
   {id:'epilogue_end',bg:bgBedroom,
-   chars:[{type:'pflueger',x:300,y:360,sc:0.9},{type:'hippo',x:580,y:420,sc:1.1,flip:true}],
-   moods:{pflueger:'happy'},
+   chars:[{type:'mucko',x:300,y:360,sc:0.9},{type:'hippo',x:580,y:420,sc:1.1,flip:true}],
+   moods:{mucko:'happy'},
    text:DIALOG_DATA.scenes.epilogue_end,
    action:'credits'},
 ];
@@ -1900,7 +1900,7 @@ function drawTitleBackdrop(){
   drawHippoFriendly(0,0,1.25,0);
   ctx.restore();
   ctx.save(); ctx.translate(W/2+110,H-190);
-  drawPflueger(0,0,1.1,false,0.6);
+  drawMucko(0,0,1.1,false,0.6);
   ctx.restore();
   // Title logo with glow
   ctx.save();
@@ -1909,13 +1909,13 @@ function drawTitleBackdrop(){
   ctx.fillStyle=C.gold;
   ctx.font='bold 58px Georgia';
   ctx.textAlign='center';
-  ctx.fillText('Pflueger',W/2,126);
+  ctx.fillText('Mucko',W/2,126);
   ctx.shadowBlur=14;
   ctx.fillStyle='#f0e0a8';
   ctx.font='bold 42px Georgia';
   ctx.fillText('& the Hippo',W/2,184);
   ctx.restore();
-  // Shimmer sweep over "Pflueger"
+  // Shimmer sweep over "Mucko"
   const sweepX=((t*5)%(W+280))-140;
   ctx.save();
   ctx.beginPath();
@@ -2046,7 +2046,7 @@ function drawHighScoresBackdrop(){
   ctx.restore();
   // Header
   glowText('🏆  High Scores',W/2,py+42,'#7a3800',32,'center','bold Georgia','rgba(200,150,60,0.3)',4);
-  txt('Pflueger & the Hippo — Ledger of Great Escapes',W/2,py+64,'#8a6030',12,'center','italic Georgia');
+  txt('Mucko & the Hippo — Ledger of Great Escapes',W/2,py+64,'#8a6030',12,'center','italic Georgia');
   // Divider
   ctx.strokeStyle='rgba(160,110,50,0.55)';
   ctx.lineWidth=1.5;
@@ -2241,7 +2241,7 @@ function drawScene(scene){
       ellipse(ch.x,ch.y+56,36,10,'rgba(255,240,200,0.12)');
     }
     const chMood=sceneMoods[ch.type]||(isSpeaker?scene.mood:null)||null;
-    if(ch.type==='pflueger')drawPflueger(ch.x,ch.y,ch.sc||1,ch.flip||false,anim,chMood);
+    if(ch.type==='mucko')drawMucko(ch.x,ch.y,ch.sc||1,ch.flip||false,anim,chMood);
     else if(ch.type==='hippo')drawHippoSide(ch.x,ch.y,ch.sc||1,ch.flip||false,anim);
     else if(ch.type==='hippocool')drawHippoCool(ch.x,ch.y,ch.sc||1,anim);
     else if(ch.type==='lisa')drawLisa(ch.x,ch.y,ch.sc||1,ch.flip||false,anim,chMood);
@@ -2259,7 +2259,7 @@ function drawScene(scene){
   if(scene.special==='stub'){
     rnd(W/2-220,60,440,100,8,'rgba(255,200,0,0.15)','#c8a050',2);
     txt('🚧 Coming Soon: Closet Packing Puzzle! 🚧',W/2,108,'#e8c040',16,'center','Georgia');
-    txt('(Help Mr. Hippo squeeze into Pflueger\'s closet)',W/2,132,'#b09030',13,'center','Georgia');
+    txt('(Help Mr. Hippo squeeze into Mucko\'s closet)',W/2,132,'#b09030',13,'center','Georgia');
   }
   if(scene.bubble){
     drawBubble(scene.bubble.txt,scene.bubble.x,scene.bubble.y);
@@ -2689,7 +2689,7 @@ function drawStealth(){
   drawStealthBackdrop(s,zd);
   drawMomTD(s.mom.x,s.mom.y,s.mom.angle,t);
   if(zd.hasDigory)drawDigoryTD(s.digory.x,s.digory.y,s.digory.chasing,s.digory.anim);
-  drawPfluegerTD(s.player.x,s.player.y,s.player.dir,s.player.anim,s.hasSandwich,s.player.moving);
+  drawMuckoTD(s.player.x,s.player.y,s.player.dir,s.player.anim,s.hasSandwich,s.player.moving);
   drawStealthUI();
   if(s.flash>0){
     ctx.save();
@@ -2714,7 +2714,7 @@ function drawStealth(){
 function drawStealthWin(){
   drawCachedBackdrop('room:bedroom',()=>{bgBedroom();});
   ctx.save();ctx.translate(520,380);drawHippoSide(0,0,1.2,false,t);ctx.restore();
-  ctx.save();ctx.translate(270,360);drawPflueger(0,0,1,false,t);ctx.restore();
+  ctx.save();ctx.translate(270,360);drawMucko(0,0,1,false,t);ctx.restore();
   // PB&J art
   rnd(390,340,60,30,4,'#f5deb3','#c8a040',2);
   fillRect(390,350,60,10,'#70b040');
@@ -2768,7 +2768,7 @@ function drawStealthCaughtOverlay(){
   ctx.globalAlpha=0.85;fillRect(0,0,MAP_W,H,'#1a0808');ctx.globalAlpha=1;
   ctx.fillStyle='#ff8844';ctx.font='bold 40px Georgia';ctx.textAlign='center';
   ctx.fillText('BUSTED!',MAP_W/2,H/2-30);
-  txt('"PFLUEGER! What are you doing?!"',MAP_W/2,H/2+10,'#ffaa88',16,'center','Georgia');
+  txt('"MUCKO! What are you doing?!"',MAP_W/2,H/2+10,'#ffaa88',16,'center','Georgia');
   txt('Sneaking again...',MAP_W/2,H/2+40,C.dimTxt,14,'center',"'Courier New',monospace");
 }
 function drawSandwichEatenOverlay(){
@@ -2779,7 +2779,7 @@ function drawSandwichEatenOverlay(){
   txt('Getting another one...',MAP_W/2,H/2+40,C.dimTxt,14,'center',"'Courier New',monospace");
 }
 
-function drawPfluegerTD(x,y,dir,anim,hasSandwich,moving){
+function drawMuckoTD(x,y,dir,anim,hasSandwich,moving){
   ctx.save();ctx.translate(x,y);
   const stride=walkStride4(anim,0.16,moving!==false);
   const leftLeg=-stride[0], rightLeg=-stride[1], bounce=stride[2];
@@ -3382,7 +3382,7 @@ function drawCloset(){
   });
   // Engraved title plate
   rnd(CL_X+CL_W/2-90,CL_Y-26,180,18,4,'#a07a2a','#6a4410',1.4);
-  txt("PFLUEGER'S CLOSET",CL_X+CL_W/2,CL_Y-13,'#3a1f08',12,'center',"'Courier New',monospace");
+  txt("MUCKO'S CLOSET",CL_X+CL_W/2,CL_Y-13,'#3a1f08',12,'center',"'Courier New',monospace");
 
   // Draw filled / empty cells
   for(let r=0;r<CL_ROWS;r++){
@@ -4505,8 +4505,8 @@ function dialogHarnessCases(){
       subtitle:'Speaker label and portrait for comparison',
       inGame:false,
       lines:["Lisa, you've gotta help me! There's a hippo in my house, and I don't know where it came from!"],
-      speaker:'Pflueger',
-      portrait:'pflueger',
+      speaker:'Mucko',
+      portrait:'mucko',
     },
   ];
 }
@@ -4671,7 +4671,7 @@ function drawCredits(){
   softShadow(440,H-100,46,8,0.3);
   softShadow(600,H-80,36,6,0.3);
   ctx.save(); ctx.translate(240,H-140+Math.sin(t*0.04)*3);
-  drawPflueger(0,0,1.2,false,t*0.5);
+  drawMucko(0,0,1.2,false,t*0.5);
   ctx.restore();
   ctx.save(); ctx.translate(440,H-160+Math.sin(t*0.04+1.2)*3);
   drawHippoCool(0,0,1.3,t*0.4);

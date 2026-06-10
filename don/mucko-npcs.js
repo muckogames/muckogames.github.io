@@ -5,12 +5,12 @@
  * original games and are dependency-free here (helpers + C palette inlined).
  *
  *   MuckoSprites.drawSamster(ctx, x, y, dir, t)
- *   MuckoSprites.drawPflueger(ctx, x, y, dir, t, hasSandwich, moving)
+ *   MuckoSprites.drawDad(ctx, x, y, dir, t, hasSandwich, moving)
  *   MuckoSprites.drawMom(ctx, x, y, angle, t)
  *   MuckoSprites.drawDuckDieb(ctx, x, y, facing)
  *   MuckoSprites.drawDigoryTD(ctx, x, y, t)
  *
- * dir is 0..3 (0=up,1=down,2=left,3=right) for Samster/Pflueger; 'up'/...
+ * dir is 0..3 (0=up,1=down,2=left,3=right) for Samster/Dad; 'up'/...
  * for Duck Dieb. angle is radians for Mom (her vision cone rotates with it).
  *
  * After load, this file auto-binds its sprites into window.MUCKO_NPCS using
@@ -142,9 +142,9 @@
     ctx.restore();
   }
 
-  // ── Pflueger (top-down adult human) ──────────────────────────────────────
+  // ── Dad (top-down adult human) ──────────────────────────────────────
   // dir: 0=up,1=down,2=left,3=right
-  function drawPflueger(ctx, x, y, dir, t, hasSandwich, moving) {
+  function drawDad(ctx, x, y, dir, t, hasSandwich, moving) {
     __ctx = ctx;
     dir = dir || 0; t = t || 0;
     var anim = t * 60;
@@ -296,7 +296,7 @@
   // ── Public API + auto-bind ───────────────────────────────────────────────
   window.MuckoSprites = {
     drawSamster:   drawSamster,
-    drawPflueger:  drawPflueger,
+    drawDad:  drawDad,
     drawMom:       drawMom,
     drawDuckDieb:  drawDuckDieb,
     drawDigoryTD:  drawDigoryTD,
@@ -310,11 +310,11 @@
           drawSamster(ctx, x, y, d, t);
         }
       };
-      table.pflueger = {
-        label: 'Pflueger',
+      table.dad = {
+        label: 'Dad',
         draw: function (x, y, dir, t, n) {
           var d = (dir === 'up' ? 0 : dir === 'down' ? 1 : dir === 'left' ? 2 : dir === 'right' ? 3 : (dir | 0));
-          drawPflueger(ctx, x, y, d, t, !!(n && n.hasSandwich), true);
+          drawDad(ctx, x, y, d, t, !!(n && n.hasSandwich), true);
         }
       };
       table.mom = {

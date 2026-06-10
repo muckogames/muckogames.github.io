@@ -436,7 +436,7 @@ function drawDigoryTD(x,y,chasing,anim){
   ctx.restore();
 }
 
-function drawPfluegerSleeping(x,y){
+function drawOwnerSleeping(x,y){
   ctx.save();ctx.translate(x,y);
   // blanket
   rnd(-30,-8,60,22,6,'#5f86d9',C.ink,2);
@@ -806,7 +806,7 @@ function drawStealth(){
   ctx.fill();
   ctx.restore();
   // sleeping owner
-  drawPfluegerSleeping(3.5*TILE,2.5*TILE);
+  drawOwnerSleeping(3.5*TILE,2.5*TILE);
   // player
   drawSamster(s.player.x,s.player.y,0.8,s.player.anim,s.player.dir);
   // noise meter UI
@@ -818,7 +818,7 @@ function drawStealth(){
   fillRect(UI_X+14,68,nw,10,nc);
   strokeCirc(0,0,0,'transparent',0); // reset
   txt(`${Math.round(s.noise)}%`,UI_X+UI_W/2,94,C.cream,13,'center',"'Courier New',monospace");
-  // Pflueger status
+  // Owner status
   const pStatus=s.noise<50?'💤 Fast asleep':s.noise<80?'😐 Blanket rustle...':'😡 Definitely waking!';
   txt('SLEEPING OWNER',UI_X+UI_W/2,126,C.dimTxt,12,'center',"'Courier New',monospace");
   txt(pStatus,UI_X+UI_W/2,146,s.noise<50?'#88bb88':'#dd8844',13,'center','Georgia');

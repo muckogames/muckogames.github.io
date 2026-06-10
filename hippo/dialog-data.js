@@ -1,13 +1,13 @@
 window.HIPPO_DIALOG={
   scenes:{
-    ch1_1:"Once upon a time, a Hippo walked right into Pflueger's life! Pflueger hurried him quickly to his bedroom.",
+    ch1_1:"Once upon a time, a Hippo walked right into Mucko's life! Mucko hurried him quickly to his bedroom.",
     stealth_intro:"Okay, Hippo, I'll get you a PB&J. Above all, you must be quiet!",
     ch2_4:"Lisa came right over. She helped him learn the truth: the Hippo had escaped from the local Zoo! Zookeepers are baffled!",
     escape_intro:"What really happened at the Zoo that day? If Natasha the Parrot sings, she might tell you a story like this...",
-    decision_1:"LISA: We can't send him back to the Zoo. It wouldn't be right.\nPFLUEGER: We'll keep him hidden, then. No one else can know.",
+    decision_1:"LISA: We can't send him back to the Zoo. It wouldn't be right.\nMUCKO: We'll keep him hidden, then. No one else can know.",
     cleanup_intro:"I hear Mom's car rounding the corner! Hide the hippo evidence, fast.",
     closet_intro:"Quick, into the closet! You really need to get rid of some of your stuff. Let's see if we can get it all to fit.",
-    epilogue_start:"So the hippo moved in. And every day, Pflueger would make himself two peanut butter and jelly sandwiches.",
+    epilogue_start:"So the hippo moved in. And every day, Mucko would make himself two peanut butter and jelly sandwiches.",
     epilogue_end:"Go to sleep, Hippo. Good night.",
   },
   cutscenes:{

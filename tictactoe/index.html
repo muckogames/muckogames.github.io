@@ -697,8 +697,8 @@ function drawHippoFriendly(cx,cy,sc,anim){
   ctx.restore();
 }
 
-/* Pflueger (side-view character) — ported from hippo/index.html */
-function drawPflueger(cx,cy,sc,flip,anim){
+/* Mucko (side-view character) — ported from hippo/index.html */
+function drawMucko(cx,cy,sc,flip,anim){
   sc=sc||1;anim=anim||0;
   const bob=Math.sin(anim*0.08)*2;
   const ls=Math.sin(anim*0.14)*8;
@@ -859,11 +859,11 @@ function drawDigorySprite(w,h,t){
   ctx.restore();
 }
 
-function drawPfluegerSprite(w,h,t){
+function drawMuckoSprite(w,h,t){
   // natural bbox: 52w × 90h, visual center: (0, 13)
   const sc=Math.min(w/56,h/94);
   ctx.save();ctx.translate(w/2,h/2);ctx.scale(sc,sc);ctx.translate(0,-13);
-  drawPflueger(0,0,1,false,t*60);
+  drawMucko(0,0,1,false,t*60);
   ctx.restore();
 }
 
@@ -937,7 +937,7 @@ const SYMS = [
   {id:'🚀',  disp:'🚀',  name:'Saturn V',   text:false, animated:false, drawFn:drawRocketSprite},
   {id:'🦆',  disp:'🦆',  name:'Duck Dieb',  text:false, animated:false, drawFn:drawDuckSprite},
   {id:'🧙',  disp:'🧙',  name:'Digory',     text:false, animated:true,  drawFn:drawDigorySprite},
-  {id:'🎮',  disp:'🎮',  name:'Pflueger',   text:false, animated:true,  drawFn:drawPfluegerSprite},
+  {id:'🎮',  disp:'🎮',  name:'Mucko',   text:false, animated:true,  drawFn:drawMuckoSprite},
   {id:'🚂',  disp:'🚂',  name:'Train',      text:false, animated:true,  drawFn:drawTrainSprite},
   {id:'⭐',  disp:'⭐',  name:'Star',       text:false, animated:false, drawFn:drawStarSprite},
 ];
