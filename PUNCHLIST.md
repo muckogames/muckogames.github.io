@@ -66,29 +66,19 @@ are system-balancing and second-pass polish rather than missing scaffolding.
 
 ---
 
-### `ocean/index.html` — finish Muckoville Ocean
+### `ocean/index.html` — follow-ups
 
-The newest, most active game is mechanically solid (sub/boat physics, diver, Kraken)
-but unfinished as a *game*. Each item below is self-contained:
+The "finish Muckoville Ocean" pass shipped (high scores via `mucko_ocean_scores`,
+hull meter with gentle iceberg/floor damage, diver treasure salvage at wrecks and
+reefs, Captain Mucko briefing + cozy Lobster Rescue result screens, 30 fps menus).
+Remaining ideas:
 
-1. **High-score persistence.** Score (`var score`, ~line 144) resets on reload. Add
-   `MuckoEngine.makeStore('mucko_ocean_scores')` (or the duckdieb localStorage
-   pattern) and a small best-score line on the vehicle-select screen.
-2. **Real victory / game-over flow.** After the Kraken kill or a fuel/air death,
-   `triggerSink()` just changes state — there is no result screen. Add an explicit
-   comic-peril result panel (score, cause, "Try Again" button) with the cozy-ending
-   tone from DIGORY_ALIGNMENT_PLAN.md (rescue boat, blanket, hot drink — not a bare
-   "GAME OVER").
-3. **Give the diver a purpose.** The diver can swim freely but has nothing to do.
-   Seed salvage/treasure pickups near the wrecks and coral reefs that are only
-   collectible on fin — this converts existing dead scenery into goals and makes
-   the sub-vs-diver tradeoff (air drain) meaningful.
-4. **Mucko-universe framing.** Ocean has zero character presence. Add a pilot
-   character and 2–3 intro/outro dialog lines — Captain Mucko or Digory fit the
-   sub/boat lane. Reuse `MuckoEngine.renderDialog` or the simple panel pattern.
-5. **Terrain and iceberg collision.** Seafloor and icebergs are visual-only.
-   Add gentle hull-damage contact (not instant death) so the terrain matters.
-6. **`LOW_FPS_PHASES`** for `vehicleSelect` / result screens.
+- **Boat-mode goals.** The speedboat run has no scoring of its own — consider
+  dock-to-dock delivery runs or a timed Kraken-zone approach bonus.
+- **Treasure depth tuning.** All treasure sits on the seafloor; a few placed
+  inside wreck hulls or under iceberg keels would reward riskier diving.
+- **Kraken victory cozy beat.** After the explosion, a short "lobsters throw a
+  picnic" vignette before the pirate sub arrives would match the cozy-ending rule.
 
 ### `orbit/` — reward loop and story pass
 

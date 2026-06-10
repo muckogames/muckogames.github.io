@@ -145,6 +145,37 @@ var score = 0, scorePopT = 0;
 var WAKE = [];
 var thrustBeepT = 0, surfBreachWas = false;
 
+// ── hull, high scores & run end ───────────────────────────────────────────────
+var hull = 1.0;          // 0–1; iceberg bonks and hard floor landings wear it down
+var HULL_FILL = 1 / 6;   // 6 s for a station lobster to patch the hull
+var hullHitCD = 0;       // brief grace period between bonks
+var runEndCause = '';    // 'iceberg' | 'hull' | 'air'
+var newBest = false;
+var gameoverT = 0;       // seconds on the result screen (guards accidental skip)
+var HS_KEY = 'mucko_ocean_scores';
+function loadScores() {
+  try { return JSON.parse(localStorage.getItem(HS_KEY) || '[]'); } catch (e) { return []; }
+}
+function bestScore() { var l = loadScores(); return l.length ? l[0].score : 0; }
+function saveScore(cause) {
+  if (score <= 0) return;
+  var list = loadScores();
+  list.push({ score: score, cause: cause, treasure: treasureGot() });
+  list.sort(function(a, b) { return b.score - a.score; });
+  try { localStorage.setItem(HS_KEY, JSON.stringify(list.slice(0, 10))); } catch (e) {}
+}
+function endRun(cause) {
+  runEndCause = cause;
+  newBest = score > 0 && score > bestScore();
+  saveScore(cause);
+  gameoverT = 0;
+  gamePhase = 'gameover';
+}
+function boardPirateSub() {
+  saveScore('victory');
+  window.location.href = '../piratesub/';
+}
+
 // ── iceberg sink animation ────────────────────────────────────────────────────
 var gamePhase  = 'vehicleSelect'; // 'vehicleSelect'|'playing'|'sinking'|'gameover'|'boatSailing'
 var sinkT      = 0;
@@ -158,7 +189,8 @@ var SINK_TILT   = 1.4;
 var SINK_TOTAL  = 30.0; // fallback timeout
 var sinkSettled = 0;    // time both pieces have been resting
 
-function triggerSink() {
+function triggerSink(cause) {
+  runEndCause    = cause || 'iceberg';
   gamePhase      = 'sinking';
   sinkT          = 0;
   sinkFace       = subFace;
@@ -184,6 +216,12 @@ function resetGame() {
   sub.x = 0; sub.y = OCEAN_BASE + CELL * 3; sub.vx = 0; sub.vy = 0;
   subFace = 1; subPitch = 0; subPitchT = 0; propAng = 0; hitFlash = 0;
   fuel = 1.0; air = 1.0; camX = sub.x - W / 2;
+  hull = 1.0; hullHitCD = 0;
+  score = 0; scorePopT = 0; runEndCause = ''; newBest = false;
+  for (var ti = 0; ti < TREASURES.length; ti++) TREASURES[ti].got = false;
+  krakPhase = 'intact'; krakExpT = 0; krakFlash = 0;
+  krakDebris = []; krakSmoke = []; krakSettled = 0;
+  piratePhase = 'none';
   diverOut = false; diverRecalling = false;
   boatFuel = 1.0; boat.x = 0; boat.y = 0; boat.heading = 0; boat.speed = 0;
   boatEngineState = 'up'; boatEngineT = 0;
@@ -308,6 +346,27 @@ var REEFS = [];
   }
 }());
 
+// ── sunken treasure (diver salvage goals) ─────────────────────────────────────
+// Chests near wrecks, pearls near wrecks and reefs — only the diver can grab them.
+var TREASURES = [];
+(function() {
+  var rng = 0x7e457e45;
+  function rr() { rng = ((rng >>> 0) * 1664525 + 1013904223) >>> 0; return rng / 0xffffffff; }
+  for (var ti = 0; ti < WRECKS.length; ti++) {
+    var wwx = WRECKS[ti].wx;
+    TREASURES.push({ wx: wwx + (rr() * 2 - 1) * 50, type: 'chest', val: 50, got: false });
+    TREASURES.push({ wx: wwx + 80 + rr() * 60,      type: 'pearl', val: 25, got: false });
+  }
+  for (var pi = 0; pi < REEFS.length; pi++) {
+    TREASURES.push({ wx: REEFS[pi].wx + (rr() * 2 - 1) * 110, type: 'pearl', val: 25, got: false });
+  }
+}());
+function treasureGot() {
+  var n = 0;
+  for (var i = 0; i < TREASURES.length; i++) if (TREASURES[i].got) n++;
+  return n;
+}
+
 // ── sea life ──────────────────────────────────────────────────────────────────
 var CREATURES = [];
 (function() {
@@ -405,8 +464,8 @@ gc.addEventListener('touchstart', function(e) {
       return;
     }
     // Other tap-only interactions
-    if (piratePhase === 'docked') { window.location.href = '../piratesub/'; return; }
-    if (gamePhase === 'gameover') { resetGame(); return; }
+    if (piratePhase === 'docked') { boardPirateSub(); return; }
+    if (gamePhase === 'gameover') { if (gameoverT > 0.7) resetGame(); return; }
     if (krakPhase === 'victory') { krakPhase = 'debris'; return; }
     if (krakPhase === 'panel') {
       if (c.x > W/2 - 92 && c.x < W/2 + 92 && c.y > H/2 - 18 && c.y < H/2 + 30) {
@@ -565,6 +624,74 @@ function drawVehicleSelect() {
   ctx.font = '11px monospace';
   ctx.fillText('Top-down steering', bcx, boatBy + 130);
   ctx.fillText('Press B or 2', bcx, boatBy + 148);
+
+  // Captain Mucko's harbour briefing
+  ctx.fillStyle = 'rgba(10,30,50,0.82)';
+  rRect(W / 2 - 265, 354, 530, 98, 10); ctx.fill();
+  ctx.strokeStyle = 'rgba(80,160,210,0.5)'; ctx.lineWidth = 1.5;
+  rRect(W / 2 - 265, 354, 530, 98, 10); ctx.stroke();
+  drawCaptainBust(W / 2 - 222, 404);
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#ffd166';
+  ctx.font = 'bold 11px monospace';
+  ctx.fillText('CAPTAIN MUCKO', W / 2 - 182, 376);
+  var tip = CAPT_TIPS[Math.floor(wt / 7) % CAPT_TIPS.length];
+  ctx.fillStyle = '#cfe6f5';
+  ctx.font = '12px monospace';
+  ctx.fillText(tip[0], W / 2 - 182, 402);
+  ctx.fillText(tip[1], W / 2 - 182, 422);
+
+  // Best score so far
+  var bs = bestScore();
+  if (bs > 0) {
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffd166';
+    ctx.font = 'bold 12px monospace';
+    ctx.fillText('BEST SCORE  ' + bs, W / 2, 476);
+  }
+}
+
+var CAPT_TIPS = [
+  ['The Kraken machine is rumbling out east.', 'Someone ought to go switch it off.'],
+  ['Sunken wrecks hide treasure. Send the',    'diver down with D and bring it home.'],
+  ['Mind the icebergs. The hull only takes',   'so many bonks before she sinks.'],
+  ['Watch your air gauge. Surface to breathe', 'or the lobsters will tow you home.'],
+  ['Lobster stations patch hulls and top up',  'fuel. Wave to the attendants.']
+];
+
+function drawCaptainBust(x, y) {
+  ctx.save();
+  ctx.translate(x, y);
+  // Coat shoulders
+  ctx.fillStyle = '#1e3a5c';
+  ctx.beginPath();
+  ctx.moveTo(-20, 28); ctx.quadraticCurveTo(0, 8, 20, 28);
+  ctx.lineTo(20, 34); ctx.lineTo(-20, 34); ctx.closePath(); ctx.fill();
+  // Face
+  ctx.fillStyle = '#f0c080';
+  ctx.beginPath(); ctx.arc(0, 0, 13, 0, Math.PI * 2); ctx.fill();
+  // Beard
+  ctx.fillStyle = '#e8e8e8';
+  ctx.beginPath();
+  ctx.moveTo(-11, 2);
+  ctx.quadraticCurveTo(0, 27, 11, 2);
+  ctx.quadraticCurveTo(0, 12, -11, 2);
+  ctx.closePath(); ctx.fill();
+  // Nose + eyes
+  ctx.fillStyle = '#e0a060';
+  ctx.beginPath(); ctx.arc(0, 1, 2.5, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#22303c';
+  ctx.beginPath(); ctx.arc(-4.5, -3, 1.6, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc( 4.5, -3, 1.6, 0, Math.PI * 2); ctx.fill();
+  // Captain's cap
+  ctx.fillStyle = '#16304a';
+  ctx.beginPath(); ctx.arc(0, -9, 13, Math.PI, 0); ctx.fill();
+  ctx.fillStyle = '#0e2238';
+  ctx.fillRect(-15, -11, 30, 5);
+  ctx.fillStyle = '#ffd166';
+  ctx.fillRect(-15, -7, 30, 2);
+  ctx.beginPath(); ctx.arc(0, -15, 2, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
 }
 
 // ── boat top-down update ──────────────────────────────────────────────────────
@@ -1200,12 +1327,12 @@ function update(dt) {
       var midX = (sinkBow.x + sinkStern.x) * 0.5;
       camX += (midX - W / 2 - camX) * Math.min(1, 1.8 * dt);
 
-      // Once both resting, start the settled timer then go to gameover
+      // Once both resting, start the settled timer then end the run
       if (sinkBow.resting && sinkStern.resting) {
         sinkSettled += dt;
-        if (sinkSettled > 2.2) gamePhase = 'gameover';
+        if (sinkSettled > 2.2) endRun(runEndCause);
       }
-      if (sinkT > SINK_TOTAL) gamePhase = 'gameover'; // fallback
+      if (sinkT > SINK_TOTAL && gamePhase === 'sinking') endRun(runEndCause); // fallback
       return;
     }
     camX += (sub.x - W / 2 - camX) * Math.min(1, 1.5 * dt);
@@ -1214,10 +1341,13 @@ function update(dt) {
 
   // ── game over: wait for click / any key to restart ──
   if (gamePhase === 'gameover') {
-    var anyKey = false;
-    var ks = Object.keys(JP);
-    for (var ki = 0; ki < ks.length; ki++) { if (JP[ks[ki]]) { anyKey = true; break; } }
-    if (anyKey) resetGame();
+    gameoverT += dt;
+    if (gameoverT > 0.7) {
+      var anyKey = false;
+      var ks = Object.keys(JP);
+      for (var ki = 0; ki < ks.length; ki++) { if (JP[ks[ki]]) { anyKey = true; break; } }
+      if (anyKey) resetGame();
+    }
     return;
   }
 
@@ -1285,10 +1415,11 @@ function update(dt) {
     if (pirateSub.x <= KRAKEN_WX - 280) { pirateSub.x = KRAKEN_WX - 280; piratePhase = 'docked'; }
   }
   if (piratePhase === 'docked' && JP['Enter']) {
-    window.location.href = '../piratesub/';
+    boardPirateSub();
   }
 
   if (hitFlash > 0) hitFlash -= dt;
+  if (hullHitCD > 0) hullHitCD -= dt;
   if (airFillTimer > 0) airFillTimer -= dt;
   if (shakeMag > 0) {
     shakeX = (Math.random() - 0.5) * shakeMag * 2;
@@ -1299,6 +1430,12 @@ function update(dt) {
 
   // Air drains passively; refills when at surface
   air = Math.max(0, air - AIR_DRAIN * dt);
+  if (air <= 0 && !atSurface) {
+    // Out of air — the Lobster Rescue Service tows everyone home
+    playTone(220, 0.18, 0.6, 'sine');
+    endRun('air');
+    return;
+  }
 
   // Toggle diver on KeyD just-press
   if (JP['KeyD']) {
@@ -1367,6 +1504,20 @@ function update(dt) {
     var dSurf = wave(diver.x) + 10;
     if (diver.y < dSurf) { diver.y = dSurf; if (diver.vy < 0) diver.vy = 0; }
 
+    // Treasure salvage — only the diver can grab it
+    if (!diverRecalling) {
+      for (var tzi = 0; tzi < TREASURES.length; tzi++) {
+        var tz = TREASURES[tzi];
+        if (tz.got || Math.abs(tz.wx - diver.x) > 26) continue;
+        if (Math.abs((terrain(tz.wx) - 9) - diver.y) > 26) continue;
+        tz.got = true;
+        score += tz.val; scorePopT = 1.0;
+        playTone(880, 0.16, 0.18, 'sine');
+        playTone(1318, 0.12, 0.32, 'sine');
+        WAKE.push({ x: tz.wx, y: terrain(tz.wx) - 12, life: 0.9, r: 8 });
+      }
+    }
+
     // Diver station docking (not while recalling)
     diverNearStation = false;
     if (!diverRecalling) {
@@ -1379,6 +1530,7 @@ function update(dt) {
         if (Math.sqrt(ddx * ddx + ddy * ddy) < 70) {
           diverNearStation = true;
           fuel = Math.min(1, fuel + FUEL_FILL * dt);
+          hull = Math.min(1, hull + HULL_FILL * dt);
         }
       }
     }
@@ -1426,7 +1578,18 @@ function update(dt) {
       if (ty < minFloor) minFloor = ty;
     }
     var floorLim = minFloor - SUB_HH - 2;
-    if (sub.y > floorLim) { sub.y = floorLim; if (sub.vy > 0) sub.vy = 0; }
+    if (sub.y > floorLim) {
+      sub.y = floorLim;
+      // Hard landings scrape the hull (gentle settling is free)
+      if (sub.vy > 60 && hullHitCD <= 0) {
+        hullHitCD = 0.6;
+        hull = Math.max(0, hull - 0.08);
+        hitFlash = 0.18;
+        playNoise(0.2, 0.12); shakeMag = Math.max(shakeMag, 6);
+        if (hull <= 0) triggerSink('hull');
+      }
+      if (sub.vy > 0) sub.vy = 0;
+    }
 
     // Surface air refill
     atSurface = (sub.y <= wave(sub.x) + SUB_HH + 20);
@@ -1448,10 +1611,12 @@ function update(dt) {
       if (Math.sqrt(sdx * sdx + sdy * sdy) < 115) {
         nearStation = true;
         fuel = Math.min(1, fuel + FUEL_FILL * dt);
+        hull = Math.min(1, hull + HULL_FILL * dt);
       }
     }
 
-    // Iceberg collision
+    // Iceberg collision — each bonk dents the hull and bounces the sub away;
+    // only a worn-out hull actually sinks
     for (var ii = 0; ii < ICEBERGS.length; ii++) {
       var ib = ICEBERGS[ii];
       if (Math.abs(ib.wx - sub.x) > 200) continue;
@@ -1462,9 +1627,15 @@ function update(dt) {
       var ibdy    = sub.y - ibSurf;
       // Elliptical hit zone covering the underwater mass
       if ((ibdx * ibdx) / (ibW * ibW) + (ibdy * ibdy) / (ibDepth * ibDepth) < 1
-          && ibdy > -SUB_HH) {
+          && ibdy > -SUB_HH && hullHitCD <= 0) {
+        hullHitCD = 0.9;
+        hull = Math.max(0, hull - 0.34);
+        hitFlash = 0.3;
         playNoise(0.45, 0.25); shakeMag = Math.max(shakeMag, 20);
-        triggerSink();
+        var ibLen = Math.sqrt(ibdx * ibdx + ibdy * ibdy) || 1;
+        sub.vx = (ibdx / ibLen) * 170;
+        sub.vy = Math.max(40, (ibdy / ibLen) * 120);
+        if (hull <= 0) triggerSink('iceberg');
         break;
       }
     }
@@ -1741,6 +1912,52 @@ function drawReefs() {
     rg.addColorStop(1, 'rgba(200,150,255,0)');
     ctx.fillStyle = rg;
     ctx.fillRect(rsx - 160, terrain(reef.wx) - 120, 320, 130);
+  }
+}
+
+// ── draw treasures ────────────────────────────────────────────────────────────
+function drawTreasures() {
+  for (var i = 0; i < TREASURES.length; i++) {
+    var t = TREASURES[i];
+    if (t.got) continue;
+    var sx = t.wx - camX;
+    if (sx < -60 || sx > W + 60) continue;
+    var ty = terrain(t.wx);
+    var pulse = 0.5 + 0.5 * Math.sin(wt * 3 + t.wx * 0.05);
+    ctx.save();
+    ctx.translate(sx, ty);
+    // Soft golden glow so it reads from a distance
+    ctx.globalAlpha = 0.16 + 0.14 * pulse;
+    ctx.fillStyle = '#ffe066';
+    ctx.beginPath(); ctx.arc(0, -8, 16 + pulse * 3, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+    if (t.type === 'chest') {
+      ctx.fillStyle = '#6a4318';
+      rRect(-9, -10, 18, 10, 2); ctx.fill();
+      ctx.strokeStyle = '#3a2208'; ctx.lineWidth = 1;
+      rRect(-9, -10, 18, 10, 2); ctx.stroke();
+      // Open lid
+      ctx.fillStyle = '#7a5224';
+      rRect(-9, -17, 18, 5, 2); ctx.fill();
+      // Gold coins inside
+      ctx.fillStyle = '#ffd166';
+      ctx.beginPath();
+      ctx.arc(-3, -10, 2.4, 0, Math.PI * 2);
+      ctx.arc( 2, -11, 2.4, 0, Math.PI * 2);
+      ctx.arc( 5,  -9, 2.0, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // Open shell with a pearl
+      ctx.fillStyle = '#b87a8a';
+      ctx.beginPath(); ctx.arc(0, -4, 7, 0, Math.PI); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#c08a9a';
+      ctx.beginPath(); ctx.arc(-1, -7, 7, Math.PI * 0.95, Math.PI * 1.85); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#f4f0ff';
+      ctx.beginPath(); ctx.arc(0, -6, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath(); ctx.arc(-1, -7, 1, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
   }
 }
 
@@ -2216,20 +2433,94 @@ function drawSinkingPieces() {
 
   drawSinkPiece(sinkBow.x,   sinkBow.y,   sinkBow.angle,   sinkFace, true);
   drawSinkPiece(sinkStern.x, sinkStern.y, sinkStern.angle, sinkFace, false);
+}
 
-  if (gamePhase === 'gameover') {
-    ctx.save();
-    ctx.fillStyle = 'rgba(5,15,30,0.72)';
-    rRect(W / 2 - 140, H / 2 - 52, 280, 104, 8); ctx.fill();
-    ctx.fillStyle = '#c8e8ff';
-    ctx.font = 'bold 22px monospace';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('YOU STRUCK AN ICEBERG', W / 2, H / 2 - 24);
-    ctx.fillStyle = '#80b8e0';
-    ctx.font = '13px monospace';
-    ctx.fillText('Press any key or tap to continue', W / 2, H / 2 + 12);
-    ctx.restore();
+// ── result screen (cozy comic-peril ending) ───────────────────────────────────
+var RESULT_COPY = {
+  iceberg: {
+    title: 'BONK! ICEBERG!',
+    capt: ['Even the best pilots bonk a berg.', 'Cocoa first. Repairs tomorrow.']
+  },
+  hull: {
+    title: 'THE HULL GAVE OUT!',
+    capt: ['She held together as long as she could.', 'Warm bunks tonight, patching tomorrow.']
+  },
+  air: {
+    title: 'OUT OF AIR!',
+    capt: ['The Lobster Rescue towed you in.', 'Blankets and cocoa for everyone.']
   }
+};
+
+function drawRescueBoat() {
+  // Lobster Rescue rowboat bobbing on the surface above the scene
+  var rwx = camX + W / 2;
+  ctx.save();
+  ctx.translate(W / 2, wave(rwx) - 4 + Math.sin(wt * 1.6) * 2);
+  // Hull
+  ctx.fillStyle = '#7a4a1c';
+  ctx.beginPath();
+  ctx.moveTo(-30, 0); ctx.quadraticCurveTo(0, 14, 30, 0);
+  ctx.lineTo(24, -6); ctx.lineTo(-24, -6); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = '#4a2c0e'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(-24, -6); ctx.lineTo(24, -6); ctx.stroke();
+  // Lobster rescuer (waving)
+  ctx.save();
+  ctx.translate(0, -4);
+  ctx.scale(0.45, 0.45);
+  drawLobster(0, 0, true);
+  ctx.restore();
+  // Lantern on the bow
+  ctx.fillStyle = '#ffe066';
+  ctx.beginPath(); ctx.arc(25, -11, 3.5, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = 0.22 + 0.14 * Math.sin(wt * 5);
+  ctx.beginPath(); ctx.arc(25, -11, 9, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = 1;
+  // Label
+  ctx.fillStyle = 'rgba(255,224,102,0.85)';
+  ctx.font = 'bold 9px monospace';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  ctx.fillText('LOBSTER RESCUE', 0, -42);
+  ctx.restore();
+}
+
+function drawResultScreen() {
+  drawRescueBoat();
+
+  var copy = RESULT_COPY[runEndCause] || RESULT_COPY.iceberg;
+  ctx.save();
+  ctx.fillStyle = 'rgba(5,15,30,0.85)';
+  rRect(W / 2 - 175, H / 2 - 92, 350, 184, 10); ctx.fill();
+  ctx.strokeStyle = 'rgba(120,190,240,0.45)'; ctx.lineWidth = 2;
+  rRect(W / 2 - 175, H / 2 - 92, 350, 184, 10); ctx.stroke();
+
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#c8e8ff';
+  ctx.font = 'bold 22px monospace';
+  ctx.fillText(copy.title, W / 2, H / 2 - 64);
+
+  ctx.fillStyle = '#ffd166';
+  ctx.font = 'bold 10px monospace';
+  ctx.fillText('CAPTAIN MUCKO', W / 2, H / 2 - 38);
+  ctx.fillStyle = '#cfe6f5';
+  ctx.font = '12px monospace';
+  ctx.fillText(copy.capt[0], W / 2, H / 2 - 20);
+  ctx.fillText(copy.capt[1], W / 2, H / 2 - 4);
+
+  ctx.fillStyle = '#80d8f8';
+  ctx.font = 'bold 15px monospace';
+  ctx.fillText('SCORE ' + score + '    TREASURE ' + treasureGot() + '/' + TREASURES.length,
+               W / 2, H / 2 + 26);
+  if (newBest) {
+    ctx.fillStyle = '#ffe066';
+    ctx.font = 'bold 13px monospace';
+    ctx.fillText('NEW BEST!', W / 2, H / 2 + 46);
+  }
+
+  ctx.globalAlpha = Math.min(1, Math.max(0, gameoverT - 0.7));
+  ctx.fillStyle = '#80b8e0';
+  ctx.font = '12px monospace';
+  ctx.fillText('Press any key or tap to sail again', W / 2, H / 2 + (newBest ? 70 : 58));
+  ctx.restore();
 }
 
 // ── kraken drawing helpers ───────────────────────────────────────────────────
@@ -2972,6 +3263,8 @@ function drawHUD() {
   drawGauge(8, hudH + 12, 120, 16, fuel, 'FUEL');
   // Air gauge
   drawGauge(8, hudH + 34, 120, 16, air,  'AIR');
+  // Hull gauge
+  drawGauge(8, hudH + 56, 120, 16, hull, 'HULL');
 
   // Score display (top-right)
   var scPop = scorePopT > 0;
@@ -2988,6 +3281,14 @@ function drawHUD() {
   ctx.fillText('SCORE ' + score, -4, 0);
   ctx.restore();
 
+  // Treasure counter (under the score)
+  ctx.fillStyle = 'rgba(5,20,35,0.55)';
+  rRect(W - 108, 30, 96, 18, 3); ctx.fill();
+  ctx.fillStyle = '#ffd166';
+  ctx.font = 'bold 10px monospace';
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  ctx.fillText('TREASURE ' + treasureGot() + '/' + TREASURES.length, W - 16, 39);
+
   // Kraken anomaly detector
   if (krakPhase === 'intact' && Math.abs(sub.x - KRAKEN_WX) < 1800) {
     var kdist = Math.round(Math.abs(sub.x - KRAKEN_WX));
@@ -2997,7 +3298,7 @@ function drawHUD() {
     ctx.fillStyle = '#ffaa22';
     ctx.font = 'bold 9px monospace';
     ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-    ctx.fillText('ANOMALY ' + kdir + ' ' + kdist + 'm', 15, hudH + 56);
+    ctx.fillText('ANOMALY ' + kdir + ' ' + kdist + 'm', 15, hudH + 78);
     ctx.restore();
   }
 
@@ -3043,6 +3344,7 @@ function render() {
   drawOcean();
   drawTerrain();
   drawReefs();
+  drawTreasures();
   drawStations();
   drawKraken();
   drawKrakenDebris();
@@ -3059,6 +3361,7 @@ function render() {
   ctx.restore();
   drawTouchControls();
   if (gamePhase === 'playing') drawHUD();
+  if (gamePhase === 'gameover') drawResultScreen();
   drawKrakenPanel();
   drawKrakenVictory();
 }
@@ -3080,8 +3383,8 @@ gc.addEventListener('click', function(e) {
     }
     return;
   }
-  if (piratePhase === 'docked') { window.location.href = '../piratesub/'; return; }
-  if (gamePhase === 'gameover') { resetGame(); return; }
+  if (piratePhase === 'docked') { boardPirateSub(); return; }
+  if (gamePhase === 'gameover') { if (gameoverT > 0.7) resetGame(); return; }
   if (krakPhase === 'victory') { krakPhase = 'debris'; return; }
   if (krakPhase === 'panel') {
     var r = gc.getBoundingClientRect();
@@ -3102,14 +3405,18 @@ gc.addEventListener('click', function(e) {
 });
 
 // ── game loop ─────────────────────────────────────────────────────────────────
-var SIM = 1 / 60, debt = 0, lastTs = 0;
+// Menus and the result screen render at 30 fps to save old-iPad battery
+function renderFps() {
+  return (gamePhase === 'vehicleSelect' || gamePhase === 'gameover') ? 30 : 60;
+}
+var SIM = 1 / 60, debt = 0, lastTs = 0, lastDraw = 0;
 function loop(ts) {
   if (!lastTs) lastTs = ts;
   var el = Math.min((ts - lastTs) / 1000, SIM * 6);
   lastTs = ts;
   debt += el;
   while (debt >= SIM) { update(SIM); debt -= SIM; }
-  render();
+  if (ts - lastDraw >= 1000 / renderFps() - 1) { render(); lastDraw = ts; }
   var ks = Object.keys(JP);
   for (var i = 0; i < ks.length; i++) JP[ks[i]] = false;
   requestAnimationFrame(loop);

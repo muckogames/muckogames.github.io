@@ -428,17 +428,20 @@ to pick the `leadAngleRad` values when adding/tuning a lunar mission.
 #### Muckoville Ocean (`ocean/index.html`) — ~3,120 lines  · Canvas
 
 The newest, most actively developed game: an open-ocean piloting sandbox. On the
-vehicle-select screen choose the **submarine** (vertical navigation, pitch control,
-fuel drained by thrust, air always draining — refill both at lobster stations or the
-surface) or the **speedboat** (surface channel run with an engine-start ritual:
-lower motor → ready → engage, plus left/right steering). The sub can deploy a
-**diver** (KeyD or touch button) who swims freely with his own air. Scenery includes
-deterministic terrain, coral reefs, wrecks, icebergs, and wooden docks; the **Kraken**
-waits at the far end of the world (defeating it is worth 500 points). Phases:
-`vehicleSelect → playing | boatSailing → sinking → gameover`.
+vehicle-select screen (with **Captain Mucko**'s rotating harbour briefing) choose the
+**submarine** (vertical navigation, pitch control, fuel drained by thrust, air always
+draining — refill both at lobster stations or the surface) or the **speedboat**
+(surface channel run with an engine-start ritual: lower motor → ready → engage, plus
+left/right steering). The sub can deploy a **diver** (KeyD or touch button) who swims
+freely — only he can grab the **treasure** (chests and pearls) seeded near wrecks and
+coral reefs. The **Kraken** waits at the far end of the world (worth 500 points).
+Phases: `vehicleSelect → playing | boatSailing → sinking → gameover`.
 
-Still unfinished as a *game* — see the "finish Muckoville Ocean" items in
-PUNCHLIST.md (no score persistence, no result screens, diver has no goals yet).
+**Resources:** fuel, air, hull (icebergs and hard floor landings dent it; lobster
+stations patch it — only a worn-out hull sinks)  
+**Run endings:** comic-peril result screens with a Lobster Rescue rowboat and
+cause-specific Captain Mucko lines. High scores persist in
+`localStorage.mucko_ocean_scores`; menus render at 30 fps.
 
 **Hidden link:** docking with the pirate submarine jumps to `piratesub/` (below).
 
