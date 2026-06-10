@@ -2,8 +2,9 @@
 
 ## Preface
 
-Mucko's Games is a personal family game collection — twelve browser games built and
-iterated over time, all playable from a single PIN-gated homepage (`index.html`). The
+Mucko's Games is a personal family game collection — eighteen browser games (plus a
+level editor and one hidden bonus game) built and iterated over time, all playable
+from a single PIN-gated homepage (`index.html`). The
 games are made to be played on an old iPad by kids and adults alike, mostly in the
 evenings or on road trips. The "Mucko" brand is a family nickname; several games star
 household stand-ins or recurring invented characters (Samster, Lekan, Duck Dieb).
@@ -68,7 +69,7 @@ resize pattern or use `mucko-engine.js`. The Java file is legacy and unused.
 
 ---
 
-#### Train Trail (`traintrail/index.html`) — ~1,700 lines  · **DOM + canvas animations**
+#### Train Trail (`traintrail/index.html`) — ~1,800 lines  · **DOM + canvas animations**
 
 Drive a steam locomotive across the impossible **Trans-Atlantic Bridge** from Boston
 to Leipzig, Germany. Oregon Trail events, but many are nautical (the bridge crosses open
@@ -95,7 +96,7 @@ a bladder meter for comedic urgency.
 
 ---
 
-#### Contraband Trail (`contraband/index.html`) — ~900 lines  · **DOM + canvas stealth**
+#### Contraband Trail (`contraband/index.html`) — ~950 lines  · **DOM + canvas stealth**
 
 Rhine River, 1922. Pilot a barge from **Basel → Strasbourg → Mainz → Cologne →
 Rotterdam**, smuggling banned books, jazz records, and stolen art through Weimar Germany.
@@ -118,7 +119,7 @@ background layer `bgc` and a foreground layer `gc`) and a **backdrop caching sys
 
 ---
 
-#### Samster Diebs from the Diebs (`samster/index.html`) — ~1,770 lines  ★ Reference
+#### Samster Diebs from the Diebs (`samster/index.html`) — ~1,850 lines  ★ Reference
 
 **Samster** the hamster escapes his cage, sneaks past a sleeping owner, and infiltrates the
 Diebs' hideout to steal back what was stolen. Phases:
@@ -138,13 +139,13 @@ caching, the `mclk`/`mx`/`my` input pattern, and touch controls. See it first.
 
 ---
 
-#### Hippo Adventure (`hippo/index.html`) — ~3,360 lines (largest game)  · Canvas
+#### Mucko and the Hippo (`hippo/index.html`) — ~4,840 lines (largest game)  · Canvas
 
-A JRPG-style adventure based on a book. A hippo walks into a human helper's life; the helper
-helps him escape back to the zoo where Lekan the panda has a plan. Phases:
+A JRPG-style adventure based on a book. A hippo walks into young **Mucko**'s life;
+Mucko helps him escape back to the zoo where Lekan the panda has a plan. Phases:
 
 1. **Story panels** — illustrated dialog scenes with narrator text
-2. **Stealth** — the human helper (player) sneaks through zoo zones past keepers; use Nik the
+2. **Stealth** — Mucko (player) sneaks through zoo zones past keepers; use Nik the
    monkey once per zone to freeze all keepers temporarily
 3. **PB&J minigame** — QTE sequence for making a sandwich while keeping Hippo quiet
 4. **Closet minigame** — hide evidence; timed object-sorting puzzle
@@ -166,7 +167,7 @@ is in `hippo/cheats.txt` (not shown in-game, use for reference). Has a `dialog-d
 
 ---
 
-#### Duck Dieb (`duckdieb/index.html`) — ~1,560 lines  · Canvas
+#### Duck Dieb (`duckdieb/index.html`) — ~1,630 lines  · Canvas
 
 Play as **Duck Dieb**, a masked mallard thief. Top-down, single-session heist. Phases:
 `title → alley → house → jackpot → chase → escape/jail → victory`. Guards use
@@ -175,17 +176,72 @@ return countdown). High score board stored in `localStorage`.
 
 ---
 
+#### Duck Dieb 2 (`duckdieb2/index.html`) — ~2,870 lines  · Canvas
+
+The bigger sequel: a guarded multi-room house infiltration instead of a single-session
+run. Phases: `title → diff → house → keypad → chase → jail/caught | shop | victory`.
+New over the original: a **shop system** (mid-heist visits to a raccoon shopkeeper for
+gadgets — lockpick skip, silent footsteps, smoke bomb, cat distraction, night vision),
+**keypad safe puzzles** (timed 4-digit code entry with audio feedback), per-difficulty
+guard tuning, NPC dialog via `dialog-data.js`, and a persistent `localStorage` high
+score board. Uses `mucko-engine.js`, `mucko-grid.js` (discrete grid movement), and
+`mucko-gamepad.js`. Already implements `LOW_FPS_PHASES`.
+
+---
+
+#### The Don's Tower (`don/`) — ~3,680 lines + editor  · Canvas (dual-canvas)
+
+The flagship Digory-story heist. **Digory** the terrier breaks into the Don's tower
+to steal back what was taken from the household; **Samster** pilots a submarine
+through the Kraken's underwater city to get him there. Phases:
+`title → diff → sub1 (submarine voyage) → heist (top-down grid stealth in the tower)
+→ sub2 (escape voyage) → home (lock down the house before the Don arrives) → victory`.
+
+Sub phases manage fuel/air with refuel stations, a deployable scuba diver, and a
+Kraken encounter. The heist phase is keycard/loot grid stealth with line-of-sight
+guards. Uses `mucko-grid.js` and `mucko-gamepad.js` (custom dual-canvas setup, not
+`mucko-engine.js`).
+
+**`don/editor.html` (~815 lines)** is a level editor: place tiles, pickups, NPCs,
+conveyor belts, and patrol routes; save/load floors as JSON and play them directly in
+the runtime. See `don/EDITOR_ROADMAP.md`. **`don/mucko-npcs.js` (~345 lines)** is the
+shared top-down NPC sprite library (`MuckoSprites.drawDigory/drawSamster/drawDad/...`)
+used by the game and editor.
+
+---
+
+#### Flamethrower Trail (`flametrail/index.html`) — ~1,990 lines  · Canvas (dual-canvas)
+
+Despite the Trail name, a canvas heist-arcade: **Lekan** masterminds a four-hideout
+revenge on the Diebs. Loop: `title → diff (Cautious/Normal/Daring) →` for each hideout
+`map (travel screen with events) → heist (grid stealth: light four ignition points
+while dodging guards) → burn (escape the fire)` `→ travel → victory`. Travel events
+grant fuel refills, patrol-route reveals, and PIN codes. Uses `mucko-gamepad.js`.
+
+**Resources:** fuel, lives  
+**Special mechanic:** four ignition points per hideout open a timed escape window
+
+---
+
 ### Arcade / Action (canvas, full-screen)
 
-#### Rocket Trail (`rockettrail/index.html`) — ~2,720 lines  · Canvas
+#### Rocket Trail (`rockettrail/index.html`) — ~3,970 lines  · Canvas
 
 Multi-phase Saturn V space mission. Choose difficulty/destination: Mercury, Gemini (Moon),
 or Apollo (Mars). Standard path: launch pad → launch sequence (animated Saturn V, stage
 separations) → transit (day panels, events) → asteroid mining (tap asteroids; gold
-asteroids earn +8 and a Houston "outstanding!") → moon landing (real gravity physics,
-crash gives a reason) → re-entry (dodge three rocket types: standard, big/slow,
-fast/small) → parachute (deploy at the right altitude) → splashdown/victory (confetti,
-star rating). Web Audio rocket sounds.
+asteroids earn +8 and a Houston "outstanding!"; 15+ minerals earns a `+5 SEC` timer
+bonus) → moon landing (real gravity physics, crash gives a reason) → re-entry (dodge
+three rocket types: standard, big/slow, fast/small) → parachute (deploy at the right
+altitude) → splashdown/victory (confetti, star rating). Web Audio rocket sounds.
+
+**Moon expansion (2026):** before the landing, the mission now docks at the **Mucko
+Orbital Station** hub (`station` phase) — a card grid of three borrowed test rockets
+with different acceleration/turn/scale profiles. From the hub you can optionally
+test-fly a borrowed rocket in a flat-ground lunar side-scroller (`stationfly` — land,
+refuel, re-launch, dock back) or drive **Moon rovers** (`roverdrive`). After the
+landing proper there is a **Moon buggy joyride** (`moonbuggy`) and an ascent phase
+(`moonasc`) before re-entry.
 
 **Apollo 13 alternate path:** during the transit "Stir the O2 tanks?" event, choosing
 YES triggers the Apollo 13 sequence — O2 explosion → comms failure dialog → slingshot
@@ -193,7 +249,7 @@ around the moon → re-entry (skipping mining and landing). Ends as a rescue vic
 
 ---
 
-#### Mucko Tac Toe (`tictactoe/index.html`) — ~1,900 lines  · Canvas + DOM overlay
+#### Mucko Tac Toe (`tictactoe/index.html`) — ~1,970 lines  · Canvas + DOM overlay
 
 Tic-tac-toe with substantial depth: configurable 3×3–8×8 board; **torus mode** (wraps
 edges); **gravity mode** (pieces fall); **minimax AI** with adjustable difficulty;
@@ -261,14 +317,18 @@ render no special button at all.
 
 #### Lake House Math Mystery (`lakehousemath/`) — Canvas  · uses `mucko-engine.js`
 
-Math game for young players (addition facts up to 20). Walk around a lake house talking
-to NPC characters. Each NPC gives a clue card; once you have both clues for a quest,
-solve an addition problem to unlock a picnic chest item. Four areas with 1–2 NPCs each:
-Samster & Duck Dieb → Hippo & Nik → Lekan & Basil → Captain Mucko & Saturn V.
+Math game for young players (addition facts up to 20), redesigned as a timed
+**"Math Rush"**: 120 seconds to clear four quests across four lake-house areas
+(Cabin Porch → Clover Meadow → Dockside → Picnic Point), with time bonuses for fast
+solves. Each area has two NPCs (Samster & Duck Dieb → Hippo & Nik → Lekan & Basil →
+Captain Mucko & Saturn V) who hand out clue cards; with both clues for a quest in
+hand, solve the addition fact to unlock that area's gate (Berry Gate, Bridge Bell,
+Dock Winch, Picnic Chest). Phases: `title → explore → quiz → ending`. High scores
+persist via `makeStore('mucko_lakehousemath_scores')`.
 
 This is one of several current `mucko-engine.js` adopters (along with Contraband Trail,
-Duck Dieb 2, and Smash). Its logic is split into a separate `game.js` — still unusual
-in this codebase.
+Duck Dieb 2, and Smash); it also uses `mucko-gamepad.js`. Its logic is split into a
+separate `game.js` (~1,700 lines) — still unusual in this codebase.
 
 ---
 
@@ -363,6 +423,37 @@ to pick the `leadAngleRad` values when adding/tuning a lunar mission.
 
 ---
 
+### Exploration
+
+#### Muckoville Ocean (`ocean/index.html`) — ~3,120 lines  · Canvas
+
+The newest, most actively developed game: an open-ocean piloting sandbox. On the
+vehicle-select screen choose the **submarine** (vertical navigation, pitch control,
+fuel drained by thrust, air always draining — refill both at lobster stations or the
+surface) or the **speedboat** (surface channel run with an engine-start ritual:
+lower motor → ready → engage, plus left/right steering). The sub can deploy a
+**diver** (KeyD or touch button) who swims freely with his own air. Scenery includes
+deterministic terrain, coral reefs, wrecks, icebergs, and wooden docks; the **Kraken**
+waits at the far end of the world (defeating it is worth 500 points). Phases:
+`vehicleSelect → playing | boatSailing → sinking → gameover`.
+
+Still unfinished as a *game* — see the "finish Muckoville Ocean" items in
+PUNCHLIST.md (no score persistence, no result screens, diver has no goals yet).
+
+**Hidden link:** docking with the pirate submarine jumps to `piratesub/` (below).
+
+---
+
+#### Pirate Sub (`piratesub/index.html`) — ~1,010 lines  · Canvas  · hidden bonus game
+
+Not on the homepage — reachable only from inside Muckoville Ocean when the pirate
+sub docks. A side-scrolling platformer through a three-deck pirate submarine: climb
+ladders between decks and hunt for **Mr. Snood's** office among many doors, guided by
+a proximity "scent" hint system. Wrong doors give comic rebuffs; the right one ends
+the mission.
+
+---
+
 ## Characters
 
 This universe has a consistent cast. When writing dialog, naming an NPC, or designing a
@@ -370,9 +461,10 @@ new game, try to fit these characters before inventing new ones.
 
 ### Core Cast
 
-**Mucko** — The family nickname/brand. Not a character per se, but a mascot. Appears as
-the airship name (*R.M.A.S. Mucko*) and as "Captain Mucko" (a sea-captain figure) in
-Lake House Math.
+**Mucko** — The family nickname/brand, and since the privacy scrub also the name of
+the kid protagonist of *Mucko and the Hippo* (and a playable symbol sprite in Mucko
+Tac Toe). Also appears as the airship name (*R.M.A.S. Mucko*), the town name
+(*Muckoville Ocean*), and as "Captain Mucko" (a sea-captain figure) in Lake House Math.
 
 **Samster** — A hamster, protagonist of *Samster Diebs from the Diebs*. Brave, small.
 Tan/brown coloring. Roams the lake house in Lake House Math.
@@ -386,9 +478,13 @@ motif from Duck Dieb.
 
 **The Sleeping Owner / Human Helper** — Legacy human stand-in used across a few games.
 Appears as:
-- The human helper in `hippo/index.html`
-- The owner Samster sneaks past in *Samster*
+- The kid helper in `hippo/index.html` (now named **Mucko**)
+- The owner Samster sneaks past in *Samster* (internally "the Owner")
+- The `dad` NPC in The Don's Tower (alongside `mom`)
 - A referenced authority figure in Train Trail
+
+When this stand-in needs a name in new content, use Mucko-universe names or generic
+roles — never real family names (see the privacy rule in the Preface).
 
 **Hippo** — The unnamed hippo from `hippo/index.html`. A zoo escapee who just
 wants a PB&J and a good night's sleep. Purple-grey coloring. NPC in Lake House Math.
@@ -433,6 +529,16 @@ hints.
 
 **Capt. Smith / Rose** — Captain and co-pilot of the R.M.A.S. Mucko in Airplane Trail.
 
+**The Don** — The recurring comic villain of the Digory-story lane (cigar-heavy,
+fiery, panicky, never genuinely frightening). Antagonist of The Don's Tower; his
+balloon and cigars are recurring motifs. See `DIGORY_ALIGNMENT_PLAN.md`.
+
+**Mr. Snood** — The pirate-submarine boss the player hunts for in Pirate Sub.
+
+**Firelight Guy / Louette / Johnny Mackerel** — Digory-canon characters tracked as
+future roster/stage candidates (Louette is a black-cat stealth specialist). Firelight
+Guy already exists as an NPC option in the Don's Tower editor.
+
 ---
 
 ## The iOS App
@@ -449,15 +555,18 @@ it first, the iOS app will be out of date.
 
 ---
 
-## `mucko-engine.js` — Shared Library
+## Shared Libraries
 
-A shared engine library (~240 lines). Current adopters include Lake House Math,
+### `mucko-engine.js`
+
+A shared engine library (~260 lines). Current adopters include Lake House Math,
 Contraband Trail, Duck Dieb 2, and Smash. Philosophy: it's a *library*, not a
 framework — you call it, it doesn't call you.
 
 **Exports:**
-- `MuckoEngine.initCanvas(canvasEl, W, H)` — sets up DPR scaling, stage positioning,
-  `visualViewport`-aware resize handler. Uses `position: fixed` + `transform: scale()`
+- `MuckoEngine.initCanvas(canvasEl, W, H)` — sets up DPR scaling (capped at 1.5 per
+  the repo-wide rule), stage positioning, `visualViewport`-aware resize handler. Uses
+  `position: fixed` + `transform: scale()`
   (different from the Samster/Hippo `position: absolute` + explicit sizing pattern — both
   work, but don't mix them in the same game)
 - `MuckoEngine.makeInput()` — returns `{ K, JP, eat, held }` (see Input Pattern below)
@@ -468,6 +577,24 @@ framework — you call it, it doesn't call you.
   text, line, circle)
 - `MuckoEngine.renderDialog(ctx, opts)` — word-wrapped dialog box renderer
 - `MuckoEngine.TOUCH_UI()` — returns true if touch device
+
+### `mucko-grid.js`
+
+Pokémon-style discrete grid movement (~236 lines, ES5). Handles the move state
+machine, lerp, and bump-on-wall feel; the game owns its tile system and blocking
+rules. API: `MuckoGrid.init(player, col, row, tile)`, `readDir(K, touchDirs)`,
+`update(player, dt, dir, sprintHeld, blockCheckFn, tile)` (returns a `moving` bool
+and updates `gridCol`/`gridRow`/`facing`), `applyBumpRender(player, tile)`.
+Used by The Don's Tower and Duck Dieb 2.
+
+### `mucko-gamepad.js`
+
+HTML5 Gamepad API → keyboard adapter (~132 lines, ES5). Polls connected gamepads and
+dispatches synthetic `keydown`/`keyup` events so games using the `K`/`JP` keyboard
+pattern get controller support with zero per-game changes. Left stick maps to arrow
+keys past a deadzone; override the button map via `window.muckoGamepadMap` before the
+script loads. Used by The Don's Tower, Duck Dieb 2, Flamethrower Trail, and Lake
+House Math.
 
 ---
 
@@ -599,9 +726,9 @@ numbers. This makes it trivially easy to tune.
 
 ### DPR Cap
 
-Samster and Hippo cap the device pixel ratio at 1.5 (`MAX_RENDER_DPR = 1.5`) to
-control canvas memory usage on iPad. The old iPad's GPU can struggle with a full 2×
-canvas at 800×560. Do not raise this cap.
+Samster, Hippo, and `mucko-engine.js`'s `initCanvas` cap the device pixel ratio at
+1.5 (`MAX_RENDER_DPR = 1.5`) to control canvas memory usage on iPad. The old iPad's
+GPU can struggle with a full 2× canvas at 800×560. Do not raise this cap.
 
 ### LOW_FPS_PHASES
 
@@ -796,6 +923,15 @@ The PIN gate on `index.html` restricts access to the whole collection.
   shipping a new Expert-tier neural-net model via `smash/train-rl.js` (REINFORCE +
   curriculum) or `smash/train-nn.js` (Evolution Strategies). Read this before
   touching the AI pipeline.
+
+- `DIGORY_ALIGNMENT_PLAN.md` — Privacy-safe adaptation plan aligning the repo with
+  the Digory-story tone and visual canon (cozy endings, animal competence, comic
+  peril). Read it before story/flavor work on the heist-lane games.
+
+- `don/EDITOR_ROADMAP.md` — Roadmap for the Don's Tower level editor.
+
+- `wiki/` — A password-encrypted Digory wiki page (client-side decryption, no
+  server). Family/canon reference; auto-unlocks from a URL hash.
 
 - `local/` — Contains the source PDF for the Hippo book. Not used by any game.
 
