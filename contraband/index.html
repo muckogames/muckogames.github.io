@@ -816,7 +816,7 @@ function drawPort(){
   ctx.font='bold 12px monospace';ctx.textAlign='left';ctx.fillStyle='#c8a84a';
   ctx.fillText('PORT CUSTOMS — '+STOPS[G.leg].name,14,22);
   ctx.fillStyle='#7a6840';ctx.font='11px monospace';ctx.textAlign='right';
-  ctx.fillText('Deliver cargo to exit ▶',W-14,22);
+  ctx.fillText('Deliver cargo to the EXIT',W-14,22);
 
   // Message
   if(p.msg&&p.msgTimer>0){
@@ -864,7 +864,7 @@ function drawPort(){
     ctx.fillStyle='rgba(0,0,0,0.8)';ctx.fillRect(20,tipY-28,W-40,36);
     ctx.font='12px monospace';ctx.fillStyle='#aa9870';ctx.textAlign='center';
     var tipTxt=PORT_TOUCH
-      ? 'Move: left thumb  ·  PICK UP: green button  ·  Reach the EXIT ▶'
+      ? 'Move: left thumb  ·  PICK UP: green button  ·  Reach the EXIT'
       : 'WASD / arrow keys = move  ·  SPACE / E = pick up cargo  ·  Reach the EXIT';
     ctx.fillText(tipTxt,W/2,tipY-6);
     ctx.restore();

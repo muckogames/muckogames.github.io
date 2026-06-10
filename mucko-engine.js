@@ -44,7 +44,8 @@ function scaleStage(stageEl, W, H) {
 }
 function initCanvas(canvasEl, W, H) {
   const stage = canvasEl.parentElement;
-  const DPR = Math.min(window.devicePixelRatio || 1, 2);
+  // Cap matches the repo-wide MAX_RENDER_DPR = 1.5 rule (old-iPad GPU memory).
+  const DPR = Math.min(window.devicePixelRatio || 1, 1.5);
   canvasEl.width  = W * DPR;
   canvasEl.height = H * DPR;
   canvasEl.style.width  = W + 'px';
@@ -215,6 +216,7 @@ function renderDialog(ctx, opts) {
   ctx.fillStyle = col; ctx.strokeStyle = border; ctx.lineWidth = 2;
   ctx.beginPath();
   if (typeof ctx.roundRect === 'function') ctx.roundRect(x, y, w, h, 10);
+  else ctx.rect(x, y, w, h); // iOS 12 has no roundRect; square corners beat no box
   ctx.fill(); ctx.stroke();
   // Speaker name
   if (opts.speaker) {

@@ -1523,16 +1523,29 @@ function drawWorld() {
   if (mobileControlsOn()) drawMobileControls();
 }
 
+// Triangle-path arrow — never Unicode glyphs (◀/▶ render as boxes on iPhone)
+function drawDpadChevron(cx, x, y, size, dir, color) {
+  const dx = dir === 'left' ? -1 : dir === 'right' ? 1 : 0;
+  const dy = dir === 'up' ? -1 : dir === 'down' ? 1 : 0;
+  cx.beginPath();
+  cx.moveTo(x + dx * size, y + dy * size);
+  cx.lineTo(x - dy * size * 0.8 - dx * size * 0.6, y - dx * size * 0.8 - dy * size * 0.6);
+  cx.lineTo(x + dy * size * 0.8 - dx * size * 0.6, y + dx * size * 0.8 - dy * size * 0.6);
+  cx.closePath();
+  cx.fillStyle = color;
+  cx.fill();
+}
+
 function drawMobileControls() {
   const layout = mobileLayout();
   ctx.save();
   ctx.globalAlpha = 0.92;
   drawCircle(ctx, layout.dpad.cx, layout.dpad.cy, 38, 'rgba(32,46,60,.55)', 'rgba(255,244,207,.34)', 2);
   drawCircle(ctx, layout.action.cx, layout.action.cy, 40, 'rgba(32,46,60,.65)', 'rgba(255,244,207,.42)', 2);
-  drawText(ctx, '▲', layout.dpad.cx, layout.dpad.cy - 24, '#fff4cf', 18, 'center', 'bold');
-  drawText(ctx, '▼', layout.dpad.cx, layout.dpad.cy + 30, '#fff4cf', 18, 'center', 'bold');
-  drawText(ctx, '◀', layout.dpad.cx - 26, layout.dpad.cy + 6, '#fff4cf', 18, 'center', 'bold');
-  drawText(ctx, '▶', layout.dpad.cx + 26, layout.dpad.cy + 6, '#fff4cf', 18, 'center', 'bold');
+  drawDpadChevron(ctx, layout.dpad.cx, layout.dpad.cy - 26, 9, 'up', '#fff4cf');
+  drawDpadChevron(ctx, layout.dpad.cx, layout.dpad.cy + 26, 9, 'down', '#fff4cf');
+  drawDpadChevron(ctx, layout.dpad.cx - 26, layout.dpad.cy, 9, 'left', '#fff4cf');
+  drawDpadChevron(ctx, layout.dpad.cx + 26, layout.dpad.cy, 9, 'right', '#fff4cf');
   drawText(ctx, 'A', layout.action.cx, layout.action.cy + 6, '#fff4cf', 22, 'center', 'bold');
   drawText(ctx, 'Talk', layout.action.cx, layout.action.cy + 58, '#fff4cf', 12, 'center', 'bold');
   ctx.restore();
