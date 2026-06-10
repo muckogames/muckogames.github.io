@@ -37,10 +37,13 @@ The most important visual rules are:
 
 ### 1. Privacy scrub
 
-The highest non-design priority is a repo-wide tracked-content scrub for real names and
-legacy surname references. This pass cleaned the tracked docs, but public game content and
-asset labels still contain legacy human-name usage. That should be handled as its own
-deliberate rename/content pass.
+**Done (2026-06-10).** The tracked docs were cleaned in an earlier pass; the shipped
+game content scrub is now complete as well. The legacy surname was replaced across
+hippo ("Mucko and the Hippo", helper character "Mucko"), ocean ("Muckoville Ocean"),
+tictactoe (Mucko sprite), don (`dad` NPC), samster (the Owner), duckdieb2 (Officer
+Mucko), and the homepage cards. `git grep -i` for the surname returns nothing.
+When adding content, keep using Mucko-universe names, generic roles, or established
+character aliases.
 
 ### 2. Story alignment where the canon is already strong
 
@@ -224,7 +227,7 @@ Shared repo guidance should assume:
 
 ## Suggested Execution Order
 
-1. Complete a repo-wide public-name scrub in shipped content.
+1. ~~Complete a repo-wide public-name scrub in shipped content.~~ Done 2026-06-10.
 2. Polish `don/` into the clearest Digory-story flagship.
 3. Add Digory-tone outro and prop polish to `samster/` and `duckdieb/`.
 4. Add small story-flavor upgrades to `smash/`, `traintrail/`, `contraband/`, and `rockettrail/`.

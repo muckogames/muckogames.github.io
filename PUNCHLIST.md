@@ -11,9 +11,31 @@ then by game. Each item is self-contained enough to hand to an agent.
 
 After any PR that touches canvas game JS, run:
 ```sh
-grep -rn '\?\?\|\?\.\|\.at(' samster/ hippo/ duckdieb/ rockettrail/ orbit/ smash/ tictactoe/ contraband/ airplanetrail.html
+grep -rn '\?\?\|\?\.\|\.at(' samster/ hippo/ duckdieb/ duckdieb2/ rockettrail/ orbit/ \
+  smash/ tictactoe/ contraband/ lakehousemath/ don/ flametrail/ ocean/ piratesub/ \
+  traintrail/ cartrail/ dj/ airplanetrail.html mucko-engine.js mucko-gamepad.js mucko-grid.js
 ```
-Audited clean as of 2026-04-24.
+(Skip node-only files: `smash/train*.js`, `orbit/test/`.)
+Audited clean as of 2026-06-10.
+
+### `airplanetrail.html` — Unicode arrow glyphs in canvas text
+
+Canvas `fillText` strings still contain `→` (lines ~1034, ~1212: `'🗽 New York →'`,
+`'NYC →'`). Arrow glyphs render as empty boxes on iPhone — replace with drawn
+triangle paths or drop the arrow (the emoji are a separate, known-acceptable risk
+for this older game).
+
+### Adopt `LOW_FPS_PHASES` in newer games
+
+`smash/`, `orbit/`, and `lakehousemath/` run at 60 fps even on menu/title screens.
+Adopt the Samster/Hippo pattern (30 fps in non-interactive phases) to save old-iPad
+battery. See the LOW_FPS_PHASES section in CLAUDE.md; `duckdieb2/` already does this.
+
+### `contraband/index.html` — flex `gap` fallbacks
+
+The DOM screens use flex `gap:` (annotated `/* Safari 14.1+ */`) but have no
+`> * + *` margin fallbacks, so spacing collapses on iOS 12. Add the fallback
+margins per the CSS-Only Layout rules in CLAUDE.md.
 
 ---
 
@@ -37,20 +59,52 @@ are system-balancing and second-pass polish rather than missing scaffolding.
     specials that reinforce character identity.
 - Improve training/eval after specials:
   - rerun AI evaluation after major special or physics changes so shipped tiers do not
-    drift from the actual game.
+    drift from the actual game. Note: `ai/expert-v1.json` predates the newest specials
+    (Duck Dieb flight, Digory bounce, Natasha screech, J. Long neck-hammer) — it is
+    due for a re-eval per `TRAIN_EXPERT.md`.
   - consider adding cross-character eval suites, not only mirror and baseline checks.
 
 ---
 
-### `rockettrail/index.html` — remaining playtest follow-up
+### `ocean/index.html` — finish Muckoville Ocean
 
-Most of the kid-playtest action items are shipped now (simpler travel text, crash
-feedback, bigger thrust affordance, re-entry rocket variety, interactive flag plant,
-victory confetti). The clearest still-open follow-up is:
+The newest, most active game is mechanically solid (sub/boat physics, diver, Kraken)
+but unfinished as a *game*. Each item below is self-contained:
 
-- Add the mining time bonus:
-  - if the player reaches 15+ minerals in the asteroid phase, show `+5 SEC BONUS`
-    and extend the timer to reward accurate tapping.
+1. **High-score persistence.** Score (`var score`, ~line 144) resets on reload. Add
+   `MuckoEngine.makeStore('mucko_ocean_scores')` (or the duckdieb localStorage
+   pattern) and a small best-score line on the vehicle-select screen.
+2. **Real victory / game-over flow.** After the Kraken kill or a fuel/air death,
+   `triggerSink()` just changes state — there is no result screen. Add an explicit
+   comic-peril result panel (score, cause, "Try Again" button) with the cozy-ending
+   tone from DIGORY_ALIGNMENT_PLAN.md (rescue boat, blanket, hot drink — not a bare
+   "GAME OVER").
+3. **Give the diver a purpose.** The diver can swim freely but has nothing to do.
+   Seed salvage/treasure pickups near the wrecks and coral reefs that are only
+   collectible on fin — this converts existing dead scenery into goals and makes
+   the sub-vs-diver tradeoff (air drain) meaningful.
+4. **Mucko-universe framing.** Ocean has zero character presence. Add a pilot
+   character and 2–3 intro/outro dialog lines — Captain Mucko or Digory fit the
+   sub/boat lane. Reuse `MuckoEngine.renderDialog` or the simple panel pattern.
+5. **Terrain and iceberg collision.** Seafloor and icebergs are visual-only.
+   Add gentle hull-damage contact (not instant death) so the terrain matters.
+6. **`LOW_FPS_PHASES`** for `vehicleSelect` / result screens.
+
+### `orbit/` — reward loop and story pass
+
+- **Star payoff:** stars persist to `localStorage.orbit_missions` but unlock
+  nothing. Add total-star thresholds that unlock something small (a bonus
+  mission variant, extra sandbox bodies, or a paint scheme) so 3-starring has a point.
+- **Mission dialog:** each mission's `story` is one line. Give Samster/Lekan a short
+  brief + debrief exchange (2–3 lines each) per mission via `scenarios.js`.
+- **Sandbox challenge cards:** optional goals in sandbox ("get a 2-body figure-8",
+  "crash into the Moon at < 1 km/s") to give free play some shape.
+
+### `index.html` (homepage) — NEW badges
+
+There is no indicator of which games are new or recently updated. Add a small
+"NEW" corner badge to recently updated game cards (hardcoded list is fine —
+update it when shipping a game change).
 
 ## Priority 4 — Polish & Nice-to-Have
 
@@ -190,17 +244,6 @@ native Digory-story content:
 #### `Crow Tech Lab` — Toy/Puzzle Hybrid
 - **Core Loop:** Combine absurd parts to build impossible devices (iAds, coffee pods, drones) → Test them in micro-scenarios → Unlock blueprints and comic failure notes.
 - **Why it fits:** Canonical solution for anachronisms; lets the repo embrace its own technical logic.
-
-### `smash/index.html` — Hippo Margaritaville pool drawn in front of character
-
-When Hippo activates his pool special, the kiddy pool is drawn behind him (it's the
-first thing painted in the margaritaville pose branch). It should be drawn after the
-body so it appears in front, making it clearer Hippo is sitting in it.
-
-**Fix:** in `drawCharacterSidescrollSprite`, move the `fillRoundRect` (pool rim) and
-`drawEllipse` (water shimmer) calls to *after* the body, head, ears, and nose draws.
-The music note `♪` glyphs should remain on top (drawn last).
-
 
 ## Architecture / Engine Work
 
