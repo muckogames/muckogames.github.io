@@ -24,6 +24,12 @@ var OCEAN_DEPTH = FLOOR_BASE - OCEAN_BASE; // 380px
 var TERRAIN_MAX = OCEAN_DEPTH * 0.15;  // 57px max mountain height
 var MAX_DPR     = 1.5;
 
+// Explorable-shipwreck interior dimensions (declared early — makeWreckLoot,
+// called while WRECKS is built below, depends on these values)
+var WK_W    = 1500;     // interior world width (about two screens)
+var WK_CEIL = 92;       // interior ceiling y
+var WK_FLR  = H - 44;   // interior floor y
+
 // ── canvas setup ─────────────────────────────────────────────────────────────
 var stage = document.getElementById('stage');
 var gc    = document.getElementById('gc');
@@ -159,6 +165,7 @@ var SINK_TOTAL  = 30.0; // fallback timeout
 var sinkSettled = 0;    // time both pieces have been resting
 
 function triggerSink() {
+  wreckNear      = null;
   gamePhase      = 'sinking';
   sinkT          = 0;
   sinkFace       = subFace;
@@ -270,7 +277,8 @@ var CORALS = [], WRECKS = [];
   }
   for (var j = -8; j <= 8; j++) {
     if (j === 0) continue;
-    WRECKS.push({ wx: j * 920 + ((Math.abs(j) * 139) % 200) - 100 });
+    var wwx = j * 920 + ((Math.abs(j) * 139) % 200) - 100;
+    WRECKS.push({ wx: wwx, loot: makeWreckLoot(j * 73 + 1009), fresh: 0 });
   }
 }());
 
@@ -307,6 +315,180 @@ var REEFS = [];
     REEFS.push({ wx: reefWx, corals: corals });
   }
 }());
+
+// ── shipwreck exploration + surface ships ─────────────────────────────────────
+// Interior of an explorable shipwreck: a flooded grand liner with a foyer,
+// a grand staircase and a grand dining room, stocked with treasure chests,
+// safes, and coolers of salt-cured salami à la a certain famous ocean liner.
+// (WK_W / WK_CEIL / WK_FLR are declared up top with the other dimensions.)
+var currentWreck = null;
+var wreckCamX    = 0;
+var wreckReturn  = { x: 0, y: 0 };
+var wreckMsgT    = 0;
+var wreckNear    = null; // the floor wreck the sub can currently dive into
+
+function makeWreckLoot(seed) {
+  var rng = (seed >>> 0) || 1;
+  function rr() { rng = ((rng >>> 0) * 1664525 + 1013904223) >>> 0; return rng / 0xffffffff; }
+  var items = [];
+  function add(type, x, y, val) { items.push({ type: type, x: x, y: y, val: val, collected: false, bob: rr() * 6.28 }); }
+  // Foyer
+  add('chest',  170 + rr() * 70, WK_FLR - 18, 100);
+  if (rr() > 0.5) add('salami', 330 + rr() * 80, WK_FLR - 16, 60);
+  // Grand staircase (one on the floor, one up on a landing)
+  add('safe',   560 + rr() * 40, WK_FLR - 22, 250);
+  add('chest',  700 + rr() * 60, WK_CEIL + 95 + rr() * 40, 100);
+  add('salami', 860 + rr() * 50, WK_FLR - 16, 60);
+  // Grand dining room
+  add('chest',  1110 + rr() * 90, WK_FLR - 18, 100);
+  add('safe',   1330 + rr() * 50, WK_FLR - 22, 250);
+  if (rr() > 0.4) add('chest', 1230 + rr() * 40, WK_CEIL + 72, 100);
+  return items;
+}
+
+function wreckCleared(wr) {
+  if (!wr || !wr.loot) return false;
+  for (var i = 0; i < wr.loot.length; i++) if (!wr.loot[i].collected) return false;
+  return true;
+}
+
+function enterWreck(wr) {
+  currentWreck = wr;
+  gamePhase = 'wreckExplore';
+  wreckReturn.x = sub.x; wreckReturn.y = sub.y;
+  diver.x = 200; diver.y = WK_FLR - 30; diver.vx = 0; diver.vy = 0; diverFace = 1;
+  wreckCamX = 0; wreckMsgT = 2.8;
+  diverOut = false; diverRecalling = false;
+  playTone(300, 0.16, 0.4, 'sine');
+}
+
+function leaveWreck() {
+  gamePhase = 'playing';
+  diverOut = false; diverRecalling = false;
+  sub.x = wreckReturn.x; sub.y = wreckReturn.y; sub.vx = 0; sub.vy = 0;
+  camX = sub.x - W / 2;
+  currentWreck = null;
+  playTone(460, 0.16, 0.3, 'sine');
+}
+
+function updateWreckExplore(dt) {
+  if (scorePopT > 0) scorePopT = Math.max(0, scorePopT - dt * 2.5);
+  if (wreckMsgT > 0) wreckMsgT -= dt;
+  if (shakeMag > 0) {
+    shakeX = (Math.random() - 0.5) * shakeMag * 2;
+    shakeY = (Math.random() - 0.5) * shakeMag * 2;
+    shakeMag = Math.max(0, shakeMag - 90 * dt);
+  } else { shakeX = 0; shakeY = 0; }
+
+  if (JP['KeyE'] || JP['Escape']) { leaveWreck(); return; }
+
+  var left = K['ArrowLeft'], right = K['ArrowRight'], up = K['ArrowUp'], dn = K['ArrowDown'];
+  if (left)  diver.vx -= DIVER_ACCEL * dt;
+  if (right) diver.vx += DIVER_ACCEL * dt;
+  if (up)    diver.vy -= DIVER_ACCEL * dt;
+  if (dn)    diver.vy += DIVER_ACCEL * dt;
+  diver.vx *= Math.exp(-DIVER_DRAG * dt);
+  diver.vy *= Math.exp(-DIVER_DRAG * dt);
+  if (diver.vx >  DIVER_MAX) diver.vx =  DIVER_MAX;
+  if (diver.vx < -DIVER_MAX) diver.vx = -DIVER_MAX;
+  if (diver.vy >  DIVER_MAX) diver.vy =  DIVER_MAX;
+  if (diver.vy < -DIVER_MAX) diver.vy = -DIVER_MAX;
+  if (Math.abs(diver.vx) > 5) diverFace = diver.vx > 0 ? 1 : -1;
+  diver.x += diver.vx * dt;
+  diver.y += diver.vy * dt;
+
+  if (diver.x < 60)         { diver.x = 60;         if (diver.vx < 0) diver.vx = 0; }
+  if (diver.x > WK_W - 60)  { diver.x = WK_W - 60;  if (diver.vx > 0) diver.vx = 0; }
+  if (diver.y < WK_CEIL + 12) { diver.y = WK_CEIL + 12; if (diver.vy < 0) diver.vy = 0; }
+  if (diver.y > WK_FLR)       { diver.y = WK_FLR;       if (diver.vy > 0) diver.vy = 0; }
+
+  if (currentWreck) {
+    for (var i = 0; i < currentWreck.loot.length; i++) {
+      var it = currentWreck.loot[i];
+      if (it.collected) continue;
+      var dx = diver.x - it.x, dy = diver.y - it.y;
+      if (dx * dx + dy * dy < 30 * 30) {
+        it.collected = true;
+        score += it.val; scorePopT = 0.9;
+        playTone(it.type === 'safe' ? 680 : it.type === 'salami' ? 500 : 560, 0.10, 0.22, 'square');
+        playTone(900, 0.08, 0.30, 'sine');
+        if (wreckCleared(currentWreck)) { score += 150; scorePopT = 1.1; playTone(1200, 0.12, 0.5, 'sine'); }
+      }
+    }
+  }
+
+  wreckCamX = diver.x - W / 2;
+  if (wreckCamX < 0) wreckCamX = 0;
+  if (wreckCamX > WK_W - W) wreckCamX = WK_W - W;
+
+  // Swim back out through the foyer EXIT door
+  if (diver.x < 116 && diver.y > WK_FLR - 64) { leaveWreck(); return; }
+}
+
+// ── surface ships ──────────────────────────────────────────────────────────────
+var SHIPS = [];
+(function() {
+  var rng = 0x05ea51de;
+  function rr() { rng = ((rng >>> 0) * 1664525 + 1013904223) >>> 0; return rng / 0xffffffff; }
+  for (var i = 0; i < 5; i++) {
+    var dir = rr() > 0.5 ? 1 : -1;
+    SHIPS.push({
+      wx: (i - 2) * 1500 + (rr() * 2 - 1) * 300,
+      ty: (rr() * 2 - 1) * 300,   // top-down lane (boat mode)
+      vx: (10 + rr() * 14) * dir,
+      kind: i % 3,
+      state: 'sailing',
+      sinkP: 0, tilt: 0,
+      bob: rr() * 6.28
+    });
+  }
+}());
+var shipSinkTimer = 16;
+
+function updateShips(dt, cx) {
+  shipSinkTimer -= dt;
+  if (shipSinkTimer <= 0) {
+    shipSinkTimer = 18 + Math.random() * 16;
+    // Pick the sailing ship nearest the view so the player gets to watch it go down
+    var best = -1, bestD = 1e9;
+    for (var i = 0; i < SHIPS.length; i++) {
+      if (SHIPS[i].state !== 'sailing') continue;
+      var d = Math.abs(SHIPS[i].wx - cx);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    if (best >= 0 && bestD < 2400) { SHIPS[best].state = 'sinking'; SHIPS[best].sinkP = 0; playNoise(0.28, 0.7); }
+  }
+  for (var j = 0; j < SHIPS.length; j++) {
+    var s = SHIPS[j];
+    s.bob += dt;
+    if (s.state === 'sailing') {
+      s.wx += s.vx * dt;
+      if (s.wx - cx >  2600) s.wx -= 5200;
+      if (s.wx - cx < -2600) s.wx += 5200;
+    } else {
+      s.sinkP = Math.min(1, s.sinkP + dt / 5.5);
+      s.tilt  = Math.min(0.85, s.tilt + dt * 0.20);
+      s.wx   += s.vx * 0.25 * dt;
+      if (s.sinkP >= 1) {
+        // Settle to the seabed as a brand-new explorable shipwreck
+        WRECKS.push({ wx: s.wx, loot: makeWreckLoot((s.wx | 0) ^ 0x9e3779b1), fresh: 1.6 });
+        if (WRECKS.length > 44) {
+          var fi = -1, fd = -1;
+          for (var w = 0; w < WRECKS.length; w++) {
+            var dd = Math.abs(WRECKS[w].wx - cx);
+            if (dd > fd && WRECKS[w] !== currentWreck) { fd = dd; fi = w; }
+          }
+          if (fi >= 0) WRECKS.splice(fi, 1);
+        }
+        // Respawn this ship as a fresh sailing one elsewhere
+        s.state = 'sailing'; s.sinkP = 0; s.tilt = 0;
+        s.wx = cx + (Math.random() > 0.5 ? 1 : -1) * (2300 + Math.random() * 1200);
+        s.ty = (Math.random() * 2 - 1) * 300;
+        s.vx = (10 + Math.random() * 14) * (Math.random() > 0.5 ? 1 : -1);
+      }
+    }
+  }
+}
 
 // ── sea life ──────────────────────────────────────────────────────────────────
 var CREATURES = [];
@@ -378,9 +560,30 @@ var BTNS = [], btnTouch = {};
     { id: 'dn',    cx: 65,      cy: by + 10, r: 32, key: 'ArrowDown'  },
     { id: 'left',  cx: 50,      cy: by,      r: 36, key: 'ArrowLeft'  },
     { id: 'right', cx: 130,     cy: by,      r: 36, key: 'ArrowRight' },
-    { id: 'diver', cx: W / 2,   cy: H - 38,  r: 30, key: 'KeyD'       }
+    { id: 'diver', cx: W / 2,   cy: H - 38,  r: 30, key: 'KeyD'       },
+    // Shown only when the sub is parked beside a wreck (playing phase)
+    { id: 'explore', cx: W / 2, cy: H - 104, r: 32, key: 'KeyE'       },
+    // Interior (wreckExplore) 4-way d-pad + exit, only shown inside a wreck
+    { id: 'iL',   cx: 46,       cy: H - 58,  r: 30, key: 'ArrowLeft'  },
+    { id: 'iR',   cx: 118,      cy: H - 58,  r: 30, key: 'ArrowRight' },
+    { id: 'iU',   cx: 82,       cy: H - 92,  r: 28, key: 'ArrowUp'    },
+    { id: 'iD',   cx: 82,       cy: H - 26,  r: 28, key: 'ArrowDown'  },
+    { id: 'iExit', cx: W - 60,  cy: H - 58,  r: 34, key: 'KeyE'       }
   ];
 }());
+
+// Which touch buttons are live for the current phase
+function btnActive(b) {
+  var inWreck = gamePhase === 'wreckExplore';
+  if (b.id === 'iL' || b.id === 'iR' || b.id === 'iU' || b.id === 'iD' || b.id === 'iExit') return inWreck;
+  if (inWreck) return false;
+  if (b.id === 'explore') return gamePhase === 'playing' && !!wreckNear;
+  var isBoat = gamePhase === 'boatSailing';
+  if ((b.id === 'up' || b.id === 'dn') && isBoat) return false;
+  if ((b.id === 'left' || b.id === 'right') && !isBoat) return false;
+  if (b.id === 'diver' && isBoat) return false;
+  return true;
+}
 
 function touchCoord(touch) {
   var r = gc.getBoundingClientRect();
@@ -423,6 +626,7 @@ gc.addEventListener('touchstart', function(e) {
     // In-game buttons
     for (var j = 0; j < BTNS.length; j++) {
       var b = BTNS[j];
+      if (!btnActive(b)) continue;
       if (Math.hypot(c.x - b.cx, c.y - b.cy) < b.r + 10) {
         btnTouch[b.id] = t.identifier; K[b.key] = true; JP[b.key] = true;
         // Diver is a tap-toggle: fire JP immediately on press (not on lift) to avoid
@@ -695,6 +899,9 @@ function updateBoatSailing(dt) {
     }
   }
 
+  // Surface ships sail past on the water (watchable from the boat too)
+  updateShips(dt, boat.x);
+
   // Deploy diver → hand off to sub mode at boat's world position
   if (JP['KeyD']) {
     vehicleMode = 'sub';
@@ -851,6 +1058,14 @@ function drawBoatTopDown() {
       }
     }
     ctx.restore();
+  }
+
+  // Surface ships — top-down silhouettes sailing the channel
+  for (var shi = 0; shi < SHIPS.length; shi++) {
+    var sh2 = SHIPS[shi];
+    var shsx = sw(sh2.wx), shsy = sh(sh2.ty);
+    if (shsx < -130 || shsx > W + 130 || shsy < -130 || shsy > H + 130) continue;
+    drawShipTopDown(shsx, shsy, sh2);
   }
 
   // Icebergs — top-down white blobs
@@ -1164,6 +1379,9 @@ function update(dt) {
   // ── boat top-down mode ──
   if (gamePhase === 'boatSailing') { updateBoatSailing(dt); return; }
 
+  // ── inside an explorable shipwreck ──
+  if (gamePhase === 'wreckExplore') { updateWreckExplore(dt); return; }
+
   // ── sinking animation ──
   if (gamePhase === 'sinking') {
     sinkT += dt;
@@ -1470,6 +1688,25 @@ function update(dt) {
     }
   }
 
+  // Shipwreck proximity — drive the sub up to a wreck, then press E / tap EXPLORE
+  wreckNear = null;
+  if (!diverOut && gamePhase === 'playing') {
+    for (var wni = 0; wni < WRECKS.length; wni++) {
+      var wrn = WRECKS[wni];
+      if (Math.abs(wrn.wx - sub.x) > 130) continue;
+      var wnty = terrain(wrn.wx);
+      var wndx = sub.x - wrn.wx, wndy = sub.y - (wnty - 16);
+      if (wndx * wndx + wndy * wndy < 95 * 95) { wreckNear = wrn; break; }
+    }
+    if (wreckNear && JP['KeyE']) { enterWreck(wreckNear); return; }
+  }
+
+  // Decay the "just sank" highlight on fresh wrecks
+  for (var wf = 0; wf < WRECKS.length; wf++) { if (WRECKS[wf].fresh > 0) WRECKS[wf].fresh -= dt; }
+
+  // Surface ships sail along, and occasionally one founders into a new wreck
+  updateShips(dt, camX + W / 2);
+
   // Kraken hatch proximity (diver only)
   krakHatchNear = false;
   if (krakPhase === 'intact' && diverOut && !diverRecalling) {
@@ -1664,7 +1901,7 @@ function drawTerrain() {
     var wr = WRECKS[j];
     var wrSx = wr.wx - camX;
     if (wrSx < -220 || wrSx > W + 220) continue;
-    drawWreck(wrSx, terrain(wr.wx));
+    drawWreck(wrSx, terrain(wr.wx), wr === wreckNear && gamePhase === 'playing', wreckCleared(wr));
   }
 }
 
@@ -1744,10 +1981,19 @@ function drawReefs() {
   }
 }
 
-function drawWreck(sx, ty) {
+function drawWreck(sx, ty, isNear, cleared) {
   ctx.save();
   ctx.translate(sx, ty);
   ctx.rotate(0.18);
+
+  // Near-glow halo
+  if (isNear) {
+    ctx.save();
+    ctx.globalAlpha = 0.18 + 0.12 * Math.sin(wt * 4);
+    ctx.fillStyle = '#7fe0ff';
+    ctx.beginPath(); ctx.ellipse(0, -14, 84, 50, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
 
   // Hull
   ctx.fillStyle = '#2a1a0e';
@@ -1781,6 +2027,7 @@ function drawWreck(sx, ty) {
   ctx.strokeStyle = '#6a5040';
   ctx.lineWidth = 2;
   for (var p = 0; p < 3; p++) {
+    if (p === 1) continue; // middle one is the entrance
     ctx.beginPath();
     ctx.arc(-30 + p * 28, -8, 6, 0, Math.PI * 2);
     ctx.fill();
@@ -1798,7 +2045,490 @@ function drawWreck(sx, ty) {
   ctx.stroke();
   ctx.lineCap = 'butt';
 
+  // Entrance doorway (a dark hole into the hull, lit when near)
+  ctx.fillStyle = '#070d10';
+  rRect(-13, -20, 26, 26, 4); ctx.fill();
+  var eg = ctx.createLinearGradient(0, -20, 0, 6);
+  eg.addColorStop(0, isNear ? 'rgba(140,215,240,0.55)' : 'rgba(90,150,180,0.30)');
+  eg.addColorStop(1, 'rgba(20,60,80,0)');
+  ctx.fillStyle = eg; rRect(-11, -18, 22, 24, 4); ctx.fill();
+  ctx.strokeStyle = isNear ? '#ffe066' : '#6a5040'; ctx.lineWidth = 2;
+  rRect(-13, -20, 26, 26, 4); ctx.stroke();
+
   ctx.restore();
+
+  // Floating prompt / status (screen space, above the wreck)
+  if (isNear) {
+    ctx.save();
+    ctx.globalAlpha = 0.75 + 0.25 * Math.sin(wt * 6);
+    ctx.fillStyle = 'rgba(6,20,28,0.82)';
+    rRect(sx - 66, ty - 86, 132, 26, 5); ctx.fill();
+    ctx.fillStyle = '#ffe066';
+    ctx.font = 'bold 11px monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(isTouch() ? 'TAP EXPLORE' : 'PRESS E TO EXPLORE', sx, ty - 73);
+    ctx.restore();
+  } else if (cleared) {
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = '#8fb0bb';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('LOOTED', sx, ty - 64);
+    ctx.restore();
+  }
+}
+
+// ── draw surface ships (side view) ────────────────────────────────────────────
+function drawSurfaceShips() {
+  for (var i = 0; i < SHIPS.length; i++) {
+    var s = SHIPS[i];
+    var sx = s.wx - camX;
+    if (sx < -170 || sx > W + 170) continue;
+    var surfY = wave(s.wx);
+    var y, rot;
+    if (s.state === 'sailing') {
+      y = surfY - 4 + Math.sin(s.bob * 1.4) * 2;
+      rot = Math.sin(s.bob * 1.1) * 0.025;
+    } else {
+      var floorY = terrain(s.wx);
+      var e = s.sinkP * s.sinkP * (3 - 2 * s.sinkP); // smoothstep
+      y = surfY - 4 + (floorY - surfY - 28) * e;
+      rot = s.tilt * (s.vx < 0 ? -1 : 1);
+    }
+    drawShipSide(sx, y, s, rot);
+    if (s.state === 'sinking') {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(190,230,255,0.5)'; ctx.lineWidth = 1;
+      for (var b = 0; b < 6; b++) {
+        var ph = (s.bob * 1.4 + b * 1.7) % 3;
+        var bx = sx + Math.sin(s.bob + b) * 30;
+        var by = y - 12 - ph * 26;
+        ctx.beginPath(); ctx.arc(bx, by, 2 + (b % 3), 0, Math.PI * 2); ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+}
+
+function drawShipSide(sx, y, s, rot) {
+  var pals = [
+    { hull: '#1f2a44', stripe: '#c0392b', sup: '#e8e8ee', funnel: '#c0392b', funs: 3 },
+    { hull: '#26402c', stripe: '#d4a017', sup: '#ede6d0', funnel: '#34495e', funs: 2 },
+    { hull: '#3a1f3a', stripe: '#16a085', sup: '#e6e0ec', funnel: '#7d3c98', funs: 2 }
+  ];
+  var pal = pals[s.kind % 3];
+  var hw = 78;
+  ctx.save();
+  ctx.translate(sx, y);
+  ctx.rotate(rot);
+
+  // Funnel smoke (sailing only)
+  if (s.state === 'sailing') {
+    ctx.fillStyle = 'rgba(120,120,130,0.28)';
+    for (var sm = 0; sm < pal.funs; sm++) {
+      var fxk = -hw * 0.3 + sm * (hw * 0.6 / Math.max(1, pal.funs - 1)) + 0.5;
+      for (var pf = 0; pf < 3; pf++) {
+        var so = (wt * 26 + pf * 12 + sm * 6) % 40;
+        ctx.beginPath(); ctx.arc(fxk - so * 0.4, -64 - so, 4 + pf * 2.2, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+  }
+
+  // Hull
+  ctx.fillStyle = pal.hull;
+  ctx.beginPath();
+  ctx.moveTo(-hw, -10);
+  ctx.lineTo(hw - 6, -10);
+  ctx.lineTo(hw + 12, 2);   // bow
+  ctx.lineTo(hw - 8, 16);
+  ctx.lineTo(-hw + 6, 16);
+  ctx.lineTo(-hw - 4, 4);   // stern
+  ctx.closePath();
+  ctx.fill();
+  // Waterline stripe
+  ctx.fillStyle = pal.stripe;
+  ctx.fillRect(-hw, -2, hw * 2 - 4, 4);
+  // Hull portholes
+  ctx.fillStyle = '#ffe9a8';
+  for (var p = 0; p < 9; p++) { ctx.beginPath(); ctx.arc(-hw + 12 + p * 15, 6, 1.6, 0, Math.PI * 2); ctx.fill(); }
+
+  // Superstructure
+  ctx.fillStyle = pal.sup;
+  rRect(-hw + 18, -30, hw * 2 - 42, 22, 3); ctx.fill();
+  rRect(-hw + 30, -42, hw * 2 - 72, 14, 3); ctx.fill();
+  ctx.fillStyle = '#5a7a99';
+  for (var w2 = 0; w2 < 8; w2++) ctx.fillRect(-hw + 26 + w2 * 13, -26, 7, 6);
+  for (var w3 = 0; w3 < 5; w3++) ctx.fillRect(-hw + 38 + w3 * 13, -38, 7, 5);
+
+  // Funnels
+  for (var f = 0; f < pal.funs; f++) {
+    var fx = -hw * 0.3 + f * (hw * 0.6 / Math.max(1, pal.funs - 1)) - 6;
+    ctx.fillStyle = pal.funnel;
+    rRect(fx, -64, 13, 26, 2); ctx.fill();
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillRect(fx - 1, -66, 15, 4);
+  }
+  // Mast
+  ctx.strokeStyle = '#2a2a30'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(hw - 18, -42); ctx.lineTo(hw - 18, -70); ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawShipTopDown(sx, sy, s) {
+  var dir = s.vx < 0 ? -1 : 1;
+  ctx.save();
+  ctx.translate(sx, sy);
+  if (s.state === 'sinking') ctx.globalAlpha = Math.max(0.2, 1 - s.sinkP);
+  // Wake (sailing)
+  if (s.state === 'sailing') {
+    ctx.save();
+    ctx.globalAlpha = 0.3; ctx.strokeStyle = '#bfe6ff'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(-dir * 56, -6); ctx.lineTo(-dir * 88, -18); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-dir * 56, 6); ctx.lineTo(-dir * 88, 18); ctx.stroke();
+    ctx.restore();
+  }
+  ctx.scale(dir, 1);
+  // Hull
+  ctx.fillStyle = '#1f2a44';
+  ctx.beginPath();
+  ctx.moveTo(58, 0); ctx.lineTo(34, -16); ctx.lineTo(-46, -16);
+  ctx.lineTo(-56, 0); ctx.lineTo(-46, 16); ctx.lineTo(34, 16);
+  ctx.closePath(); ctx.fill();
+  // Deck
+  ctx.fillStyle = '#e8e8ee';
+  rRect(-34, -11, 64, 22, 4); ctx.fill();
+  // Funnels
+  ctx.fillStyle = '#c0392b';
+  for (var f = 0; f < 3; f++) { ctx.beginPath(); ctx.arc(-14 + f * 16, 0, 5, 0, Math.PI * 2); ctx.fill(); }
+  ctx.restore();
+  // Sinking foam swirl
+  if (s.state === 'sinking') {
+    ctx.save();
+    ctx.globalAlpha = 0.5; ctx.strokeStyle = 'rgba(220,240,255,0.7)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(sx, sy, 30 + Math.sin(s.bob * 3) * 6, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
+}
+
+// ── draw a piece of wreck loot ────────────────────────────────────────────────
+function drawLoot(it) {
+  var x = it.x - wreckCamX;
+  var y = it.y + Math.sin(it.bob + wt * 1.5) * 3;
+  ctx.save();
+  ctx.translate(x, y);
+  // glow
+  ctx.globalAlpha = 0.45 + 0.3 * Math.sin(wt * 4 + it.bob);
+  ctx.fillStyle = it.type === 'safe' ? 'rgba(120,200,255,0.35)'
+                : it.type === 'salami' ? 'rgba(255,170,160,0.32)'
+                : 'rgba(255,220,120,0.42)';
+  ctx.beginPath(); ctx.arc(0, 0, 22, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = 1;
+
+  if (it.type === 'chest') {
+    ctx.fillStyle = '#7a4a1e'; rRect(-15, -4, 30, 16, 2); ctx.fill();
+    ctx.fillStyle = '#5a3414';
+    ctx.beginPath(); ctx.moveTo(-15, -4); ctx.quadraticCurveTo(0, -18, 15, -4); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#d4a017'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(-15, 4); ctx.lineTo(15, 4); ctx.stroke();
+    ctx.fillStyle = '#d4a017'; ctx.fillRect(-3, 0, 6, 8);
+    ctx.fillStyle = '#ffe066';
+    ctx.beginPath(); ctx.arc(-6, -2, 2, 0, Math.PI * 2); ctx.arc(5, -3, 2, 0, Math.PI * 2); ctx.fill();
+  } else if (it.type === 'safe') {
+    ctx.fillStyle = '#4a5560'; rRect(-15, -15, 30, 30, 3); ctx.fill();
+    ctx.strokeStyle = '#2a3038'; ctx.lineWidth = 2; rRect(-15, -15, 30, 30, 3); ctx.stroke();
+    ctx.fillStyle = '#8a99a8'; rRect(-10, -10, 20, 20, 2); ctx.fill();
+    ctx.strokeStyle = '#cfd8e0'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(0, 0, 5, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = '#cfd8e0'; ctx.fillRect(4, -1, 9, 2);
+  } else {
+    // cooler of salt-cured salami
+    ctx.fillStyle = '#2a7fd0'; rRect(-16, -8, 32, 18, 3); ctx.fill();
+    ctx.fillStyle = '#e8f0f6'; rRect(-16, -13, 32, 7, 3); ctx.fill();
+    ctx.strokeStyle = '#1a5fa0'; ctx.lineWidth = 1; rRect(-16, -8, 32, 18, 3); ctx.stroke();
+    ctx.save(); ctx.translate(6, -12); ctx.rotate(-0.5);
+    ctx.fillStyle = '#9a3b3b'; rRect(-4, -10, 8, 16, 4); ctx.fill();
+    ctx.fillStyle = '#c96b6b'; ctx.beginPath(); ctx.arc(0, -10, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(-1, -4, 0.8, 0, Math.PI * 2); ctx.arc(2, 0, 0.8, 0, Math.PI * 2); ctx.arc(-2, 2, 0.8, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// ── draw the explorable wreck interior ────────────────────────────────────────
+function drawRoomLabel(cx, text) {
+  if (cx < -180 || cx > W + 180) return;
+  ctx.save();
+  ctx.globalAlpha = 0.85;
+  ctx.fillStyle = 'rgba(8,20,26,0.7)';
+  var w = text.length * 7 + 18;
+  rRect(cx - w / 2, WK_CEIL + 6, w, 18, 4); ctx.fill();
+  ctx.fillStyle = '#9fd0c0';
+  ctx.font = 'bold 10px monospace';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(text, cx, WK_CEIL + 15);
+  ctx.restore();
+}
+
+function drawGrandStaircase(cx) {
+  if (cx < -280 || cx > W + 280) return;
+  ctx.save();
+  ctx.translate(cx, 0);
+  // arched window light behind
+  var ag = ctx.createLinearGradient(0, WK_CEIL, 0, WK_FLR);
+  ag.addColorStop(0, 'rgba(90,170,200,0.30)');
+  ag.addColorStop(1, 'rgba(40,90,120,0.04)');
+  ctx.fillStyle = ag;
+  ctx.beginPath();
+  ctx.moveTo(-52, WK_FLR - 20);
+  ctx.lineTo(-52, WK_CEIL + 60);
+  ctx.quadraticCurveTo(0, WK_CEIL + 8, 52, WK_CEIL + 60);
+  ctx.lineTo(52, WK_FLR - 20);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = 'rgba(150,200,220,0.3)'; ctx.lineWidth = 2; ctx.stroke();
+
+  // chandelier
+  ctx.strokeStyle = '#6a5a30'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(0, WK_CEIL); ctx.lineTo(0, WK_CEIL + 28); ctx.stroke();
+  ctx.fillStyle = 'rgba(230,210,140,0.85)';
+  ctx.beginPath(); ctx.ellipse(0, WK_CEIL + 36, 22, 12, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(255,240,180,0.5)';
+  for (var c = -2; c <= 2; c++) { ctx.beginPath(); ctx.arc(c * 9, WK_CEIL + 40, 3, 0, Math.PI * 2); ctx.fill(); }
+
+  // staircase steps + carpet
+  var baseY = WK_FLR;
+  ctx.fillStyle = '#5a3e20';
+  for (var st = 0; st < 8; st++) {
+    var sw2 = 80 - st * 7;
+    var sy2 = baseY - st * 14;
+    ctx.fillRect(-sw2, sy2 - 12, sw2 * 2, 12);
+  }
+  ctx.fillStyle = '#8a2520';
+  for (var st2 = 0; st2 < 8; st2++) ctx.fillRect(-14, baseY - st2 * 14 - 12, 28, 12);
+
+  // banisters + newel posts
+  ctx.strokeStyle = '#7a5a2e'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(-80, baseY); ctx.lineTo(-30, baseY - 112); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(80, baseY); ctx.lineTo(30, baseY - 112); ctx.stroke();
+  ctx.fillStyle = '#8a6838';
+  ctx.fillRect(-84, baseY - 26, 8, 26); ctx.fillRect(76, baseY - 26, 8, 26);
+  ctx.fillStyle = '#c8a85a';
+  ctx.beginPath(); ctx.arc(-80, baseY - 28, 5, 0, Math.PI * 2); ctx.arc(80, baseY - 28, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+function drawGrandDining(cx) {
+  if (cx < -320 || cx > W + 320) return;
+  ctx.save();
+  ctx.translate(cx, 0);
+  var tableY = WK_FLR - 26;
+  // chandelier
+  ctx.strokeStyle = '#6a5a30'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(0, WK_CEIL); ctx.lineTo(0, WK_CEIL + 24); ctx.stroke();
+  ctx.fillStyle = 'rgba(230,210,140,0.8)';
+  ctx.beginPath(); ctx.ellipse(0, WK_CEIL + 32, 26, 10, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(255,240,180,0.5)';
+  for (var c = -3; c <= 3; c++) { ctx.beginPath(); ctx.arc(c * 8, WK_CEIL + 36, 2.5, 0, Math.PI * 2); ctx.fill(); }
+
+  // chairs (behind table)
+  ctx.fillStyle = '#5a3e22';
+  var chairXs = [-120, -60, 60, 120];
+  for (var ch = 0; ch < chairXs.length; ch++) {
+    var chx = chairXs[ch];
+    ctx.fillRect(chx - 8, tableY - 30, 16, 30);
+    ctx.fillRect(chx - 10, tableY + 6, 20, 6);
+  }
+
+  // table + cloth
+  ctx.fillStyle = '#4a3320'; rRect(-150, tableY, 300, 14, 3); ctx.fill();
+  ctx.fillStyle = 'rgba(220,210,190,0.9)'; rRect(-150, tableY, 300, 8, 3); ctx.fill();
+  ctx.fillStyle = 'rgba(200,190,170,0.6)';
+  for (var d = 0; d < 8; d++) ctx.fillRect(-150 + d * 38, tableY + 8, 12, 6);
+  ctx.fillStyle = '#3a281a';
+  ctx.fillRect(-140, tableY + 14, 8, 26); ctx.fillRect(132, tableY + 14, 8, 26);
+
+  // plates + candelabra
+  ctx.fillStyle = '#d8d8e0';
+  for (var pl = -2; pl <= 2; pl++) { ctx.beginPath(); ctx.ellipse(pl * 52, tableY + 2, 9, 3, 0, 0, Math.PI * 2); ctx.fill(); }
+  ctx.strokeStyle = '#c8a85a'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(0, tableY); ctx.lineTo(0, tableY - 16); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-10, tableY - 10); ctx.lineTo(10, tableY - 10); ctx.stroke();
+  ctx.fillStyle = '#ffd060';
+  ctx.beginPath(); ctx.arc(0, tableY - 18, 2.5, 0, Math.PI * 2);
+  ctx.arc(-10, tableY - 12, 2.5, 0, Math.PI * 2); ctx.arc(10, tableY - 12, 2.5, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+function drawInteriorDiver() {
+  var dsx = diver.x - wreckCamX;
+  ctx.save();
+  ctx.translate(dsx, diver.y);
+  ctx.scale(diverFace, 1);
+  // head-lamp glow
+  ctx.fillStyle = 'rgba(255,250,200,0.16)';
+  ctx.beginPath(); ctx.moveTo(8, -13); ctx.lineTo(64, -36); ctx.lineTo(64, 10); ctx.closePath(); ctx.fill();
+  // fins / legs / torso (reuse the diver look)
+  ctx.fillStyle = '#1a8a44';
+  ctx.beginPath(); ctx.moveTo(3, 10); ctx.lineTo(18, 14); ctx.lineTo(14, 18); ctx.lineTo(3, 14); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#1a5a8a';
+  ctx.fillRect(-4, 5, 5, 9); ctx.fillRect(2, 5, 5, 9);
+  rRect(-7, -8, 14, 15, 3); ctx.fill();
+  ctx.fillStyle = '#2288cc'; ctx.fillRect(-5, -4, 10, 4);
+  ctx.fillStyle = '#aabbcc'; rRect(-10, -7, 5, 10, 2); ctx.fill();
+  ctx.fillStyle = '#f0c080'; ctx.beginPath(); ctx.arc(0, -13, 7, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#55aaee'; ctx.strokeStyle = '#333'; ctx.lineWidth = 1;
+  rRect(-4, -17, 8, 6, 2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#1a5a8a';
+  ctx.beginPath(); ctx.moveTo(6, -5); ctx.lineTo(18, 0); ctx.lineTo(16, 4); ctx.lineTo(5, 0); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#1a8a44'; ctx.beginPath(); ctx.arc(18, 2, 4, 0, Math.PI * 2); ctx.fill();
+  if (Math.abs(diver.vx) + Math.abs(diver.vy) > 5) {
+    ctx.fillStyle = 'rgba(160,230,255,0.55)';
+    var bt = wt * 4;
+    for (var bi = 0; bi < 3; bi++) {
+      var bx2 = -6 + Math.sin(bt + bi * 2.1) * 5;
+      var by2 = -14 - ((bt * 18 + bi * 7) % 22);
+      ctx.beginPath(); ctx.arc(bx2, by2, 2 - bi * 0.4, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+function drawWreckHUD() {
+  ctx.save();
+  ctx.fillStyle = 'rgba(5,20,28,0.7)';
+  rRect(8, 8, 210, 40, 5); ctx.fill();
+  ctx.strokeStyle = 'rgba(80,180,200,0.35)'; ctx.lineWidth = 1;
+  rRect(8, 8, 210, 40, 5); ctx.stroke();
+  ctx.fillStyle = '#7fd0c8';
+  ctx.font = 'bold 12px monospace';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.fillText('SHIPWRECK', 16, 14);
+  var total = currentWreck ? currentWreck.loot.length : 0, got = 0;
+  if (currentWreck) for (var i = 0; i < currentWreck.loot.length; i++) if (currentWreck.loot[i].collected) got++;
+  ctx.fillStyle = '#ffe066';
+  ctx.font = '11px monospace';
+  ctx.fillText('TREASURE  ' + got + ' / ' + total, 16, 30);
+  ctx.restore();
+
+  // score (top-right)
+  ctx.save();
+  var scPop = scorePopT > 0;
+  ctx.translate(W - 12, 14);
+  var sc = scPop ? 1 + scorePopT * 0.35 : 1; ctx.scale(sc, sc);
+  ctx.fillStyle = 'rgba(5,20,35,0.55)'; rRect(-96, -12, 96, 22, 3); ctx.fill();
+  ctx.fillStyle = scPop ? '#ffe066' : '#80d8f8';
+  ctx.font = 'bold 12px monospace'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  ctx.fillText('SCORE ' + score, -4, 0);
+  ctx.restore();
+
+  if (!isTouch()) {
+    ctx.fillStyle = 'rgba(160,200,220,0.7)';
+    ctx.font = '10px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.fillText('ARROWS swim    E = leave (or swim out the EXIT door)', W / 2, H - 8);
+  }
+
+  if (wreckMsgT > 0) {
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, wreckMsgT);
+    ctx.fillStyle = 'rgba(5,20,28,0.82)';
+    rRect(W / 2 - 176, 60, 352, 44, 8); ctx.fill();
+    ctx.fillStyle = '#aee0d0';
+    ctx.font = 'bold 14px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('Explore the wreck — grab the treasure!', W / 2, 76);
+    ctx.fillStyle = 'rgba(180,210,220,0.7)'; ctx.font = '10px monospace';
+    ctx.fillText('chests, safes & coolers of salt-cured salami await', W / 2, 94);
+    ctx.restore();
+  }
+}
+
+function drawWreckInterior() {
+  ctx.clearRect(0, 0, W, H);
+  ctx.save();
+  ctx.translate(Math.round(shakeX), Math.round(shakeY));
+
+  function sx(x) { return x - wreckCamX; }
+
+  // Murky flooded background
+  var bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#0c2230');
+  bg.addColorStop(0.5, '#0a2a2a');
+  bg.addColorStop(1, '#06181c');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+
+  // Ceiling + floor
+  ctx.fillStyle = '#241a12'; ctx.fillRect(0, 0, W, WK_CEIL);
+  ctx.fillStyle = '#3a2a1a'; ctx.fillRect(0, WK_CEIL - 6, W, 6);
+  ctx.fillStyle = '#1a120a'; ctx.fillRect(0, WK_FLR + 8, W, H - WK_FLR);
+  ctx.fillStyle = '#2a1e12'; ctx.fillRect(0, WK_FLR + 8, W, 5);
+
+  // Light shaft over the foyer door
+  var fx0 = sx(120);
+  if (fx0 > -200 && fx0 < W + 200) {
+    var lg = ctx.createLinearGradient(0, WK_CEIL, 0, WK_FLR);
+    lg.addColorStop(0, 'rgba(120,200,230,0.18)');
+    lg.addColorStop(1, 'rgba(120,200,230,0)');
+    ctx.fillStyle = lg;
+    ctx.beginPath();
+    ctx.moveTo(fx0 - 30, WK_CEIL); ctx.lineTo(fx0 + 30, WK_CEIL);
+    ctx.lineTo(fx0 + 70, WK_FLR); ctx.lineTo(fx0 - 70, WK_FLR); ctx.closePath(); ctx.fill();
+  }
+
+  // Room dividers
+  function pillar(wx) {
+    var px = sx(wx);
+    if (px < -30 || px > W + 30) return;
+    ctx.fillStyle = '#2e2014'; ctx.fillRect(px - 8, WK_CEIL, 16, WK_FLR - WK_CEIL + 8);
+    ctx.fillStyle = '#3e2c1a'; ctx.fillRect(px - 8, WK_CEIL, 4, WK_FLR - WK_CEIL + 8);
+  }
+  pillar(480); pillar(980);
+
+  // Foyer EXIT door
+  var dxp = sx(100);
+  if (dxp > -120 && dxp < W + 120) {
+    ctx.fillStyle = '#0a1a22'; rRect(dxp - 26, WK_FLR - 70, 52, 70, 6); ctx.fill();
+    var dg = ctx.createLinearGradient(dxp, WK_FLR - 70, dxp, WK_FLR);
+    dg.addColorStop(0, 'rgba(120,210,255,0.55)');
+    dg.addColorStop(1, 'rgba(40,120,170,0.12)');
+    ctx.fillStyle = dg; rRect(dxp - 20, WK_FLR - 62, 40, 62, 4); ctx.fill();
+    ctx.strokeStyle = '#3a5a6a'; ctx.lineWidth = 3; rRect(dxp - 26, WK_FLR - 70, 52, 70, 6); ctx.stroke();
+    ctx.fillStyle = '#0a1a10'; rRect(dxp - 22, WK_FLR - 92, 44, 16, 3); ctx.fill();
+    ctx.fillStyle = '#44ff88'; ctx.font = 'bold 11px monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('EXIT', dxp, WK_FLR - 83);
+  }
+
+  drawGrandStaircase(sx(730));
+  drawGrandDining(sx(1230));
+  drawRoomLabel(sx(250), 'FOYER');
+  drawRoomLabel(sx(730), 'GRAND STAIRCASE');
+  drawRoomLabel(sx(1230), 'GRAND DINING ROOM');
+
+  // Loot
+  if (currentWreck) {
+    for (var i = 0; i < currentWreck.loot.length; i++) {
+      var it = currentWreck.loot[i];
+      if (it.collected) continue;
+      var lx = it.x - wreckCamX;
+      if (lx < -40 || lx > W + 40) continue;
+      drawLoot(it);
+    }
+  }
+
+  // Floating particles
+  ctx.fillStyle = 'rgba(180,220,235,0.22)';
+  for (var dd = 0; dd < 26; dd++) {
+    var pxp = ((dd * 257 + wt * 12) % WK_W) - wreckCamX;
+    if (pxp < 0 || pxp > W) continue;
+    var pyp = WK_CEIL + 20 + ((dd * 113) % (WK_FLR - WK_CEIL - 30)) + Math.sin(wt + dd) * 4;
+    ctx.beginPath(); ctx.arc(pxp, pyp, (dd % 3) * 0.7 + 0.6, 0, Math.PI * 2); ctx.fill();
+  }
+
+  drawInteriorDiver();
+
+  ctx.restore();
+  drawWreckHUD();
 }
 
 // ── draw creatures ────────────────────────────────────────────────────────────
@@ -2867,14 +3597,41 @@ function drawSub() {
 // ── draw touch controls ───────────────────────────────────────────────────────
 function drawTouchControls() {
   if (!isTouch()) return;
-  var isBoat = gamePhase === 'boatSailing';
   for (var i = 0; i < BTNS.length; i++) {
     var b = BTNS[i];
-    // Show sub-only buttons only in sub mode, boat-only buttons only in boat mode
-    if ((b.id === 'up' || b.id === 'dn') && isBoat) continue;
-    if ((b.id === 'left' || b.id === 'right') && !isBoat) continue;
+    if (!btnActive(b)) continue;
+
+    // EXPLORE prompt button (appears beside a wreck)
+    if (b.id === 'explore') {
+      ctx.save();
+      ctx.globalAlpha = 0.85 + 0.15 * Math.sin(wt * 6);
+      ctx.fillStyle = 'rgba(190,140,30,0.9)';
+      ctx.strokeStyle = '#ffe066'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(b.cx, b.cy, b.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#fff8e0';
+      ctx.font = 'bold 11px monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('EXPLORE', b.cx, b.cy);
+      ctx.restore();
+      continue;
+    }
+
+    // EXIT button (inside a wreck)
+    if (b.id === 'iExit') {
+      ctx.save();
+      ctx.globalAlpha = 0.78;
+      ctx.fillStyle = 'rgba(20,120,80,0.85)';
+      ctx.strokeStyle = '#44ffaa'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(b.cx, b.cy, b.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#ccffe6';
+      ctx.font = 'bold 12px monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('EXIT', b.cx, b.cy);
+      ctx.restore();
+      continue;
+    }
+
     if (b.id === 'diver') {
-      if (isBoat) continue;
       // Special diver toggle button
       var active = diverOut;
       ctx.save();
@@ -2920,6 +3677,10 @@ function drawTouchControls() {
     if (b.id === 'dn')    tri(b.cx, b.cy, ts, 3);
     if (b.id === 'left')  tri(b.cx, b.cy, ts, 1);
     if (b.id === 'right') tri(b.cx, b.cy, ts, 0);
+    if (b.id === 'iU')    tri(b.cx, b.cy, ts, 2);
+    if (b.id === 'iD')    tri(b.cx, b.cy, ts, 3);
+    if (b.id === 'iL')    tri(b.cx, b.cy, ts, 1);
+    if (b.id === 'iR')    tri(b.cx, b.cy, ts, 0);
     ctx.restore();
   }
 }
@@ -3036,6 +3797,7 @@ function drawHUD() {
 function render() {
   if (gamePhase === 'vehicleSelect') { drawVehicleSelect(); return; }
   if (gamePhase === 'boatSailing')   { drawBoatTopDown(); drawTouchControls(); return; }
+  if (gamePhase === 'wreckExplore')  { drawWreckInterior(); drawTouchControls(); return; }
   ctx.clearRect(0, 0, W, H);
   ctx.save();
   ctx.translate(Math.round(shakeX), Math.round(shakeY));
@@ -3047,6 +3809,7 @@ function render() {
   drawKraken();
   drawKrakenDebris();
   drawIcebergs();
+  drawSurfaceShips();
   drawBubbles();
   drawCreatures();
   drawWake();
