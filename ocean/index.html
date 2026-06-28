@@ -26,9 +26,18 @@ var MAX_DPR     = 1.5;
 
 // Explorable-shipwreck interior dimensions (declared early — makeWreckLoot,
 // called while WRECKS is built below, depends on these values)
-var WK_W    = 1500;     // interior world width (about two screens)
-var WK_CEIL = 92;       // interior ceiling y
-var WK_FLR  = H - 44;   // interior floor y
+var WK_W        = 1500;   // interior world width (about two screens)
+var WK_FLOORS   = 3;      // number of decks you can travel between
+var WK_FLOOR_H  = 280;    // height of one deck
+var WK_TOTAL_H  = WK_FLOORS * WK_FLOOR_H;       // full interior height (840)
+var WK_CEIL_TOP = 36;     // ceiling of the top deck
+var WK_FLR_BOT  = WK_TOTAL_H - 14;              // hard floor of the bottom deck
+var WK_STAIR_X  = 730;    // x-centre of the grand-staircase shaft
+var WK_STAIR_HALF = 54;   // half-width of the open stairwell (passable between decks)
+// y of the solid plating below deck f (the deck the diver stands on is 16px above)
+function WK_DIVIDER(f) { return (f + 1) * WK_FLOOR_H; }
+function deckFloorY(f) { return WK_DIVIDER(f) - 16; }
+function deckCeilY(f)  { return f * WK_FLOOR_H + 24; }
 
 // ── canvas setup ─────────────────────────────────────────────────────────────
 var stage = document.getElementById('stage');
@@ -320,9 +329,10 @@ var REEFS = [];
 // Interior of an explorable shipwreck: a flooded grand liner with a foyer,
 // a grand staircase and a grand dining room, stocked with treasure chests,
 // safes, and coolers of salt-cured salami à la a certain famous ocean liner.
-// (WK_W / WK_CEIL / WK_FLR are declared up top with the other dimensions.)
+// (WK_W and the deck-dimension constants are declared up top with the other dimensions.)
 var currentWreck = null;
 var wreckCamX    = 0;
+var wreckCamY    = 0;
 var wreckReturn  = { x: 0, y: 0 };
 var wreckMsgT    = 0;
 var wreckNear    = null; // the floor wreck the sub can currently dive into
@@ -332,17 +342,19 @@ function makeWreckLoot(seed) {
   function rr() { rng = ((rng >>> 0) * 1664525 + 1013904223) >>> 0; return rng / 0xffffffff; }
   var items = [];
   function add(type, x, y, val) { items.push({ type: type, x: x, y: y, val: val, collected: false, bob: rr() * 6.28 }); }
-  // Foyer
-  add('chest',  170 + rr() * 70, WK_FLR - 18, 100);
-  if (rr() > 0.5) add('salami', 330 + rr() * 80, WK_FLR - 16, 60);
-  // Grand staircase (one on the floor, one up on a landing)
-  add('safe',   560 + rr() * 40, WK_FLR - 22, 250);
-  add('chest',  700 + rr() * 60, WK_CEIL + 95 + rr() * 40, 100);
-  add('salami', 860 + rr() * 50, WK_FLR - 16, 60);
-  // Grand dining room
-  add('chest',  1110 + rr() * 90, WK_FLR - 18, 100);
-  add('safe',   1330 + rr() * 50, WK_FLR - 22, 250);
-  if (rr() > 0.4) add('chest', 1230 + rr() * 40, WK_CEIL + 72, 100);
+  // Top deck — foyer & promenade
+  add('chest',  220 + rr() * 80, deckFloorY(0), 100);
+  add('salami', 1040 + rr() * 80, deckFloorY(0), 60);
+  if (rr() > 0.5) add('chest', 1230 + rr() * 40, deckFloorY(0), 100);
+  // Middle deck — grand dining room
+  add('safe',   320 + rr() * 60, deckFloorY(1), 250);
+  add('salami', 900 + rr() * 60, deckFloorY(1), 60);
+  add('chest',  1120 + rr() * 80, deckFloorY(1), 100);
+  // Bottom deck — cargo hold & boiler room (the richest haul)
+  add('safe',   300 + rr() * 80, deckFloorY(2), 250);
+  add('chest',  760 + rr() * 60, deckFloorY(2), 100);
+  add('chest',  1180 + rr() * 80, deckFloorY(2), 100);
+  if (rr() > 0.4) add('salami', 1320 + rr() * 40, deckFloorY(2), 60);
   return items;
 }
 
@@ -356,8 +368,8 @@ function enterWreck(wr) {
   currentWreck = wr;
   gamePhase = 'wreckExplore';
   wreckReturn.x = sub.x; wreckReturn.y = sub.y;
-  diver.x = 200; diver.y = WK_FLR - 30; diver.vx = 0; diver.vy = 0; diverFace = 1;
-  wreckCamX = 0; wreckMsgT = 2.8;
+  diver.x = 200; diver.y = deckFloorY(0); diver.vx = 0; diver.vy = 0; diverFace = 1;
+  wreckCamX = 0; wreckCamY = 0; wreckMsgT = 2.8;
   diverOut = false; diverRecalling = false;
   playTone(300, 0.16, 0.4, 'sine');
 }
@@ -394,13 +406,27 @@ function updateWreckExplore(dt) {
   if (diver.vy >  DIVER_MAX) diver.vy =  DIVER_MAX;
   if (diver.vy < -DIVER_MAX) diver.vy = -DIVER_MAX;
   if (Math.abs(diver.vx) > 5) diverFace = diver.vx > 0 ? 1 : -1;
+  var prevY = diver.y;
   diver.x += diver.vx * dt;
   diver.y += diver.vy * dt;
 
+  // World bounds
   if (diver.x < 60)         { diver.x = 60;         if (diver.vx < 0) diver.vx = 0; }
   if (diver.x > WK_W - 60)  { diver.x = WK_W - 60;  if (diver.vx > 0) diver.vx = 0; }
-  if (diver.y < WK_CEIL + 12) { diver.y = WK_CEIL + 12; if (diver.vy < 0) diver.vy = 0; }
-  if (diver.y > WK_FLR)       { diver.y = WK_FLR;       if (diver.vy > 0) diver.vy = 0; }
+  if (diver.y < WK_CEIL_TOP + 12) { diver.y = WK_CEIL_TOP + 12; if (diver.vy < 0) diver.vy = 0; }
+  if (diver.y > WK_FLR_BOT)       { diver.y = WK_FLR_BOT;       if (diver.vy > 0) diver.vy = 0; }
+
+  // Solid deck plating blocks vertical travel except through the stairwell shaft
+  if (Math.abs(diver.x - WK_STAIR_X) >= WK_STAIR_HALF) {
+    for (var f = 0; f < WK_FLOORS - 1; f++) {
+      var yb = WK_DIVIDER(f);
+      if (prevY <= yb) {
+        if (diver.y > yb - 14) { diver.y = yb - 14; if (diver.vy > 0) diver.vy = 0; }
+      } else {
+        if (diver.y < yb + 14) { diver.y = yb + 14; if (diver.vy < 0) diver.vy = 0; }
+      }
+    }
+  }
 
   if (currentWreck) {
     for (var i = 0; i < currentWreck.loot.length; i++) {
@@ -420,9 +446,12 @@ function updateWreckExplore(dt) {
   wreckCamX = diver.x - W / 2;
   if (wreckCamX < 0) wreckCamX = 0;
   if (wreckCamX > WK_W - W) wreckCamX = WK_W - W;
+  wreckCamY = diver.y - H / 2;
+  if (wreckCamY < 0) wreckCamY = 0;
+  if (wreckCamY > WK_TOTAL_H - H) wreckCamY = WK_TOTAL_H - H;
 
-  // Swim back out through the foyer EXIT door
-  if (diver.x < 116 && diver.y > WK_FLR - 64) { leaveWreck(); return; }
+  // Swim back out through the top-deck foyer EXIT door
+  if (diver.x < 116 && diver.y > deckFloorY(0) - 64 && diver.y < WK_FLOOR_H) { leaveWreck(); return; }
 }
 
 // ── surface ships ──────────────────────────────────────────────────────────────
@@ -445,6 +474,12 @@ var SHIPS = [];
 }());
 var shipSinkTimer = 16;
 
+function startShipSinking(s, loud) {
+  if (s.state !== 'sailing') return;
+  s.state = 'sinking'; s.sinkP = 0;
+  playNoise(loud ? 0.42 : 0.28, 0.7);
+}
+
 function updateShips(dt, cx) {
   shipSinkTimer -= dt;
   if (shipSinkTimer <= 0) {
@@ -456,7 +491,7 @@ function updateShips(dt, cx) {
       var d = Math.abs(SHIPS[i].wx - cx);
       if (d < bestD) { bestD = d; best = i; }
     }
-    if (best >= 0 && bestD < 2400) { SHIPS[best].state = 'sinking'; SHIPS[best].sinkP = 0; playNoise(0.28, 0.7); }
+    if (best >= 0 && bestD < 2400) startShipSinking(SHIPS[best], false);
   }
   for (var j = 0; j < SHIPS.length; j++) {
     var s = SHIPS[j];
@@ -465,13 +500,31 @@ function updateShips(dt, cx) {
       s.wx += s.vx * dt;
       if (s.wx - cx >  2600) s.wx -= 5200;
       if (s.wx - cx < -2600) s.wx += 5200;
+      // Strike an iceberg (the same ones the sub can hit) → start going down
+      for (var ib = 0; ib < ICEBERGS.length; ib++) {
+        var berg = ICEBERGS[ib];
+        if (Math.abs(s.wx - berg.wx) < 70 + 46 * berg.sz) {
+          startShipSinking(s, true);
+          shakeMag = Math.max(shakeMag, 12);
+          break;
+        }
+      }
     } else {
       s.sinkP = Math.min(1, s.sinkP + dt / 5.5);
       s.tilt  = Math.min(0.85, s.tilt + dt * 0.20);
       s.wx   += s.vx * 0.25 * dt;
       if (s.sinkP >= 1) {
-        // Settle to the seabed as a brand-new explorable shipwreck
-        WRECKS.push({ wx: s.wx, loot: makeWreckLoot((s.wx | 0) ^ 0x9e3779b1), fresh: 1.6 });
+        // Settle to the seabed — keep the liner's look, then rust over time
+        WRECKS.push({
+          wx: s.wx,
+          loot: makeWreckLoot((s.wx | 0) ^ 0x9e3779b1),
+          fresh: 1.6,
+          kind: 'liner',
+          ship: { kind: s.kind, vx: s.vx, state: 'wreck' },
+          rust: 0, stackFall: 0,
+          tilt: Math.min(0.40, s.tilt),
+          tiltSign: (s.vx < 0 ? -1 : 1)
+        });
         if (WRECKS.length > 44) {
           var fi = -1, fd = -1;
           for (var w = 0; w < WRECKS.length; w++) {
@@ -1701,8 +1754,16 @@ function update(dt) {
     if (wreckNear && JP['KeyE']) { enterWreck(wreckNear); return; }
   }
 
-  // Decay the "just sank" highlight on fresh wrecks
-  for (var wf = 0; wf < WRECKS.length; wf++) { if (WRECKS[wf].fresh > 0) WRECKS[wf].fresh -= dt; }
+  // Age the wrecks: decay the "just sank" highlight, drop the smokestacks,
+  // and let freshly-sunk liners slowly rust toward brown.
+  for (var wf = 0; wf < WRECKS.length; wf++) {
+    var awr = WRECKS[wf];
+    if (awr.fresh > 0) awr.fresh -= dt;
+    if (awr.kind === 'liner') {
+      if (awr.stackFall < 1) awr.stackFall = Math.min(1, awr.stackFall + dt / 2.0);
+      if (awr.rust < 1)      awr.rust      = Math.min(1, awr.rust + dt / 35);
+    }
+  }
 
   // Surface ships sail along, and occasionally one founders into a new wreck
   updateShips(dt, camX + W / 2);
@@ -1901,7 +1962,9 @@ function drawTerrain() {
     var wr = WRECKS[j];
     var wrSx = wr.wx - camX;
     if (wrSx < -220 || wrSx > W + 220) continue;
-    drawWreck(wrSx, terrain(wr.wx), wr === wreckNear && gamePhase === 'playing', wreckCleared(wr));
+    var wrNear = wr === wreckNear && gamePhase === 'playing';
+    if (wr.kind === 'liner') drawLinerWreck(wrSx, terrain(wr.wx), wr, wrNear, wreckCleared(wr));
+    else                     drawWreck(wrSx, terrain(wr.wx), wrNear, wreckCleared(wr));
   }
 }
 
@@ -2057,16 +2120,20 @@ function drawWreck(sx, ty, isNear, cleared) {
 
   ctx.restore();
 
-  // Floating prompt / status (screen space, above the wreck)
+  drawWreckPrompt(sx, ty, isNear, cleared, 86);
+}
+
+// Floating EXPLORE / LOOTED label above a seabed wreck (screen space)
+function drawWreckPrompt(sx, ty, isNear, cleared, h) {
   if (isNear) {
     ctx.save();
     ctx.globalAlpha = 0.75 + 0.25 * Math.sin(wt * 6);
     ctx.fillStyle = 'rgba(6,20,28,0.82)';
-    rRect(sx - 66, ty - 86, 132, 26, 5); ctx.fill();
+    rRect(sx - 66, ty - h, 132, 26, 5); ctx.fill();
     ctx.fillStyle = '#ffe066';
     ctx.font = 'bold 11px monospace';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(isTouch() ? 'TAP EXPLORE' : 'PRESS E TO EXPLORE', sx, ty - 73);
+    ctx.fillText(isTouch() ? 'TAP EXPLORE' : 'PRESS E TO EXPLORE', sx, ty - h + 13);
     ctx.restore();
   } else if (cleared) {
     ctx.save();
@@ -2074,9 +2141,36 @@ function drawWreck(sx, ty, isNear, cleared) {
     ctx.fillStyle = '#8fb0bb';
     ctx.font = '9px monospace';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('LOOTED', sx, ty - 64);
+    ctx.fillText('LOOTED', sx, ty - h + 22);
     ctx.restore();
   }
+}
+
+// A sunk ocean liner resting on the seabed — keeps its shape, rusts over time,
+// and its smokestacks have toppled. Still explorable.
+function drawLinerWreck(sx, ty, wr, isNear, cleared) {
+  // Soft halo when the sub is alongside
+  if (isNear) {
+    ctx.save();
+    ctx.globalAlpha = 0.16 + 0.10 * Math.sin(wt * 4);
+    ctx.fillStyle = '#7fe0ff';
+    ctx.beginPath(); ctx.ellipse(sx, ty - 24, 110, 60, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+  // Seat the hull on the floor, listing to one side
+  drawShipSide(sx, ty - 14, wr.ship, wr.tilt * wr.tiltSign, wr.rust, wr.stackFall, true, isNear);
+  // A little seaweed creeping up the hull
+  ctx.save();
+  ctx.strokeStyle = 'rgba(40,130,60,0.5)'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+  for (var g = -2; g <= 2; g++) {
+    var gx = sx + g * 30;
+    var sway = Math.sin(wt * 1.5 + g) * 4;
+    ctx.beginPath(); ctx.moveTo(gx, ty - 6); ctx.quadraticCurveTo(gx + sway, ty - 18, gx + sway * 1.5, ty - 30); ctx.stroke();
+  }
+  ctx.lineCap = 'butt';
+  ctx.restore();
+
+  drawWreckPrompt(sx, ty, isNear, cleared, 96);
 }
 
 // ── draw surface ships (side view) ────────────────────────────────────────────
@@ -2111,19 +2205,34 @@ function drawSurfaceShips() {
   }
 }
 
-function drawShipSide(sx, y, s, rot) {
+// Blend a hex colour toward rusty brown by amount t (0..1)
+function _hex3(h) { h = h.replace('#', ''); return [parseInt(h.substr(0, 2), 16), parseInt(h.substr(2, 2), 16), parseInt(h.substr(4, 2), 16)]; }
+function rustCol(hex, t) {
+  if (!t) return hex;
+  if (t > 1) t = 1;
+  var c = _hex3(hex), tgt = [74, 53, 32]; // #4a3520 rust brown
+  return 'rgb(' + Math.round(c[0] + (tgt[0] - c[0]) * t) + ',' +
+                  Math.round(c[1] + (tgt[1] - c[1]) * t) + ',' +
+                  Math.round(c[2] + (tgt[2] - c[2]) * t) + ')';
+}
+
+function drawShipSide(sx, y, s, rot, rust, stackFall, isWreck, isNear) {
+  rust = rust || 0; stackFall = stackFall || 0;
   var pals = [
     { hull: '#1f2a44', stripe: '#c0392b', sup: '#e8e8ee', funnel: '#c0392b', funs: 3 },
     { hull: '#26402c', stripe: '#d4a017', sup: '#ede6d0', funnel: '#34495e', funs: 2 },
     { hull: '#3a1f3a', stripe: '#16a085', sup: '#e6e0ec', funnel: '#7d3c98', funs: 2 }
   ];
   var pal = pals[s.kind % 3];
+  var rt = rust * 0.85;
+  var hullC = rustCol(pal.hull, rt), stripeC = rustCol(pal.stripe, rt);
+  var supC = rustCol(pal.sup, rt), funnelC = rustCol(pal.funnel, rt);
   var hw = 78;
   ctx.save();
   ctx.translate(sx, y);
   ctx.rotate(rot);
 
-  // Funnel smoke (sailing only)
+  // Funnel smoke (only while still steaming on the surface)
   if (s.state === 'sailing') {
     ctx.fillStyle = 'rgba(120,120,130,0.28)';
     for (var sm = 0; sm < pal.funs; sm++) {
@@ -2136,7 +2245,7 @@ function drawShipSide(sx, y, s, rot) {
   }
 
   // Hull
-  ctx.fillStyle = pal.hull;
+  ctx.fillStyle = hullC;
   ctx.beginPath();
   ctx.moveTo(-hw, -10);
   ctx.lineTo(hw - 6, -10);
@@ -2147,31 +2256,51 @@ function drawShipSide(sx, y, s, rot) {
   ctx.closePath();
   ctx.fill();
   // Waterline stripe
-  ctx.fillStyle = pal.stripe;
+  ctx.fillStyle = stripeC;
   ctx.fillRect(-hw, -2, hw * 2 - 4, 4);
-  // Hull portholes
-  ctx.fillStyle = '#ffe9a8';
+  // Hull portholes (go dark as she rusts)
+  ctx.fillStyle = rust > 0.5 ? '#241a10' : '#ffe9a8';
   for (var p = 0; p < 9; p++) { ctx.beginPath(); ctx.arc(-hw + 12 + p * 15, 6, 1.6, 0, Math.PI * 2); ctx.fill(); }
 
   // Superstructure
-  ctx.fillStyle = pal.sup;
+  ctx.fillStyle = supC;
   rRect(-hw + 18, -30, hw * 2 - 42, 22, 3); ctx.fill();
   rRect(-hw + 30, -42, hw * 2 - 72, 14, 3); ctx.fill();
-  ctx.fillStyle = '#5a7a99';
+  ctx.fillStyle = rustCol('#5a7a99', rt);
   for (var w2 = 0; w2 < 8; w2++) ctx.fillRect(-hw + 26 + w2 * 13, -26, 7, 6);
   for (var w3 = 0; w3 < 5; w3++) ctx.fillRect(-hw + 38 + w3 * 13, -38, 7, 5);
 
-  // Funnels
+  // Funnels — pivot at their base so they topple as stackFall climbs
   for (var f = 0; f < pal.funs; f++) {
     var fx = -hw * 0.3 + f * (hw * 0.6 / Math.max(1, pal.funs - 1)) - 6;
-    ctx.fillStyle = pal.funnel;
-    rRect(fx, -64, 13, 26, 2); ctx.fill();
-    ctx.fillStyle = '#1a1a1a';
-    ctx.fillRect(fx - 1, -66, 15, 4);
+    ctx.save();
+    ctx.translate(fx + 6.5, -38);                       // base of the funnel
+    ctx.rotate(stackFall * (Math.PI / 2) * (f % 2 ? 1 : -1));
+    ctx.fillStyle = funnelC;
+    rRect(-6.5, -26, 13, 26, 2); ctx.fill();
+    ctx.fillStyle = rustCol('#1a1a1a', rt * 0.5);
+    ctx.fillRect(-7.5, -28, 15, 4);
+    ctx.restore();
   }
-  // Mast
-  ctx.strokeStyle = '#2a2a30'; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(hw - 18, -42); ctx.lineTo(hw - 18, -70); ctx.stroke();
+  // Mast (snaps over once wrecked)
+  ctx.strokeStyle = rustCol('#2a2a30', rt); ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(hw - 18, -42);
+  if (stackFall > 0.5) ctx.lineTo(hw - 18 - 22 * stackFall, -42 - 14);
+  else ctx.lineTo(hw - 18, -70);
+  ctx.stroke();
+
+  // Wreck entrance — a dark hatch into the superstructure, lit when near
+  if (isWreck) {
+    ctx.fillStyle = '#070d10';
+    rRect(-12, -28, 24, 22, 3); ctx.fill();
+    var eg = ctx.createLinearGradient(0, -28, 0, -6);
+    eg.addColorStop(0, isNear ? 'rgba(140,215,240,0.55)' : 'rgba(90,150,180,0.28)');
+    eg.addColorStop(1, 'rgba(20,60,80,0)');
+    ctx.fillStyle = eg; rRect(-10, -26, 20, 20, 3); ctx.fill();
+    ctx.strokeStyle = isNear ? '#ffe066' : '#5a4a36'; ctx.lineWidth = 2;
+    rRect(-12, -28, 24, 22, 3); ctx.stroke();
+  }
 
   ctx.restore();
 }
@@ -2215,7 +2344,7 @@ function drawShipTopDown(sx, sy, s) {
 // ── draw a piece of wreck loot ────────────────────────────────────────────────
 function drawLoot(it) {
   var x = it.x - wreckCamX;
-  var y = it.y + Math.sin(it.bob + wt * 1.5) * 3;
+  var y = (it.y - wreckCamY) + Math.sin(it.bob + wt * 1.5) * 3;
   ctx.save();
   ctx.translate(x, y);
   // glow
@@ -2257,114 +2386,154 @@ function drawLoot(it) {
   ctx.restore();
 }
 
-// ── draw the explorable wreck interior ────────────────────────────────────────
-function drawRoomLabel(cx, text) {
-  if (cx < -180 || cx > W + 180) return;
+// ── draw the explorable wreck interior (multi-deck) ───────────────────────────
+function drawRoomLabel(cx, cy, text) {
+  if (cx < -180 || cx > W + 180 || cy < -20 || cy > H + 20) return;
   ctx.save();
   ctx.globalAlpha = 0.85;
   ctx.fillStyle = 'rgba(8,20,26,0.7)';
   var w = text.length * 7 + 18;
-  rRect(cx - w / 2, WK_CEIL + 6, w, 18, 4); ctx.fill();
+  rRect(cx - w / 2, cy, w, 18, 4); ctx.fill();
   ctx.fillStyle = '#9fd0c0';
   ctx.font = 'bold 10px monospace';
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText(text, cx, WK_CEIL + 15);
+  ctx.fillText(text, cx, cy + 9);
   ctx.restore();
 }
 
-function drawGrandStaircase(cx) {
-  if (cx < -280 || cx > W + 280) return;
-  ctx.save();
-  ctx.translate(cx, 0);
-  // arched window light behind
-  var ag = ctx.createLinearGradient(0, WK_CEIL, 0, WK_FLR);
-  ag.addColorStop(0, 'rgba(90,170,200,0.30)');
-  ag.addColorStop(1, 'rgba(40,90,120,0.04)');
-  ctx.fillStyle = ag;
-  ctx.beginPath();
-  ctx.moveTo(-52, WK_FLR - 20);
-  ctx.lineTo(-52, WK_CEIL + 60);
-  ctx.quadraticCurveTo(0, WK_CEIL + 8, 52, WK_CEIL + 60);
-  ctx.lineTo(52, WK_FLR - 20);
-  ctx.closePath(); ctx.fill();
-  ctx.strokeStyle = 'rgba(150,200,220,0.3)'; ctx.lineWidth = 2; ctx.stroke();
+// The grand-staircase shaft: an open column that links every deck. Swim up or
+// down it to travel between floors.
+function drawStairwell(sxF, syF) {
+  var L = sxF(WK_STAIR_X - WK_STAIR_HALF), R = sxF(WK_STAIR_X + WK_STAIR_HALF);
+  if (R < -20 || L > W + 20) return;
+  var cx = sxF(WK_STAIR_X);
+  var top = syF(WK_CEIL_TOP), bot = syF(WK_FLR_BOT + 14);
+  // Water-filled shaft, faintly lit from above
+  ctx.fillStyle = '#143038';
+  ctx.fillRect(L, top, R - L, bot - top);
+  var lg = ctx.createLinearGradient(0, top, 0, bot);
+  lg.addColorStop(0, 'rgba(150,210,235,0.22)');
+  lg.addColorStop(1, 'rgba(150,210,235,0)');
+  ctx.fillStyle = lg; ctx.fillRect(L, top, R - L, bot - top);
 
-  // chandelier
-  ctx.strokeStyle = '#6a5a30'; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(0, WK_CEIL); ctx.lineTo(0, WK_CEIL + 28); ctx.stroke();
-  ctx.fillStyle = 'rgba(230,210,140,0.85)';
-  ctx.beginPath(); ctx.ellipse(0, WK_CEIL + 36, 22, 12, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = 'rgba(255,240,180,0.5)';
-  for (var c = -2; c <= 2; c++) { ctx.beginPath(); ctx.arc(c * 9, WK_CEIL + 40, 3, 0, Math.PI * 2); ctx.fill(); }
-
-  // staircase steps + carpet
-  var baseY = WK_FLR;
-  ctx.fillStyle = '#5a3e20';
-  for (var st = 0; st < 8; st++) {
-    var sw2 = 80 - st * 7;
-    var sy2 = baseY - st * 14;
-    ctx.fillRect(-sw2, sy2 - 12, sw2 * 2, 12);
+  // A flight of carpeted steps per deck, alternating direction (grand zigzag)
+  for (var f = 0; f < WK_FLOORS; f++) {
+    var baseY = WK_DIVIDER(f);
+    var topY  = (f === 0) ? WK_CEIL_TOP + 10 : WK_DIVIDER(f - 1);
+    var dir = (f % 2 === 0) ? 1 : -1;
+    var steps = 7, spanY = baseY - topY - 10;
+    for (var st = 0; st < steps; st++) {
+      var t = st / steps;
+      var syy = syF(baseY - 8 - t * spanY);
+      var stepX = cx + dir * (t - 0.5) * (WK_STAIR_HALF - 8) * 0.7;
+      ctx.fillStyle = '#5a3e20'; ctx.fillRect(stepX - 16, syy - 8, 32, 8);
+      ctx.fillStyle = '#8a2520'; ctx.fillRect(stepX - 7, syy - 8, 14, 8); // carpet
+    }
   }
-  ctx.fillStyle = '#8a2520';
-  for (var st2 = 0; st2 < 8; st2++) ctx.fillRect(-14, baseY - st2 * 14 - 12, 28, 12);
-
-  // banisters + newel posts
+  // Banister rails on the shaft edges
   ctx.strokeStyle = '#7a5a2e'; ctx.lineWidth = 3;
-  ctx.beginPath(); ctx.moveTo(-80, baseY); ctx.lineTo(-30, baseY - 112); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(80, baseY); ctx.lineTo(30, baseY - 112); ctx.stroke();
-  ctx.fillStyle = '#8a6838';
-  ctx.fillRect(-84, baseY - 26, 8, 26); ctx.fillRect(76, baseY - 26, 8, 26);
-  ctx.fillStyle = '#c8a85a';
-  ctx.beginPath(); ctx.arc(-80, baseY - 28, 5, 0, Math.PI * 2); ctx.arc(80, baseY - 28, 5, 0, Math.PI * 2); ctx.fill();
-  ctx.restore();
+  ctx.beginPath(); ctx.moveTo(L + 3, top); ctx.lineTo(L + 3, bot);
+  ctx.moveTo(R - 3, top); ctx.lineTo(R - 3, bot); ctx.stroke();
+  // Chandelier crowning the stairwell
+  var chY = syF(WK_CEIL_TOP + 30);
+  ctx.fillStyle = 'rgba(230,210,140,0.85)';
+  ctx.beginPath(); ctx.ellipse(cx, chY, 20, 11, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(255,240,180,0.5)';
+  for (var c = -2; c <= 2; c++) { ctx.beginPath(); ctx.arc(cx + c * 8, chY + 4, 2.5, 0, Math.PI * 2); ctx.fill(); }
 }
 
-function drawGrandDining(cx) {
-  if (cx < -320 || cx > W + 320) return;
-  ctx.save();
-  ctx.translate(cx, 0);
-  var tableY = WK_FLR - 26;
-  // chandelier
-  ctx.strokeStyle = '#6a5a30'; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(0, WK_CEIL); ctx.lineTo(0, WK_CEIL + 24); ctx.stroke();
-  ctx.fillStyle = 'rgba(230,210,140,0.8)';
-  ctx.beginPath(); ctx.ellipse(0, WK_CEIL + 32, 26, 10, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = 'rgba(255,240,180,0.5)';
-  for (var c = -3; c <= 3; c++) { ctx.beginPath(); ctx.arc(c * 8, WK_CEIL + 36, 2.5, 0, Math.PI * 2); ctx.fill(); }
+// Per-deck themed decoration drawn on top of the plating
+function drawDeckDecor(f, sxF, syF) {
+  var baseY = WK_DIVIDER(f);   // plating top — things rest here
+  var ceilY = deckCeilY(f);
+  var names = ['BOAT DECK', 'GRAND DINING ROOM', 'CARGO HOLD'];
+  drawRoomLabel(sxF(250), syF(ceilY), names[f] || 'DECK');
 
-  // chairs (behind table)
-  ctx.fillStyle = '#5a3e22';
-  var chairXs = [-120, -60, 60, 120];
-  for (var ch = 0; ch < chairXs.length; ch++) {
-    var chx = chairXs[ch];
-    ctx.fillRect(chx - 8, tableY - 30, 16, 30);
-    ctx.fillRect(chx - 10, tableY + 6, 20, 6);
+  if (f === 0) {
+    // Promenade windows along the back wall
+    for (var wI = 0; wI < 5; wI++) {
+      var wxp = sxF(980 + wI * 92);
+      if (wxp < -30 || wxp > W + 30) continue;
+      var wy0 = syF(ceilY + 16), wy1 = syF(baseY - 24);
+      var wg = ctx.createLinearGradient(0, wy0, 0, wy1);
+      wg.addColorStop(0, 'rgba(90,170,200,0.30)');
+      wg.addColorStop(1, 'rgba(40,90,120,0.04)');
+      ctx.fillStyle = wg;
+      ctx.beginPath();
+      ctx.moveTo(wxp - 22, wy1); ctx.lineTo(wxp - 22, wy0 + 14);
+      ctx.quadraticCurveTo(wxp, wy0 - 6, wxp + 22, wy0 + 14); ctx.lineTo(wxp + 22, wy1);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = 'rgba(150,200,220,0.25)'; ctx.lineWidth = 2; ctx.stroke();
+    }
+    // EXIT door
+    var dxp = sxF(100);
+    if (dxp > -120 && dxp < W + 120) {
+      var dy0 = syF(baseY - 70), dy1 = syF(baseY);
+      ctx.fillStyle = '#0a1a22'; rRect(dxp - 26, dy0, 52, dy1 - dy0, 6); ctx.fill();
+      var dg = ctx.createLinearGradient(dxp, dy0, dxp, dy1);
+      dg.addColorStop(0, 'rgba(120,210,255,0.55)');
+      dg.addColorStop(1, 'rgba(40,120,170,0.12)');
+      ctx.fillStyle = dg; rRect(dxp - 20, dy0 + 8, 40, dy1 - dy0 - 8, 4); ctx.fill();
+      ctx.strokeStyle = '#3a5a6a'; ctx.lineWidth = 3; rRect(dxp - 26, dy0, 52, dy1 - dy0, 6); ctx.stroke();
+      ctx.fillStyle = '#0a1a10'; rRect(dxp - 22, dy0 - 22, 44, 16, 3); ctx.fill();
+      ctx.fillStyle = '#44ff88'; ctx.font = 'bold 11px monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('EXIT', dxp, dy0 - 13);
+    }
+  } else if (f === 1) {
+    // Grand dining room (to the right of the stairwell)
+    var cx = sxF(1150), tableY = syF(baseY - 12);
+    // chandelier
+    ctx.fillStyle = 'rgba(230,210,140,0.8)';
+    ctx.beginPath(); ctx.ellipse(cx, syF(ceilY + 20), 24, 9, 0, 0, Math.PI * 2); ctx.fill();
+    // chairs
+    ctx.fillStyle = '#5a3e22';
+    var chairXs = [-120, -60, 60, 120];
+    for (var ch = 0; ch < chairXs.length; ch++) {
+      ctx.fillRect(cx + chairXs[ch] - 8, tableY - 30, 16, 30);
+    }
+    // table + cloth + plates
+    ctx.fillStyle = '#4a3320'; rRect(cx - 150, tableY, 300, 12, 3); ctx.fill();
+    ctx.fillStyle = 'rgba(220,210,190,0.9)'; rRect(cx - 150, tableY, 300, 7, 3); ctx.fill();
+    ctx.fillStyle = '#d8d8e0';
+    for (var pl = -2; pl <= 2; pl++) { ctx.beginPath(); ctx.ellipse(cx + pl * 52, tableY + 2, 9, 3, 0, 0, Math.PI * 2); ctx.fill(); }
+    ctx.strokeStyle = '#c8a85a'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(cx, tableY); ctx.lineTo(cx, tableY - 14); ctx.stroke();
+    ctx.fillStyle = '#ffd060';
+    ctx.beginPath(); ctx.arc(cx, tableY - 16, 2.5, 0, Math.PI * 2); ctx.fill();
+  } else {
+    // Cargo hold / boiler room — boilers + crates
+    var positions = [320, 1120];
+    for (var bI = 0; bI < positions.length; bI++) {
+      var bx = sxF(positions[bI]);
+      if (bx < -80 || bx > W + 80) continue;
+      var by = syF(baseY);
+      // boiler drum
+      ctx.fillStyle = '#3a2a1e'; rRect(bx - 26, by - 54, 52, 54, 8); ctx.fill();
+      ctx.strokeStyle = '#5a4632'; ctx.lineWidth = 2; rRect(bx - 26, by - 54, 52, 54, 8); ctx.stroke();
+      ctx.fillStyle = '#1a1008'; ctx.beginPath(); ctx.arc(bx, by - 28, 12, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#6a5238'; ctx.lineWidth = 2; ctx.stroke();
+      // rivets
+      ctx.fillStyle = '#6a5238';
+      for (var rv = 0; rv < 4; rv++) { ctx.beginPath(); ctx.arc(bx - 18 + rv * 12, by - 50, 1.6, 0, Math.PI * 2); ctx.fill(); }
+    }
+    // a couple of crates
+    var crates = [620, 900];
+    for (var cI = 0; cI < crates.length; cI++) {
+      var kx = sxF(crates[cI]); if (kx < -40 || kx > W + 40) continue;
+      var ky = syF(baseY);
+      ctx.fillStyle = '#5a3e22'; rRect(kx - 14, ky - 26, 28, 26, 2); ctx.fill();
+      ctx.strokeStyle = '#3a281a'; ctx.lineWidth = 2;
+      rRect(kx - 14, ky - 26, 28, 26, 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(kx - 14, ky - 26); ctx.lineTo(kx + 14, ky); ctx.moveTo(kx + 14, ky - 26); ctx.lineTo(kx - 14, ky); ctx.stroke();
+    }
   }
-
-  // table + cloth
-  ctx.fillStyle = '#4a3320'; rRect(-150, tableY, 300, 14, 3); ctx.fill();
-  ctx.fillStyle = 'rgba(220,210,190,0.9)'; rRect(-150, tableY, 300, 8, 3); ctx.fill();
-  ctx.fillStyle = 'rgba(200,190,170,0.6)';
-  for (var d = 0; d < 8; d++) ctx.fillRect(-150 + d * 38, tableY + 8, 12, 6);
-  ctx.fillStyle = '#3a281a';
-  ctx.fillRect(-140, tableY + 14, 8, 26); ctx.fillRect(132, tableY + 14, 8, 26);
-
-  // plates + candelabra
-  ctx.fillStyle = '#d8d8e0';
-  for (var pl = -2; pl <= 2; pl++) { ctx.beginPath(); ctx.ellipse(pl * 52, tableY + 2, 9, 3, 0, 0, Math.PI * 2); ctx.fill(); }
-  ctx.strokeStyle = '#c8a85a'; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(0, tableY); ctx.lineTo(0, tableY - 16); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(-10, tableY - 10); ctx.lineTo(10, tableY - 10); ctx.stroke();
-  ctx.fillStyle = '#ffd060';
-  ctx.beginPath(); ctx.arc(0, tableY - 18, 2.5, 0, Math.PI * 2);
-  ctx.arc(-10, tableY - 12, 2.5, 0, Math.PI * 2); ctx.arc(10, tableY - 12, 2.5, 0, Math.PI * 2); ctx.fill();
-  ctx.restore();
 }
 
 function drawInteriorDiver() {
-  var dsx = diver.x - wreckCamX;
+  var dsx = diver.x - wreckCamX, dsy = diver.y - wreckCamY;
   ctx.save();
-  ctx.translate(dsx, diver.y);
+  ctx.translate(dsx, dsy);
   ctx.scale(diverFace, 1);
   // head-lamp glow
   ctx.fillStyle = 'rgba(255,250,200,0.16)';
@@ -2404,7 +2573,10 @@ function drawWreckHUD() {
   ctx.fillStyle = '#7fd0c8';
   ctx.font = 'bold 12px monospace';
   ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-  ctx.fillText('SHIPWRECK', 16, 14);
+  var deckNames = ['BOAT DECK', 'DINING DECK', 'CARGO HOLD'];
+  var df = Math.floor(diver.y / WK_FLOOR_H);
+  if (df < 0) df = 0; if (df > WK_FLOORS - 1) df = WK_FLOORS - 1;
+  ctx.fillText('WRECK • ' + deckNames[df], 16, 14);
   var total = currentWreck ? currentWreck.loot.length : 0, got = 0;
   if (currentWreck) for (var i = 0; i < currentWreck.loot.length; i++) if (currentWreck.loot[i].collected) got++;
   ctx.fillStyle = '#ffe066';
@@ -2426,19 +2598,19 @@ function drawWreckHUD() {
   if (!isTouch()) {
     ctx.fillStyle = 'rgba(160,200,220,0.7)';
     ctx.font = '10px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-    ctx.fillText('ARROWS swim    E = leave (or swim out the EXIT door)', W / 2, H - 8);
+    ctx.fillText('ARROWS swim • use the GRAND STAIRCASE to change decks • E = leave', W / 2, H - 8);
   }
 
   if (wreckMsgT > 0) {
     ctx.save();
     ctx.globalAlpha = Math.min(1, wreckMsgT);
     ctx.fillStyle = 'rgba(5,20,28,0.82)';
-    rRect(W / 2 - 176, 60, 352, 44, 8); ctx.fill();
+    rRect(W / 2 - 186, 60, 372, 44, 8); ctx.fill();
     ctx.fillStyle = '#aee0d0';
     ctx.font = 'bold 14px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('Explore the wreck — grab the treasure!', W / 2, 76);
+    ctx.fillText('Explore all three decks — grab the treasure!', W / 2, 76);
     ctx.fillStyle = 'rgba(180,210,220,0.7)'; ctx.font = '10px monospace';
-    ctx.fillText('chests, safes & coolers of salt-cured salami await', W / 2, 94);
+    ctx.fillText('swim the grand staircase between floors', W / 2, 94);
     ctx.restore();
   }
 }
@@ -2449,6 +2621,7 @@ function drawWreckInterior() {
   ctx.translate(Math.round(shakeX), Math.round(shakeY));
 
   function sx(x) { return x - wreckCamX; }
+  function sy(y) { return y - wreckCamY; }
 
   // Murky flooded background
   var bg = ctx.createLinearGradient(0, 0, 0, H);
@@ -2457,71 +2630,55 @@ function drawWreckInterior() {
   bg.addColorStop(1, '#06181c');
   ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
 
-  // Ceiling + floor
-  ctx.fillStyle = '#241a12'; ctx.fillRect(0, 0, W, WK_CEIL);
-  ctx.fillStyle = '#3a2a1a'; ctx.fillRect(0, WK_CEIL - 6, W, 6);
-  ctx.fillStyle = '#1a120a'; ctx.fillRect(0, WK_FLR + 8, W, H - WK_FLR);
-  ctx.fillStyle = '#2a1e12'; ctx.fillRect(0, WK_FLR + 8, W, 5);
+  var stairL = sx(WK_STAIR_X - WK_STAIR_HALF), stairR = sx(WK_STAIR_X + WK_STAIR_HALF);
 
-  // Light shaft over the foyer door
-  var fx0 = sx(120);
-  if (fx0 > -200 && fx0 < W + 200) {
-    var lg = ctx.createLinearGradient(0, WK_CEIL, 0, WK_FLR);
-    lg.addColorStop(0, 'rgba(120,200,230,0.18)');
-    lg.addColorStop(1, 'rgba(120,200,230,0)');
-    ctx.fillStyle = lg;
-    ctx.beginPath();
-    ctx.moveTo(fx0 - 30, WK_CEIL); ctx.lineTo(fx0 + 30, WK_CEIL);
-    ctx.lineTo(fx0 + 70, WK_FLR); ctx.lineTo(fx0 - 70, WK_FLR); ctx.closePath(); ctx.fill();
+  // Top-deck ceiling (everything above the topmost deck)
+  var topCeilY = sy(WK_CEIL_TOP);
+  if (topCeilY > 0) { ctx.fillStyle = '#241a12'; ctx.fillRect(0, 0, W, topCeilY); ctx.fillStyle = '#3a2a1a'; ctx.fillRect(0, topCeilY - 5, W, 5); }
+
+  // Solid deck plating between decks (with a gap at the stairwell, except the
+  // hard floor at the very bottom)
+  for (var f = 0; f < WK_FLOORS; f++) {
+    var yb = WK_DIVIDER(f);
+    var py = sy(yb);
+    if (py < -30 || py > H + 30) continue;
+    var solid = (f === WK_FLOORS - 1); // bottom floor has no opening
+    var segs = solid ? [[0, W]] : [[0, Math.min(W, stairL)], [Math.max(0, stairR), W]];
+    for (var sgi = 0; sgi < segs.length; sgi++) {
+      var x0 = segs[sgi][0], x1 = segs[sgi][1];
+      if (x1 <= x0) continue;
+      ctx.fillStyle = '#2a1e12'; ctx.fillRect(x0, py - 4, x1 - x0, 22);
+      ctx.fillStyle = '#3e2c1a'; ctx.fillRect(x0, py - 4, x1 - x0, 4);
+    }
   }
+  // Fill below the hard floor
+  var botY = sy(WK_DIVIDER(WK_FLOORS - 1) + 18);
+  if (botY < H) { ctx.fillStyle = '#160f08'; ctx.fillRect(0, botY, W, H - botY); }
 
-  // Room dividers
-  function pillar(wx) {
-    var px = sx(wx);
-    if (px < -30 || px > W + 30) return;
-    ctx.fillStyle = '#2e2014'; ctx.fillRect(px - 8, WK_CEIL, 16, WK_FLR - WK_CEIL + 8);
-    ctx.fillStyle = '#3e2c1a'; ctx.fillRect(px - 8, WK_CEIL, 4, WK_FLR - WK_CEIL + 8);
-  }
-  pillar(480); pillar(980);
+  // Grand staircase shaft (drawn before decor so railings sit behind props)
+  drawStairwell(sx, sy);
 
-  // Foyer EXIT door
-  var dxp = sx(100);
-  if (dxp > -120 && dxp < W + 120) {
-    ctx.fillStyle = '#0a1a22'; rRect(dxp - 26, WK_FLR - 70, 52, 70, 6); ctx.fill();
-    var dg = ctx.createLinearGradient(dxp, WK_FLR - 70, dxp, WK_FLR);
-    dg.addColorStop(0, 'rgba(120,210,255,0.55)');
-    dg.addColorStop(1, 'rgba(40,120,170,0.12)');
-    ctx.fillStyle = dg; rRect(dxp - 20, WK_FLR - 62, 40, 62, 4); ctx.fill();
-    ctx.strokeStyle = '#3a5a6a'; ctx.lineWidth = 3; rRect(dxp - 26, WK_FLR - 70, 52, 70, 6); ctx.stroke();
-    ctx.fillStyle = '#0a1a10'; rRect(dxp - 22, WK_FLR - 92, 44, 16, 3); ctx.fill();
-    ctx.fillStyle = '#44ff88'; ctx.font = 'bold 11px monospace';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('EXIT', dxp, WK_FLR - 83);
-  }
-
-  drawGrandStaircase(sx(730));
-  drawGrandDining(sx(1230));
-  drawRoomLabel(sx(250), 'FOYER');
-  drawRoomLabel(sx(730), 'GRAND STAIRCASE');
-  drawRoomLabel(sx(1230), 'GRAND DINING ROOM');
+  // Per-deck themed decor + labels
+  for (var df = 0; df < WK_FLOORS; df++) drawDeckDecor(df, sx, sy);
 
   // Loot
   if (currentWreck) {
     for (var i = 0; i < currentWreck.loot.length; i++) {
       var it = currentWreck.loot[i];
       if (it.collected) continue;
-      var lx = it.x - wreckCamX;
-      if (lx < -40 || lx > W + 40) continue;
+      var lx = it.x - wreckCamX, ly = it.y - wreckCamY;
+      if (lx < -40 || lx > W + 40 || ly < -40 || ly > H + 40) continue;
       drawLoot(it);
     }
   }
 
-  // Floating particles
+  // Floating particles across the full height
   ctx.fillStyle = 'rgba(180,220,235,0.22)';
-  for (var dd = 0; dd < 26; dd++) {
+  for (var dd = 0; dd < 30; dd++) {
     var pxp = ((dd * 257 + wt * 12) % WK_W) - wreckCamX;
     if (pxp < 0 || pxp > W) continue;
-    var pyp = WK_CEIL + 20 + ((dd * 113) % (WK_FLR - WK_CEIL - 30)) + Math.sin(wt + dd) * 4;
+    var pyp = (WK_CEIL_TOP + 20 + ((dd * 137) % (WK_TOTAL_H - 60)) + Math.sin(wt + dd) * 4) - wreckCamY;
+    if (pyp < 0 || pyp > H) continue;
     ctx.beginPath(); ctx.arc(pxp, pyp, (dd % 3) * 0.7 + 0.6, 0, Math.PI * 2); ctx.fill();
   }
 
