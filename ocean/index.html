@@ -550,13 +550,17 @@ var SHIPS = [];
       state: 'sailing',
       sinkP: 0, tilt: 0,
       bob: rr() * 6.28,
-      lifting: false, saveCool: 0
+      lifting: false, wasLifting: false, ringT: 0, saveCool: 0
     });
   }
 }());
 var shipSinkTimer = 16;
 var shipSavedT = 0;        // "SHIP SAVED!" celebration timer
-var SHIP_SINK_DUR = 8.0;   // seconds for a foundering ship to reach the seabed
+var SHIP_SINK_DUR = 13.0;  // seconds for a foundering ship to reach the seabed (slow, so she's easy to save)
+var activeRescue = null;   // the ship currently being lifted (drives the BAIL UI)
+var bailCombo = 0;         // taps banked during the current rescue
+var bailFlashT = 0;        // brief flash after each bail tap
+var lastSaveBonus = 300;   // points from the most recent rescue (for the popup)
 
 // Current draw-depth of a sinking ship (surface → seabed via smoothstep)
 function shipSinkY(s) {
@@ -591,7 +595,7 @@ function drawShipSavedPopup() {
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText('SHIP SAVED!', 0, -4);
   ctx.fillStyle = '#cfeede'; ctx.font = '11px monospace';
-  ctx.fillText('+300', 0, 16);
+  ctx.fillText('+' + lastSaveBonus, 0, 16);
   ctx.restore();
 }
 
@@ -603,6 +607,8 @@ function startShipSinking(s, loud) {
 
 function updateShips(dt, cx, rescue) {
   if (shipSavedT > 0) shipSavedT -= dt;
+  if (bailFlashT > 0) bailFlashT -= dt;
+  activeRescue = null;
   shipSinkTimer -= dt;
   if (shipSinkTimer <= 0) {
     shipSinkTimer = 18 + Math.random() * 16;
@@ -641,23 +647,38 @@ function updateShips(dt, cx, rescue) {
         var dxr = s.wx - rescue.x;
         if (rescue.side) {
           var sYy = shipSinkY(s), dyr = sYy - rescue.y;
-          if (dxr * dxr + dyr * dyr < 135 * 135) s.lifting = true;
+          if (dxr * dxr + dyr * dyr < 165 * 165) s.lifting = true;
         } else {
           var dyt = s.ty - rescue.y;
-          if (dxr * dxr + dyt * dyt < 105 * 105) s.lifting = true;
+          if (dxr * dxr + dyt * dyt < 125 * 125) s.lifting = true;
         }
       }
       if (s.lifting) {
-        s.sinkP = Math.max(0, s.sinkP - dt / 2.4);   // push her back toward the surface
+        activeRescue = s;
+        if (!s.wasLifting) bailCombo = 0;            // a fresh rescue session
+        s.wasLifting = true;
+        s.ringT = Math.min(1, (s.ringT || 0) + dt * 2.2);  // toss the life ring across
+        s.sinkP = Math.max(0, s.sinkP - dt / 2.6);   // passive lift while you hold position
         s.tilt  = Math.max(0, s.tilt - dt * 0.6);
+        // Tap to bail water out faster (and bank a bigger bonus)
+        if (rescue && rescue.bail && s.ringT > 0.6) {
+          s.sinkP = Math.max(0, s.sinkP - 0.05);
+          bailCombo++; score += 5; scorePopT = 0.4; bailFlashT = 0.22;
+          playTone(320 + Math.min(680, bailCombo * 22), 0.05, 0.11, 'square');
+        }
         if (s.sinkP <= 0) {
-          // Saved!
-          s.state = 'sailing'; s.sinkP = 0; s.tilt = 0; s.lifting = false; s.saveCool = 3.0;
-          score += 300; scorePopT = 1.1; shipSavedT = 1.8;
+          // Saved! Bigger payout the harder you bailed.
+          var bonus = 300 + bailCombo * 10;
+          s.state = 'sailing'; s.sinkP = 0; s.tilt = 0; s.lifting = false;
+          s.wasLifting = false; s.ringT = 0; s.saveCool = 3.0;
+          score += bonus; lastSaveBonus = bonus; scorePopT = 1.1; shipSavedT = 1.9;
+          bailCombo = 0; activeRescue = null;
           playTone(740, 0.12, 0.35, 'sine'); playTone(1180, 0.12, 0.5, 'sine');
           continue;
         }
       } else {
+        s.wasLifting = false;
+        s.ringT = Math.max(0, (s.ringT || 0) - dt * 3);
         s.sinkP = Math.min(1, s.sinkP + dt / SHIP_SINK_DUR);
         s.tilt  = Math.min(0.85, s.tilt + dt * 0.18);
       }
@@ -683,7 +704,7 @@ function updateShips(dt, cx, rescue) {
           if (fi >= 0) WRECKS.splice(fi, 1);
         }
         // Respawn this ship as a fresh sailing one elsewhere
-        s.state = 'sailing'; s.sinkP = 0; s.tilt = 0; s.lifting = false; s.saveCool = 0;
+        s.state = 'sailing'; s.sinkP = 0; s.tilt = 0; s.lifting = false; s.wasLifting = false; s.ringT = 0; s.saveCool = 0;
         s.wx = cx + (Math.random() > 0.5 ? 1 : -1) * (2300 + Math.random() * 1200);
         s.ty = (Math.random() * 2 - 1) * 300;
         s.vx = (10 + Math.random() * 14) * (Math.random() > 0.5 ? 1 : -1);
@@ -770,7 +791,9 @@ var BTNS = [], btnTouch = {};
     { id: 'iR',   cx: 118,      cy: H - 58,  r: 30, key: 'ArrowRight' },
     { id: 'iU',   cx: 82,       cy: H - 92,  r: 28, key: 'ArrowUp'    },
     { id: 'iD',   cx: 82,       cy: H - 26,  r: 28, key: 'ArrowDown'  },
-    { id: 'iExit', cx: W - 60,  cy: H - 58,  r: 34, key: 'KeyE'       }
+    { id: 'iExit', cx: W - 60,  cy: H - 58,  r: 34, key: 'KeyE'       },
+    // Big BAIL button, only while a rescue is underway
+    { id: 'bail', cx: W / 2,    cy: H - 50,  r: 48, key: 'KeyB'       }
   ];
 }());
 
@@ -779,11 +802,13 @@ function btnActive(b) {
   var inWreck = gamePhase === 'wreckExplore';
   if (b.id === 'iL' || b.id === 'iR' || b.id === 'iU' || b.id === 'iD' || b.id === 'iExit') return inWreck;
   if (inWreck) return false;
+  var rescuing = !!activeRescue && (gamePhase === 'playing' || gamePhase === 'boatSailing');
+  if (b.id === 'bail') return rescuing;
   if (b.id === 'explore') return gamePhase === 'playing' && !!wreckNear;
   var isBoat = gamePhase === 'boatSailing';
   if ((b.id === 'up' || b.id === 'dn') && isBoat) return false;
   if ((b.id === 'left' || b.id === 'right') && !isBoat) return false;
-  if (b.id === 'diver' && isBoat) return false;
+  if (b.id === 'diver') return !isBoat && !rescuing;
   return true;
 }
 
@@ -1102,7 +1127,8 @@ function updateBoatSailing(dt) {
   }
 
   // Surface ships sail past on the water — pull alongside one to rescue it
-  updateShips(dt, boat.x, { x: boat.x, y: boat.y, side: false });
+  var boatBail = !!JP['KeyB']; JP['KeyB'] = false;
+  updateShips(dt, boat.x, { x: boat.x, y: boat.y, side: false, bail: boatBail });
 
   // Deploy diver → hand off to sub mode at boat's world position
   if (JP['KeyD']) {
@@ -1931,7 +1957,8 @@ function update(dt) {
   }
 
   // Surface ships sail along, occasionally founder — rise up under one to save it
-  updateShips(dt, camX + W / 2, { x: sub.x, y: sub.y, side: true });
+  var subBail = !!JP['KeyB']; JP['KeyB'] = false;
+  updateShips(dt, camX + W / 2, { x: sub.x, y: sub.y, side: true, bail: subBail });
 
   // Kraken hatch proximity (diver only)
   krakHatchNear = false;
@@ -2367,15 +2394,41 @@ function drawSurfaceShips() {
       }
       ctx.restore();
       drawDistress(sx, y, s);
+      if ((s.ringT || 0) > 0.01 && gamePhase === 'playing') drawTowRing(sub.x - camX, sub.y, sx, y + 8, s);
     }
   }
+}
+
+// A classic red-and-white life preserver
+function drawLifeRing(x, y, r) {
+  ctx.save();
+  ctx.lineWidth = r * 0.62;
+  ctx.strokeStyle = '#f4f4f4';
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = '#e23030';
+  for (var q = 0; q < 4; q++) { ctx.beginPath(); ctx.arc(x, y, r, q * Math.PI / 2 + 0.18, q * Math.PI / 2 + Math.PI / 2 - 0.18); ctx.stroke(); }
+  ctx.restore();
+}
+
+// The tossed life ring travelling a tow-line from rescuer (rx,ry) to ship (tx,ty)
+function drawTowRing(rx, ry, tx, ty, s) {
+  var t = s.ringT || 0;
+  if (t <= 0) return;
+  var lx = rx + (tx - rx) * t;
+  var ly = ry + (ty - ry) * t - Math.sin(Math.min(1, t) * Math.PI) * 28 * (1 - 0.4 * t);
+  ctx.save();
+  ctx.strokeStyle = 'rgba(235,225,180,0.85)'; ctx.lineWidth = 2;
+  var mx = (rx + lx) / 2, my = (ry + ly) / 2 + 10;
+  ctx.beginPath(); ctx.moveTo(rx, ry); ctx.quadraticCurveTo(mx, my, lx, ly); ctx.stroke();
+  ctx.restore();
+  drawLifeRing(lx, ly, 9);
 }
 
 // SOS placard / rescue feedback above a foundering ship
 function drawDistress(sx, y, s) {
   ctx.save();
   if (s.lifting) {
-    // Lift glow + rising bubbles + RESCUING banner
+    // Lift glow + rising bubbles + BAIL banner
     ctx.globalAlpha = 0.30 + 0.18 * Math.sin(wt * 9);
     ctx.fillStyle = '#7fffd0';
     ctx.beginPath(); ctx.ellipse(sx, y + 6, 96, 40, 0, 0, Math.PI * 2); ctx.fill();
@@ -2388,12 +2441,14 @@ function drawDistress(sx, y, s) {
     }
     var rg = Math.max(0, 1 - s.sinkP);    // how far lifted (1 = nearly saved)
     ctx.fillStyle = 'rgba(6,30,24,0.85)';
-    rRect(sx - 56, y - 86, 112, 30, 6); ctx.fill();
-    ctx.fillStyle = '#66ffb0'; ctx.font = 'bold 13px monospace';
+    rRect(sx - 64, y - 92, 128, 34, 6); ctx.fill();
+    ctx.fillStyle = bailFlashT > 0 ? '#bff0ff' : '#66ffb0';
+    ctx.font = 'bold 13px monospace';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('RESCUING!', sx, y - 76);
-    ctx.fillStyle = 'rgba(20,80,60,0.8)'; rRect(sx - 44, y - 64, 88, 6, 2); ctx.fill();
-    ctx.fillStyle = '#66ffb0'; rRect(sx - 44, y - 64, 88 * rg, 6, 2); ctx.fill();
+    ctx.fillText(isTouch() ? 'BAIL!  TAP FAST' : 'BAIL!  (press B)', sx, y - 80);
+    if (bailCombo > 0) { ctx.fillStyle = '#ffe066'; ctx.font = 'bold 9px monospace'; ctx.fillText('x' + bailCombo, sx + 50, y - 80); }
+    ctx.fillStyle = 'rgba(20,80,60,0.8)'; rRect(sx - 52, y - 66, 104, 6, 2); ctx.fill();
+    ctx.fillStyle = '#66ffb0'; rRect(sx - 52, y - 66, 104 * rg, 6, 2); ctx.fill();
   } else {
     // Flashing SOS distress sign + beacon
     var flash = Math.floor(wt * 4) % 2 === 0;
@@ -2564,6 +2619,7 @@ function drawShipTopDown(sx, sy, s) {
       ctx.fillText('SOS', sx, sy - 42);
     }
     ctx.restore();
+    if ((s.ringT || 0) > 0.01) drawTowRing(W / 2, H / 2, sx, sy, s);
   }
 }
 
@@ -4192,6 +4248,24 @@ function drawTouchControls() {
   for (var i = 0; i < BTNS.length; i++) {
     var b = BTNS[i];
     if (!btnActive(b)) continue;
+
+    // BAIL button (appears during a rescue) — tap fast to pump out water
+    if (b.id === 'bail') {
+      var bp = bailFlashT > 0 ? 1 : (0.82 + 0.12 * Math.sin(wt * 8));
+      ctx.save();
+      ctx.globalAlpha = bp;
+      ctx.fillStyle = bailFlashT > 0 ? 'rgba(120,230,255,0.95)' : 'rgba(30,140,200,0.9)';
+      ctx.strokeStyle = '#bfeaff'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(b.cx, b.cy, b.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 18px monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('BAIL!', b.cx, b.cy - 4);
+      ctx.font = 'bold 9px monospace';
+      ctx.fillText('TAP FAST', b.cx, b.cy + 14);
+      ctx.restore();
+      continue;
+    }
 
     // EXPLORE prompt button (appears beside a wreck)
     if (b.id === 'explore') {
