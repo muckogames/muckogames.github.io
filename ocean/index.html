@@ -39,6 +39,22 @@ function WK_DIVIDER(f) { return (f + 1) * WK_FLOOR_H; }
 function deckFloorY(f) { return WK_DIVIDER(f) - 16; }
 function deckCeilY(f)  { return f * WK_FLOOR_H + 24; }
 
+// Side rooms entered through doors along the deck hallways. Each room is a
+// single fixed-size space (no scrolling) drawn centred on screen.
+var ROOM_W = 560, ROOM_H = 300;
+var ROOM_OX = (800 - ROOM_W) / 2;   // screen offset x (W is 800)
+var ROOM_OY = (500 - ROOM_H) / 2;   // screen offset y (H is 500)
+var ROOM_CEIL = 30;                 // room-local ceiling
+var ROOM_FLR  = ROOM_H - 26;        // room-local floor
+// Doors set into the deck hallways: swim up into one to enter the room.
+var WK_DOORS = [
+  { deck: 0, x: 430,  type: 'stateroom', id: 'state0', label: 'STATEROOM' },
+  { deck: 0, x: 1180, type: 'stateroom', id: 'state1', label: 'STATEROOM' },
+  { deck: 1, x: 330,  type: 'kitchen',   id: 'kitchen', label: 'KITCHEN' },
+  { deck: 1, x: 1340, type: 'stateroom', id: 'state2', label: 'STATEROOM' },
+  { deck: 2, x: 1150, type: 'engine',    id: 'engine', label: 'ENGINE ROOM' }
+];
+
 // ── canvas setup ─────────────────────────────────────────────────────────────
 var stage = document.getElementById('stage');
 var gc    = document.getElementById('gc');
@@ -333,6 +349,9 @@ var REEFS = [];
 var currentWreck = null;
 var wreckCamX    = 0;
 var wreckCamY    = 0;
+var wreckRoom    = null;  // null = in the deck hallways; else a WK_DOORS entry
+var roomReturn   = { x: 0, y: 0 };  // hallway position to pop back to
+var hallDoorNear = null;  // door the diver can currently enter
 var wreckReturn  = { x: 0, y: 0 };
 var wreckMsgT    = 0;
 var wreckNear    = null; // the floor wreck the sub can currently dive into
@@ -341,20 +360,25 @@ function makeWreckLoot(seed) {
   var rng = (seed >>> 0) || 1;
   function rr() { rng = ((rng >>> 0) * 1664525 + 1013904223) >>> 0; return rng / 0xffffffff; }
   var items = [];
-  function add(type, x, y, val) { items.push({ type: type, x: x, y: y, val: val, collected: false, bob: rr() * 6.28 }); }
-  // Top deck — foyer & promenade
-  add('chest',  220 + rr() * 80, deckFloorY(0), 100);
-  add('salami', 1040 + rr() * 80, deckFloorY(0), 60);
-  if (rr() > 0.5) add('chest', 1230 + rr() * 40, deckFloorY(0), 100);
-  // Middle deck — grand dining room
-  add('safe',   320 + rr() * 60, deckFloorY(1), 250);
-  add('salami', 900 + rr() * 60, deckFloorY(1), 60);
-  add('chest',  1120 + rr() * 80, deckFloorY(1), 100);
-  // Bottom deck — cargo hold & boiler room (the richest haul)
-  add('safe',   300 + rr() * 80, deckFloorY(2), 250);
+  function add(type, x, y, val, room) { items.push({ type: type, x: x, y: y, val: val, collected: false, bob: rr() * 6.28, room: room || null }); }
+  var rf = ROOM_FLR - 14;          // where loot rests on a room floor
+  // ── Hallway loot (room: null) ──
+  add('chest',  220 + rr() * 70, deckFloorY(0), 100);
+  add('salami', 900 + rr() * 70, deckFloorY(0), 60);
+  add('safe',   560 + rr() * 60, deckFloorY(1), 250);
   add('chest',  760 + rr() * 60, deckFloorY(2), 100);
-  add('chest',  1180 + rr() * 80, deckFloorY(2), 100);
-  if (rr() > 0.4) add('salami', 1320 + rr() * 40, deckFloorY(2), 60);
+  if (rr() > 0.5) add('salami', 980 + rr() * 60, deckFloorY(2), 60);
+  // ── Engine room ── pistons & boilers, the big prize
+  add('safe',   170 + rr() * 40, rf, 250, 'engine');
+  add('chest',  400 + rr() * 40, rf, 100, 'engine');
+  // ── Kitchen ── coolers of salt-cured salami live here
+  add('salami', 150 + rr() * 40, rf, 60, 'kitchen');
+  add('salami', 290 + rr() * 40, rf, 60, 'kitchen');
+  add('chest',  430 + rr() * 30, rf, 100, 'kitchen');
+  // ── Staterooms ── valuables stashed by passengers
+  add('chest',  180 + rr() * 50, rf, 100, 'state0');
+  add('safe',   360 + rr() * 50, rf, 250, 'state1');
+  add('chest',  220 + rr() * 60, rf, 100, 'state2');
   return items;
 }
 
@@ -370,6 +394,7 @@ function enterWreck(wr) {
   wreckReturn.x = sub.x; wreckReturn.y = sub.y;
   diver.x = 200; diver.y = deckFloorY(0); diver.vx = 0; diver.vy = 0; diverFace = 1;
   wreckCamX = 0; wreckCamY = 0; wreckMsgT = 2.8;
+  wreckRoom = null; hallDoorNear = null;
   diverOut = false; diverRecalling = false;
   playTone(300, 0.16, 0.4, 'sine');
 }
@@ -379,21 +404,28 @@ function leaveWreck() {
   diverOut = false; diverRecalling = false;
   sub.x = wreckReturn.x; sub.y = wreckReturn.y; sub.vx = 0; sub.vy = 0;
   camX = sub.x - W / 2;
-  currentWreck = null;
+  currentWreck = null; wreckRoom = null;
   playTone(460, 0.16, 0.3, 'sine');
 }
 
-function updateWreckExplore(dt) {
-  if (scorePopT > 0) scorePopT = Math.max(0, scorePopT - dt * 2.5);
-  if (wreckMsgT > 0) wreckMsgT -= dt;
-  if (shakeMag > 0) {
-    shakeX = (Math.random() - 0.5) * shakeMag * 2;
-    shakeY = (Math.random() - 0.5) * shakeMag * 2;
-    shakeMag = Math.max(0, shakeMag - 90 * dt);
-  } else { shakeX = 0; shakeY = 0; }
+// Swim up through a hallway door into a side room
+function enterRoom(door) {
+  roomReturn.x = diver.x; roomReturn.y = diver.y;
+  wreckRoom = door;
+  diver.x = ROOM_W * 0.5; diver.y = ROOM_FLR - 6; diver.vx = 0; diver.vy = 0; diverFace = 1;
+  wreckMsgT = 1.6;
+  playTone(360, 0.14, 0.3, 'sine');
+}
 
-  if (JP['KeyE'] || JP['Escape']) { leaveWreck(); return; }
+// Back out of a side room into the deck hallway
+function exitRoom() {
+  wreckRoom = null;
+  diver.x = roomReturn.x; diver.y = roomReturn.y; diver.vx = 0; diver.vy = 0;
+  playTone(300, 0.14, 0.3, 'sine');
+}
 
+// Shared swim physics for the diver (used by hallway and rooms)
+function swimDiver(dt) {
   var left = K['ArrowLeft'], right = K['ArrowRight'], up = K['ArrowUp'], dn = K['ArrowDown'];
   if (left)  diver.vx -= DIVER_ACCEL * dt;
   if (right) diver.vx += DIVER_ACCEL * dt;
@@ -406,9 +438,56 @@ function updateWreckExplore(dt) {
   if (diver.vy >  DIVER_MAX) diver.vy =  DIVER_MAX;
   if (diver.vy < -DIVER_MAX) diver.vy = -DIVER_MAX;
   if (Math.abs(diver.vx) > 5) diverFace = diver.vx > 0 ? 1 : -1;
-  var prevY = diver.y;
   diver.x += diver.vx * dt;
   diver.y += diver.vy * dt;
+}
+
+// Collect any loot belonging to the given room context (roomId null = hallway)
+function collectLoot(roomId) {
+  if (!currentWreck) return;
+  for (var i = 0; i < currentWreck.loot.length; i++) {
+    var it = currentWreck.loot[i];
+    if (it.collected || it.room !== roomId) continue;
+    var dx = diver.x - it.x, dy = diver.y - it.y;
+    if (dx * dx + dy * dy < 30 * 30) {
+      it.collected = true;
+      score += it.val; scorePopT = 0.9;
+      playTone(it.type === 'safe' ? 680 : it.type === 'salami' ? 500 : 560, 0.10, 0.22, 'square');
+      playTone(900, 0.08, 0.30, 'sine');
+      if (wreckCleared(currentWreck)) { score += 150; scorePopT = 1.1; playTone(1200, 0.12, 0.5, 'sine'); }
+    }
+  }
+}
+
+function updateWreckRoom(dt) {
+  if (scorePopT > 0) scorePopT = Math.max(0, scorePopT - dt * 2.5);
+  if (wreckMsgT > 0) wreckMsgT -= dt;
+  if (JP['KeyE'] || JP['Escape']) { exitRoom(); return; }
+  swimDiver(dt);
+  if (diver.x < 20)         { diver.x = 20;         if (diver.vx < 0) diver.vx = 0; }
+  if (diver.x > ROOM_W - 20){ diver.x = ROOM_W - 20; if (diver.vx > 0) diver.vx = 0; }
+  if (diver.y < ROOM_CEIL + 12) { diver.y = ROOM_CEIL + 12; if (diver.vy < 0) diver.vy = 0; }
+  if (diver.y > ROOM_FLR)       { diver.y = ROOM_FLR;       if (diver.vy > 0) diver.vy = 0; }
+  collectLoot(wreckRoom.id);
+  // Swim into the EXIT door (bottom-left) to return to the hallway
+  if (diver.x < 64 && diver.y > ROOM_FLR - 52) { exitRoom(); return; }
+}
+
+function updateWreckExplore(dt) {
+  if (wreckRoom) { updateWreckRoom(dt); return; }
+
+  if (scorePopT > 0) scorePopT = Math.max(0, scorePopT - dt * 2.5);
+  if (wreckMsgT > 0) wreckMsgT -= dt;
+  if (shakeMag > 0) {
+    shakeX = (Math.random() - 0.5) * shakeMag * 2;
+    shakeY = (Math.random() - 0.5) * shakeMag * 2;
+    shakeMag = Math.max(0, shakeMag - 90 * dt);
+  } else { shakeX = 0; shakeY = 0; }
+
+  if (JP['KeyE'] || JP['Escape']) { leaveWreck(); return; }
+
+  var prevY = diver.y;
+  swimDiver(dt);
 
   // World bounds
   if (diver.x < 60)         { diver.x = 60;         if (diver.vx < 0) diver.vx = 0; }
@@ -428,18 +507,20 @@ function updateWreckExplore(dt) {
     }
   }
 
-  if (currentWreck) {
-    for (var i = 0; i < currentWreck.loot.length; i++) {
-      var it = currentWreck.loot[i];
-      if (it.collected) continue;
-      var dx = diver.x - it.x, dy = diver.y - it.y;
-      if (dx * dx + dy * dy < 30 * 30) {
-        it.collected = true;
-        score += it.val; scorePopT = 0.9;
-        playTone(it.type === 'safe' ? 680 : it.type === 'salami' ? 500 : 560, 0.10, 0.22, 'square');
-        playTone(900, 0.08, 0.30, 'sine');
-        if (wreckCleared(currentWreck)) { score += 150; scorePopT = 1.1; playTone(1200, 0.12, 0.5, 'sine'); }
-      }
+  collectLoot(null);
+
+  // Hallway doors → side rooms. Swim up into a doorway to go in.
+  hallDoorNear = null;
+  var dDeck = Math.floor(diver.y / WK_FLOOR_H);
+  if (dDeck < 0) dDeck = 0; if (dDeck > WK_FLOORS - 1) dDeck = WK_FLOORS - 1;
+  for (var di = 0; di < WK_DOORS.length; di++) {
+    var door = WK_DOORS[di];
+    if (door.deck !== dDeck) continue;
+    var doorY = WK_DIVIDER(dDeck) - 40;          // doorway sits on the deck floor
+    var ddx = diver.x - door.x, ddy = diver.y - doorY;
+    if (Math.abs(ddx) < 34 && Math.abs(ddy) < 56) {
+      hallDoorNear = door;
+      if (JP['ArrowUp']) { enterRoom(door); return; }
     }
   }
 
@@ -2341,10 +2422,10 @@ function drawShipTopDown(sx, sy, s) {
   }
 }
 
-// ── draw a piece of wreck loot ────────────────────────────────────────────────
-function drawLoot(it) {
-  var x = it.x - wreckCamX;
-  var y = (it.y - wreckCamY) + Math.sin(it.bob + wt * 1.5) * 3;
+// ── draw a piece of wreck loot at a given screen position ─────────────────────
+function drawLoot(it, sxp, syp) {
+  var x = sxp;
+  var y = syp + Math.sin(it.bob + wt * 1.5) * 3;
   ctx.save();
   ctx.translate(x, y);
   // glow
@@ -2447,7 +2528,7 @@ function drawDeckDecor(f, sxF, syF) {
   var baseY = WK_DIVIDER(f);   // plating top — things rest here
   var ceilY = deckCeilY(f);
   var names = ['BOAT DECK', 'GRAND DINING ROOM', 'CARGO HOLD'];
-  drawRoomLabel(sxF(250), syF(ceilY), names[f] || 'DECK');
+  drawRoomLabel(sxF(540), syF(ceilY), names[f] || 'DECK');
 
   if (f === 0) {
     // Promenade windows along the back wall
@@ -2530,8 +2611,7 @@ function drawDeckDecor(f, sxF, syF) {
   }
 }
 
-function drawInteriorDiver() {
-  var dsx = diver.x - wreckCamX, dsy = diver.y - wreckCamY;
+function drawInteriorDiver(dsx, dsy) {
   ctx.save();
   ctx.translate(dsx, dsy);
   ctx.scale(diverFace, 1);
@@ -2573,10 +2653,16 @@ function drawWreckHUD() {
   ctx.fillStyle = '#7fd0c8';
   ctx.font = 'bold 12px monospace';
   ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-  var deckNames = ['BOAT DECK', 'DINING DECK', 'CARGO HOLD'];
-  var df = Math.floor(diver.y / WK_FLOOR_H);
-  if (df < 0) df = 0; if (df > WK_FLOORS - 1) df = WK_FLOORS - 1;
-  ctx.fillText('WRECK • ' + deckNames[df], 16, 14);
+  var label;
+  if (wreckRoom) {
+    label = wreckRoom.label;
+  } else {
+    var deckNames = ['BOAT DECK', 'DINING DECK', 'CARGO HOLD'];
+    var df = Math.floor(diver.y / WK_FLOOR_H);
+    if (df < 0) df = 0; if (df > WK_FLOORS - 1) df = WK_FLOORS - 1;
+    label = deckNames[df];
+  }
+  ctx.fillText('WRECK • ' + label, 16, 14);
   var total = currentWreck ? currentWreck.loot.length : 0, got = 0;
   if (currentWreck) for (var i = 0; i < currentWreck.loot.length; i++) if (currentWreck.loot[i].collected) got++;
   ctx.fillStyle = '#ffe066';
@@ -2598,7 +2684,9 @@ function drawWreckHUD() {
   if (!isTouch()) {
     ctx.fillStyle = 'rgba(160,200,220,0.7)';
     ctx.font = '10px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-    ctx.fillText('ARROWS swim • use the GRAND STAIRCASE to change decks • E = leave', W / 2, H - 8);
+    ctx.fillText(wreckRoom
+      ? 'ARROWS swim • E = back to the hallway'
+      : 'ARROWS swim • STAIRCASE changes decks • UP at a door enters a room • E = leave', W / 2, H - 8);
   }
 
   if (wreckMsgT > 0) {
@@ -2608,14 +2696,21 @@ function drawWreckHUD() {
     rRect(W / 2 - 186, 60, 372, 44, 8); ctx.fill();
     ctx.fillStyle = '#aee0d0';
     ctx.font = 'bold 14px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('Explore all three decks — grab the treasure!', W / 2, 76);
-    ctx.fillStyle = 'rgba(180,210,220,0.7)'; ctx.font = '10px monospace';
-    ctx.fillText('swim the grand staircase between floors', W / 2, 94);
+    if (wreckRoom) {
+      ctx.fillText(wreckRoom.label + ' — grab the loot!', W / 2, 76);
+      ctx.fillStyle = 'rgba(180,210,220,0.7)'; ctx.font = '10px monospace';
+      ctx.fillText('press E to swim back to the hallway', W / 2, 94);
+    } else {
+      ctx.fillText('Explore all three decks — and the side rooms!', W / 2, 76);
+      ctx.fillStyle = 'rgba(180,210,220,0.7)'; ctx.font = '10px monospace';
+      ctx.fillText('swim UP into a glowing door to enter a room', W / 2, 94);
+    }
     ctx.restore();
   }
 }
 
 function drawWreckInterior() {
+  if (wreckRoom) { drawWreckRoom(); return; }
   ctx.clearRect(0, 0, W, H);
   ctx.save();
   ctx.translate(Math.round(shakeX), Math.round(shakeY));
@@ -2661,14 +2756,22 @@ function drawWreckInterior() {
   // Per-deck themed decor + labels
   for (var df = 0; df < WK_FLOORS; df++) drawDeckDecor(df, sx, sy);
 
-  // Loot
+  // Hallway doors into the side rooms
+  for (var dri = 0; dri < WK_DOORS.length; dri++) {
+    var door = WK_DOORS[dri];
+    var dsx = sx(door.x), dsyb = sy(WK_DIVIDER(door.deck));
+    if (dsx < -60 || dsx > W + 60 || dsyb < -80 || dsyb > H + 80) continue;
+    drawHallDoor(dsx, dsyb, door, door === hallDoorNear);
+  }
+
+  // Hallway loot (room: null)
   if (currentWreck) {
     for (var i = 0; i < currentWreck.loot.length; i++) {
       var it = currentWreck.loot[i];
-      if (it.collected) continue;
+      if (it.collected || it.room) continue;
       var lx = it.x - wreckCamX, ly = it.y - wreckCamY;
       if (lx < -40 || lx > W + 40 || ly < -40 || ly > H + 40) continue;
-      drawLoot(it);
+      drawLoot(it, lx, ly);
     }
   }
 
@@ -2682,7 +2785,194 @@ function drawWreckInterior() {
     ctx.beginPath(); ctx.arc(pxp, pyp, (dd % 3) * 0.7 + 0.6, 0, Math.PI * 2); ctx.fill();
   }
 
-  drawInteriorDiver();
+  drawInteriorDiver(diver.x - wreckCamX, diver.y - wreckCamY);
+
+  ctx.restore();
+  drawWreckHUD();
+}
+
+// A door standing on a deck floor that leads into a side room
+function drawHallDoor(sx, syb, door, isNear) {
+  var h = 54, w = 34;
+  ctx.save();
+  if (isNear) {
+    ctx.globalAlpha = 0.22 + 0.15 * Math.sin(wt * 5);
+    ctx.fillStyle = '#ffe066';
+    ctx.beginPath(); ctx.ellipse(sx, syb - h * 0.5, 32, 40, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+  ctx.fillStyle = '#3a2a1a'; rRect(sx - w / 2 - 4, syb - h - 6, w + 8, h + 6, 4); ctx.fill();
+  ctx.fillStyle = '#08110f'; rRect(sx - w / 2, syb - h, w, h, 3); ctx.fill();
+  var g = ctx.createLinearGradient(0, syb - h, 0, syb);
+  g.addColorStop(0, isNear ? 'rgba(150,210,235,0.5)' : 'rgba(110,150,170,0.22)');
+  g.addColorStop(1, 'rgba(20,60,80,0)');
+  ctx.fillStyle = g; rRect(sx - w / 2 + 2, syb - h + 2, w - 4, h - 4, 3); ctx.fill();
+  ctx.fillStyle = '#5a4632';
+  ctx.beginPath(); ctx.arc(sx - w / 2 - 1, syb - h, 2, 0, Math.PI * 2); ctx.arc(sx + w / 2 + 1, syb - h, 2, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = isNear ? '#ffe066' : '#5a4636'; ctx.lineWidth = 2;
+  rRect(sx - w / 2, syb - h, w, h, 3); ctx.stroke();
+  // label plaque
+  ctx.globalAlpha = 0.9;
+  ctx.fillStyle = 'rgba(8,20,26,0.8)';
+  var lw = door.label.length * 6 + 12;
+  rRect(sx - lw / 2, syb - h - 22, lw, 14, 3); ctx.fill();
+  ctx.fillStyle = '#9fd0c0'; ctx.font = 'bold 9px monospace';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(door.label, sx, syb - h - 15);
+  ctx.globalAlpha = 1;
+  if (isNear) {
+    ctx.globalAlpha = 0.8 + 0.2 * Math.sin(wt * 6);
+    ctx.fillStyle = 'rgba(6,20,28,0.85)';
+    rRect(sx - 64, syb - h - 44, 128, 18, 4); ctx.fill();
+    ctx.fillStyle = '#ffe066'; ctx.font = 'bold 10px monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(isTouch() ? 'TAP UP TO ENTER' : 'PRESS UP TO ENTER', sx, syb - h - 35);
+    ctx.globalAlpha = 1;
+  }
+  ctx.restore();
+}
+
+// The EXIT door drawn in a side room (bottom-left) for getting back out
+function drawRoomExit(ox, oy) {
+  var x = ox + 38, yb = oy + ROOM_FLR + 6;
+  ctx.save();
+  ctx.fillStyle = '#0a1a14'; rRect(x - 22, yb - 58, 44, 58, 5); ctx.fill();
+  var g = ctx.createLinearGradient(0, yb - 58, 0, yb);
+  g.addColorStop(0, 'rgba(80,255,160,0.4)'); g.addColorStop(1, 'rgba(20,80,50,0.1)');
+  ctx.fillStyle = g; rRect(x - 17, yb - 52, 34, 52, 4); ctx.fill();
+  ctx.strokeStyle = '#3a6a4a'; ctx.lineWidth = 3; rRect(x - 22, yb - 58, 44, 58, 5); ctx.stroke();
+  ctx.fillStyle = '#0a1a10'; rRect(x - 20, yb - 78, 40, 15, 3); ctx.fill();
+  ctx.fillStyle = '#44ff88'; ctx.font = 'bold 10px monospace';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('EXIT', x, yb - 70);
+  ctx.restore();
+}
+
+function drawEngineRoom(ox, oy) {
+  var fy = oy + ROOM_FLR;
+  // ceiling pipe
+  ctx.strokeStyle = '#4a5560'; ctx.lineWidth = 6; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(ox + 14, oy + ROOM_CEIL + 14); ctx.lineTo(ox + ROOM_W - 14, oy + ROOM_CEIL + 14); ctx.stroke();
+  ctx.lineCap = 'butt';
+  // big boiler with glowing furnace
+  var bx = ox + ROOM_W * 0.62;
+  ctx.fillStyle = '#3a2a1c'; rRect(bx - 70, fy - 150, 140, 150, 12); ctx.fill();
+  ctx.strokeStyle = '#5a4632'; ctx.lineWidth = 3; rRect(bx - 70, fy - 150, 140, 150, 12); ctx.stroke();
+  ctx.strokeStyle = '#4a382a'; ctx.lineWidth = 4;
+  for (var k = 0; k < 3; k++) { ctx.beginPath(); ctx.moveTo(bx - 70, fy - 116 + k * 40); ctx.lineTo(bx + 70, fy - 116 + k * 40); ctx.stroke(); }
+  ctx.fillStyle = '#1a0f08'; ctx.beginPath(); ctx.arc(bx, fy - 48, 24, 0, Math.PI * 2); ctx.fill();
+  var fg = ctx.createRadialGradient(bx, fy - 48, 2, bx, fy - 48, 24);
+  fg.addColorStop(0, 'rgba(255,150,40,0.55)'); fg.addColorStop(1, 'rgba(255,80,0,0)');
+  ctx.fillStyle = fg; ctx.beginPath(); ctx.arc(bx, fy - 48, 24, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#6a5238'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(bx, fy - 48, 24, 0, Math.PI * 2); ctx.stroke();
+  // pressure gauge
+  ctx.fillStyle = '#caa84a'; ctx.beginPath(); ctx.arc(bx - 48, fy - 120, 10, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#3a2c18'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(bx - 48, fy - 120); ctx.lineTo(bx - 48 + Math.cos(wt) * 6, fy - 120 + Math.sin(wt) * 6); ctx.stroke();
+  // pumping pistons on the left
+  for (var p = 0; p < 2; p++) {
+    var pxp = ox + 86 + p * 48;
+    ctx.fillStyle = '#444a55'; rRect(pxp - 8, fy - 130, 16, 130, 3); ctx.fill();
+    var pp = Math.sin(wt * 2 + p * 1.6) * 10;
+    ctx.fillStyle = '#7a8290'; rRect(pxp - 5, fy - 128 + pp, 10, 32, 2); ctx.fill();
+    ctx.fillStyle = '#2a3038'; ctx.beginPath(); ctx.arc(pxp, fy - 130, 9, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+function drawKitchenRoom(ox, oy) {
+  var fy = oy + ROOM_FLR;
+  // counter
+  ctx.fillStyle = '#5a6066'; rRect(ox + 20, fy - 38, ROOM_W - 40, 38, 3); ctx.fill();
+  ctx.fillStyle = '#70787e'; ctx.fillRect(ox + 20, fy - 38, ROOM_W - 40, 6);
+  // stove with bubbling pots
+  ctx.fillStyle = '#2a2e30'; rRect(ox + 60, fy - 64, 96, 64, 4); ctx.fill();
+  for (var b = 0; b < 2; b++) {
+    var bx = ox + 86 + b * 48;
+    ctx.fillStyle = '#444'; ctx.beginPath(); ctx.arc(bx, fy - 58, 12, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#888f96'; rRect(bx - 12, fy - 74, 24, 16, 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(220,230,240,0.3)'; ctx.lineWidth = 1;
+    for (var st = 0; st < 2; st++) { var so = (wt * 14 + st * 8) % 20; ctx.beginPath(); ctx.arc(bx, fy - 80 - so, 3 + st, 0, Math.PI * 2); ctx.stroke(); }
+  }
+  // hanging pans
+  for (var hp = 0; hp < 4; hp++) {
+    var hx = ox + ROOM_W * 0.52 + hp * 32;
+    ctx.strokeStyle = '#3a3027'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(hx, oy + ROOM_CEIL); ctx.lineTo(hx, oy + ROOM_CEIL + 16); ctx.stroke();
+    ctx.fillStyle = '#7a828a'; ctx.beginPath(); ctx.arc(hx, oy + ROOM_CEIL + 22, 8, 0, Math.PI * 2); ctx.fill();
+  }
+  // shelf with jars
+  ctx.fillStyle = '#4a3826'; ctx.fillRect(ox + ROOM_W - 150, fy - 108, 120, 8);
+  var jars = ['#b06030', '#7aa0c0', '#c0a040'];
+  for (var jq = 0; jq < 3; jq++) { ctx.fillStyle = jars[jq]; rRect(ox + ROOM_W - 140 + jq * 38, fy - 126, 18, 18, 2); ctx.fill(); }
+}
+
+function drawStateroom(ox, oy) {
+  var fy = oy + ROOM_FLR;
+  // rug
+  ctx.fillStyle = '#5a2a30'; rRect(ox + ROOM_W * 0.5 - 90, fy - 7, 180, 7, 2); ctx.fill();
+  // bed
+  ctx.fillStyle = '#3a2a1c'; rRect(ox + 50, fy - 50, 150, 50, 4); ctx.fill();
+  ctx.fillStyle = '#c8c0b0'; rRect(ox + 50, fy - 50, 150, 26, 4); ctx.fill();
+  ctx.fillStyle = '#e8e0d0'; rRect(ox + 56, fy - 50, 40, 24, 4); ctx.fill();
+  ctx.fillStyle = '#7a4048'; rRect(ox + 96, fy - 44, 104, 20, 3); ctx.fill();
+  ctx.fillStyle = '#4a3624'; rRect(ox + 44, fy - 72, 12, 72, 3); ctx.fill();
+  // nightstand + lamp
+  ctx.fillStyle = '#4a3624'; rRect(ox + 212, fy - 34, 30, 34, 3); ctx.fill();
+  ctx.fillStyle = '#caa84a'; ctx.beginPath(); ctx.arc(ox + 227, fy - 44, 5, 0, Math.PI * 2); ctx.fill();
+  // porthole
+  var px = ox + ROOM_W - 88, py = oy + 88;
+  ctx.fillStyle = '#0a2030'; ctx.beginPath(); ctx.arc(px, py, 26, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#7a828a'; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(px, py, 26, 0, Math.PI * 2); ctx.stroke();
+  var pg = ctx.createRadialGradient(px - 6, py - 6, 2, px, py, 26);
+  pg.addColorStop(0, 'rgba(90,170,200,0.5)'); pg.addColorStop(1, 'rgba(10,40,60,0.1)');
+  ctx.fillStyle = pg; ctx.beginPath(); ctx.arc(px, py, 24, 0, Math.PI * 2); ctx.fill();
+  // wardrobe
+  ctx.fillStyle = '#3a2a1c'; rRect(ox + ROOM_W - 150, fy - 90, 50, 90, 4); ctx.fill();
+  ctx.strokeStyle = '#5a4632'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(ox + ROOM_W - 125, fy - 90); ctx.lineTo(ox + ROOM_W - 125, fy); ctx.stroke();
+}
+
+function drawWreckRoom() {
+  ctx.clearRect(0, 0, W, H);
+  ctx.save();
+  ctx.translate(Math.round(shakeX), Math.round(shakeY));
+  ctx.fillStyle = '#05121a'; ctx.fillRect(0, 0, W, H);
+
+  var ox = ROOM_OX, oy = ROOM_OY;
+  var wallCols = { engine: '#241c14', kitchen: '#1c2426', stateroom: '#241a22' };
+  ctx.fillStyle = wallCols[wreckRoom.type] || '#20201a';
+  ctx.fillRect(ox, oy, ROOM_W, ROOM_H);
+  var g = ctx.createLinearGradient(0, oy, 0, oy + ROOM_H);
+  g.addColorStop(0, 'rgba(120,180,200,0.10)'); g.addColorStop(1, 'rgba(0,0,0,0.25)');
+  ctx.fillStyle = g; ctx.fillRect(ox, oy, ROOM_W, ROOM_H);
+  // floor + ceiling bands
+  ctx.fillStyle = '#160f0a'; ctx.fillRect(ox, oy + ROOM_FLR + 6, ROOM_W, ROOM_H - ROOM_FLR - 6);
+  ctx.fillStyle = '#2a1e14'; ctx.fillRect(ox, oy + ROOM_FLR + 6, ROOM_W, 4);
+  ctx.fillStyle = '#1a140e'; ctx.fillRect(ox, oy, ROOM_W, ROOM_CEIL);
+  ctx.strokeStyle = '#3a2c1e'; ctx.lineWidth = 4; ctx.strokeRect(ox, oy, ROOM_W, ROOM_H);
+
+  if (wreckRoom.type === 'engine') drawEngineRoom(ox, oy);
+  else if (wreckRoom.type === 'kitchen') drawKitchenRoom(ox, oy);
+  else drawStateroom(ox, oy);
+
+  drawRoomExit(ox, oy);
+
+  // Room loot
+  if (currentWreck) {
+    for (var i = 0; i < currentWreck.loot.length; i++) {
+      var it = currentWreck.loot[i];
+      if (it.collected || it.room !== wreckRoom.id) continue;
+      drawLoot(it, ox + it.x, oy + it.y);
+    }
+  }
+
+  // Particles
+  ctx.fillStyle = 'rgba(180,220,235,0.18)';
+  for (var d = 0; d < 14; d++) {
+    var pxp = ox + ((d * 137 + wt * 10) % ROOM_W);
+    var pyp = oy + ROOM_CEIL + 10 + ((d * 89) % (ROOM_FLR - ROOM_CEIL - 20)) + Math.sin(wt + d) * 3;
+    ctx.beginPath(); ctx.arc(pxp, pyp, (d % 3) * 0.6 + 0.6, 0, Math.PI * 2); ctx.fill();
+  }
+
+  drawInteriorDiver(ox + diver.x, oy + diver.y);
 
   ctx.restore();
   drawWreckHUD();
