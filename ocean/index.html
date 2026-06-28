@@ -549,11 +549,51 @@ var SHIPS = [];
       kind: i % 3,
       state: 'sailing',
       sinkP: 0, tilt: 0,
-      bob: rr() * 6.28
+      bob: rr() * 6.28,
+      lifting: false, saveCool: 0
     });
   }
 }());
 var shipSinkTimer = 16;
+var shipSavedT = 0;        // "SHIP SAVED!" celebration timer
+var SHIP_SINK_DUR = 8.0;   // seconds for a foundering ship to reach the seabed
+
+// Current draw-depth of a sinking ship (surface → seabed via smoothstep)
+function shipSinkY(s) {
+  var surfY = wave(s.wx);
+  var floorY = terrain(s.wx);
+  var e = s.sinkP * s.sinkP * (3 - 2 * s.sinkP);
+  return surfY - 4 + (floorY - surfY - 28) * e;
+}
+
+// Nearest foundering ship to a world x (for the HUD "go help" pointer)
+function nearestSinkingShip(x) {
+  var best = null, bd = 1e9;
+  for (var i = 0; i < SHIPS.length; i++) {
+    if (SHIPS[i].state !== 'sinking') continue;
+    var d = Math.abs(SHIPS[i].wx - x);
+    if (d < bd) { bd = d; best = SHIPS[i]; }
+  }
+  return best ? { ship: best, dist: bd } : null;
+}
+
+// "SHIP SAVED!" celebration (shown in either vehicle mode)
+function drawShipSavedPopup() {
+  if (shipSavedT <= 0) return;
+  ctx.save();
+  ctx.globalAlpha = Math.min(1, shipSavedT);
+  var sc = 1 + Math.max(0, shipSavedT - 1.4) * 0.6;
+  ctx.translate(W / 2, 118); ctx.scale(sc, sc);
+  ctx.fillStyle = 'rgba(6,30,24,0.85)';
+  rRect(-130, -26, 260, 52, 10); ctx.fill();
+  ctx.strokeStyle = '#66ffb0'; ctx.lineWidth = 2; rRect(-130, -26, 260, 52, 10); ctx.stroke();
+  ctx.fillStyle = '#88ffc0'; ctx.font = 'bold 22px monospace';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('SHIP SAVED!', 0, -4);
+  ctx.fillStyle = '#cfeede'; ctx.font = '11px monospace';
+  ctx.fillText('+300', 0, 16);
+  ctx.restore();
+}
 
 function startShipSinking(s, loud) {
   if (s.state !== 'sailing') return;
@@ -561,7 +601,8 @@ function startShipSinking(s, loud) {
   playNoise(loud ? 0.42 : 0.28, 0.7);
 }
 
-function updateShips(dt, cx) {
+function updateShips(dt, cx, rescue) {
+  if (shipSavedT > 0) shipSavedT -= dt;
   shipSinkTimer -= dt;
   if (shipSinkTimer <= 0) {
     shipSinkTimer = 18 + Math.random() * 16;
@@ -577,22 +618,49 @@ function updateShips(dt, cx) {
   for (var j = 0; j < SHIPS.length; j++) {
     var s = SHIPS[j];
     s.bob += dt;
+    if (s.saveCool > 0) s.saveCool -= dt;
     if (s.state === 'sailing') {
       s.wx += s.vx * dt;
       if (s.wx - cx >  2600) s.wx -= 5200;
       if (s.wx - cx < -2600) s.wx += 5200;
       // Strike an iceberg (the same ones the sub can hit) → start going down
-      for (var ib = 0; ib < ICEBERGS.length; ib++) {
-        var berg = ICEBERGS[ib];
-        if (Math.abs(s.wx - berg.wx) < 70 + 46 * berg.sz) {
-          startShipSinking(s, true);
-          shakeMag = Math.max(shakeMag, 12);
-          break;
+      if (s.saveCool <= 0) {
+        for (var ib = 0; ib < ICEBERGS.length; ib++) {
+          var berg = ICEBERGS[ib];
+          if (Math.abs(s.wx - berg.wx) < 70 + 46 * berg.sz) {
+            startShipSinking(s, true);
+            shakeMag = Math.max(shakeMag, 12);
+            break;
+          }
         }
       }
     } else {
-      s.sinkP = Math.min(1, s.sinkP + dt / 5.5);
-      s.tilt  = Math.min(0.85, s.tilt + dt * 0.20);
+      // Rescue: get the sub/boat close to the foundering ship to lift it back up
+      s.lifting = false;
+      if (rescue) {
+        var dxr = s.wx - rescue.x;
+        if (rescue.side) {
+          var sYy = shipSinkY(s), dyr = sYy - rescue.y;
+          if (dxr * dxr + dyr * dyr < 135 * 135) s.lifting = true;
+        } else {
+          var dyt = s.ty - rescue.y;
+          if (dxr * dxr + dyt * dyt < 105 * 105) s.lifting = true;
+        }
+      }
+      if (s.lifting) {
+        s.sinkP = Math.max(0, s.sinkP - dt / 2.4);   // push her back toward the surface
+        s.tilt  = Math.max(0, s.tilt - dt * 0.6);
+        if (s.sinkP <= 0) {
+          // Saved!
+          s.state = 'sailing'; s.sinkP = 0; s.tilt = 0; s.lifting = false; s.saveCool = 3.0;
+          score += 300; scorePopT = 1.1; shipSavedT = 1.8;
+          playTone(740, 0.12, 0.35, 'sine'); playTone(1180, 0.12, 0.5, 'sine');
+          continue;
+        }
+      } else {
+        s.sinkP = Math.min(1, s.sinkP + dt / SHIP_SINK_DUR);
+        s.tilt  = Math.min(0.85, s.tilt + dt * 0.18);
+      }
       s.wx   += s.vx * 0.25 * dt;
       if (s.sinkP >= 1) {
         // Settle to the seabed — keep the liner's look, then rust over time
@@ -615,7 +683,7 @@ function updateShips(dt, cx) {
           if (fi >= 0) WRECKS.splice(fi, 1);
         }
         // Respawn this ship as a fresh sailing one elsewhere
-        s.state = 'sailing'; s.sinkP = 0; s.tilt = 0;
+        s.state = 'sailing'; s.sinkP = 0; s.tilt = 0; s.lifting = false; s.saveCool = 0;
         s.wx = cx + (Math.random() > 0.5 ? 1 : -1) * (2300 + Math.random() * 1200);
         s.ty = (Math.random() * 2 - 1) * 300;
         s.vx = (10 + Math.random() * 14) * (Math.random() > 0.5 ? 1 : -1);
@@ -1033,8 +1101,8 @@ function updateBoatSailing(dt) {
     }
   }
 
-  // Surface ships sail past on the water (watchable from the boat too)
-  updateShips(dt, boat.x);
+  // Surface ships sail past on the water — pull alongside one to rescue it
+  updateShips(dt, boat.x, { x: boat.x, y: boat.y, side: false });
 
   // Deploy diver → hand off to sub mode at boat's world position
   if (JP['KeyD']) {
@@ -1492,6 +1560,22 @@ function drawBoatTopDown() {
       ctx.restore();
     }
   }
+
+  // Sinking-ship distress pointer — drive alongside her to lift her back up
+  var bsink = nearestSinkingShip(boat.x);
+  if (bsink) {
+    ctx.save();
+    ctx.globalAlpha = 0.7 + 0.3 * Math.abs(Math.sin(wt * 4));
+    ctx.fillStyle = 'rgba(50,12,10,0.78)';
+    rRect(W / 2 - 104, 8, 208, 20, 5); ctx.fill();
+    ctx.fillStyle = '#ff8866'; ctx.font = 'bold 10px monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    var bdir = boat.x < bsink.ship.wx ? '>>' : '<<';
+    ctx.fillText('SHIP SINKING ' + bdir + ' ' + Math.round(bsink.dist) + 'm — GO HELP!', W / 2, 18);
+    ctx.restore();
+  }
+
+  drawShipSavedPopup();
 }
 
 // ── update ────────────────────────────────────────────────────────────────────
@@ -1846,8 +1930,8 @@ function update(dt) {
     }
   }
 
-  // Surface ships sail along, and occasionally one founders into a new wreck
-  updateShips(dt, camX + W / 2);
+  // Surface ships sail along, occasionally founder — rise up under one to save it
+  updateShips(dt, camX + W / 2, { x: sub.x, y: sub.y, side: true });
 
   // Kraken hatch proximity (diver only)
   krakHatchNear = false;
@@ -2282,8 +2366,49 @@ function drawSurfaceShips() {
         ctx.beginPath(); ctx.arc(bx, by, 2 + (b % 3), 0, Math.PI * 2); ctx.stroke();
       }
       ctx.restore();
+      drawDistress(sx, y, s);
     }
   }
+}
+
+// SOS placard / rescue feedback above a foundering ship
+function drawDistress(sx, y, s) {
+  ctx.save();
+  if (s.lifting) {
+    // Lift glow + rising bubbles + RESCUING banner
+    ctx.globalAlpha = 0.30 + 0.18 * Math.sin(wt * 9);
+    ctx.fillStyle = '#7fffd0';
+    ctx.beginPath(); ctx.ellipse(sx, y + 6, 96, 40, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = 'rgba(160,255,220,0.7)'; ctx.lineWidth = 1.5;
+    for (var b = 0; b < 8; b++) {
+      var bx = sx + ((b - 4) * 14) + Math.sin(wt * 3 + b) * 4;
+      var by = y + 24 - ((wt * 60 + b * 13) % 70);
+      ctx.beginPath(); ctx.arc(bx, by, 2 + (b % 3), 0, Math.PI * 2); ctx.stroke();
+    }
+    var rg = Math.max(0, 1 - s.sinkP);    // how far lifted (1 = nearly saved)
+    ctx.fillStyle = 'rgba(6,30,24,0.85)';
+    rRect(sx - 56, y - 86, 112, 30, 6); ctx.fill();
+    ctx.fillStyle = '#66ffb0'; ctx.font = 'bold 13px monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('RESCUING!', sx, y - 76);
+    ctx.fillStyle = 'rgba(20,80,60,0.8)'; rRect(sx - 44, y - 64, 88, 6, 2); ctx.fill();
+    ctx.fillStyle = '#66ffb0'; rRect(sx - 44, y - 64, 88 * rg, 6, 2); ctx.fill();
+  } else {
+    // Flashing SOS distress sign + beacon
+    var flash = Math.floor(wt * 4) % 2 === 0;
+    ctx.fillStyle = flash ? '#ff3322' : '#aa1810';
+    rRect(sx - 30, y - 84, 60, 24, 5); ctx.fill();
+    ctx.strokeStyle = '#ffd0c0'; ctx.lineWidth = 2; rRect(sx - 30, y - 84, 60, 24, 5); ctx.stroke();
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 16px monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('SOS', sx, y - 71);
+    if (flash) {
+      ctx.globalAlpha = 0.6; ctx.fillStyle = '#ff4422';
+      ctx.beginPath(); ctx.arc(sx, y - 92, 7, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  ctx.restore();
 }
 
 // Blend a hex colour toward rusty brown by amount t (0..1)
@@ -2413,11 +2538,31 @@ function drawShipTopDown(sx, sy, s) {
   ctx.fillStyle = '#c0392b';
   for (var f = 0; f < 3; f++) { ctx.beginPath(); ctx.arc(-14 + f * 16, 0, 5, 0, Math.PI * 2); ctx.fill(); }
   ctx.restore();
-  // Sinking foam swirl
+  // Sinking foam swirl + distress / rescue marker
   if (s.state === 'sinking') {
     ctx.save();
     ctx.globalAlpha = 0.5; ctx.strokeStyle = 'rgba(220,240,255,0.7)'; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(sx, sy, 30 + Math.sin(s.bob * 3) * 6, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+    ctx.save();
+    if (s.lifting) {
+      ctx.globalAlpha = 0.4 + 0.2 * Math.sin(wt * 9);
+      ctx.fillStyle = '#7fffd0';
+      ctx.beginPath(); ctx.arc(sx, sy, 40, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = 'rgba(6,30,24,0.85)'; rRect(sx - 46, sy - 50, 92, 18, 4); ctx.fill();
+      ctx.fillStyle = '#66ffb0'; ctx.font = 'bold 11px monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('RESCUING!', sx, sy - 41);
+    } else {
+      var flash = Math.floor(wt * 4) % 2 === 0;
+      ctx.fillStyle = flash ? '#ff3322' : '#aa1810';
+      rRect(sx - 24, sy - 52, 48, 20, 4); ctx.fill();
+      ctx.strokeStyle = '#ffd0c0'; ctx.lineWidth = 1.5; rRect(sx - 24, sy - 52, 48, 20, 4); ctx.stroke();
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 13px monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('SOS', sx, sy - 42);
+    }
     ctx.restore();
   }
 }
@@ -4208,6 +4353,22 @@ function drawHUD() {
     ctx.fillText('ANOMALY ' + kdir + ' ' + kdist + 'm', 15, hudH + 56);
     ctx.restore();
   }
+
+  // Sinking-ship distress pointer — race over and rise up under her to save her
+  var sink = nearestSinkingShip(sub.x);
+  if (sink && sink.dist < 3200) {
+    var sdir = sub.x < sink.ship.wx ? '>>' : '<<';
+    ctx.save();
+    ctx.globalAlpha = 0.7 + 0.3 * Math.abs(Math.sin(wt * 4));
+    ctx.fillStyle = 'rgba(50,12,10,0.78)';
+    rRect(W / 2 - 104, 8, 208, 20, 5); ctx.fill();
+    ctx.fillStyle = '#ff8866'; ctx.font = 'bold 10px monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('SHIP SINKING ' + sdir + ' ' + Math.round(sink.dist) + 'm — GO HELP!', W / 2, 18);
+    ctx.restore();
+  }
+
+  drawShipSavedPopup();
 
   // NO FUEL overlay
   if (fuel <= 0) {
